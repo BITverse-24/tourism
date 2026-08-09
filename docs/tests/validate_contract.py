@@ -7,10 +7,10 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SCHEMA = ROOT / "schemas" / "trip-state.schema.json"
-OPENAPI = ROOT / "openapi.json"
-FIXTURE = ROOT / "examples" / "planning-run.json"
-OWNERSHIP = ROOT / "agent-ownership.json"
+SCHEMA = ROOT / "json" / "schemas" / "trip-state.schema.json"
+OPENAPI = ROOT / "json" / "openapi.json"
+FIXTURE = ROOT / "json" / "examples" / "planning-run.json"
+OWNERSHIP = ROOT / "json" / "agent-ownership.json"
 TIMESTAMP = re.compile(r".+(Z|[+-]\d{2}:\d{2})$")
 
 

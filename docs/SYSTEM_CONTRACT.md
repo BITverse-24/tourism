@@ -48,7 +48,7 @@ stateDiagram-v2
 
 Every published result is an immutable `TripState` snapshot. `trip_id` identifies the traveler’s logical trip; `version` increments for every published itinerary or explicit alternative selection; `parent_version` identifies lineage. A planning run is ephemeral work identified by `run_id`, but its important lifecycle changes are appended as events.
 
-Public event types are defined in `openapi.json`: `trip.created`, `discovery.updated`, `planning.started`, `agent.completed`, `planning.awaiting_user_decision`, `itinerary.published`, `replan.requested`, and `planning.failed`. Each contains `event_id`, `occurred_at`, `trip_id`, `run_id`, `version`, and a typed payload.
+Public event types are defined in [`json/openapi.json`](json/openapi.json) (and documented in [`md/OPENAPI_SPECIFICATION.md`](md/OPENAPI_SPECIFICATION.md)): `trip.created`, `discovery.updated`, `planning.started`, `agent.completed`, `planning.awaiting_user_decision`, `itinerary.published`, `replan.requested`, and `planning.failed`. Each contains `event_id`, `occurred_at`, `trip_id`, `run_id`, `version`, and a typed payload.
 
 ## 3. Canonical data rules
 
@@ -59,7 +59,7 @@ Public event types are defined in `openapi.json`: `trip.created`, `discovery.upd
 - Recommendations are flexible in the MVP. Completed segments remain historical. Replanning compares a `minimal_change` branch and a `full_reoptimization` branch; the former pays less disruption penalty.
 - `schema_version` is required on every public object. Consumers must reject a major version they do not support.
 
-The authoritative field-level definition is [`schemas/trip-state.schema.json`](schemas/trip-state.schema.json). The intentionally compact object hierarchy is:
+The authoritative field-level definition is [`json/schemas/trip-state.schema.json`](json/schemas/trip-state.schema.json) (detailed human-readable reference in [`md/TRIP_STATE_SCHEMA.md`](md/TRIP_STATE_SCHEMA.md)). The intentionally compact object hierarchy is:
 
 ```text
 TripState
@@ -86,7 +86,7 @@ TripState
 | 9 Narrative & Explanation | selected + ranked structured results | `narrative` only | rendering failure; structured itinerary remains valid |
 | 10 Continuous Replanning | current state + `ReplanningRequest` | new run request with impact report and two branches | malformed/unsupported change request |
 
-`AgentPatch` uses JSON Patch operations. The machine-readable allow-list is [`agent-ownership.json`](agent-ownership.json); an operation outside the caller's paths is rejected as `PATCH_OWNERSHIP_VIOLATION`. The orchestrator validates the resulting `TripState` before persisting it. Agent 9 is explicitly forbidden from changing ranking, score, costs, or itinerary structure.
+`AgentPatch` uses JSON Patch operations. The machine-readable allow-list is [`json/agent-ownership.json`](json/agent-ownership.json) (explained in [`md/AGENT_OWNERSHIP.md`](md/AGENT_OWNERSHIP.md)); an operation outside the caller's paths is rejected as `PATCH_OWNERSHIP_VIOLATION`. The orchestrator validates the resulting `TripState` before persisting it. Agent 9 is explicitly forbidden from changing ranking, score, costs, or itinerary structure.
 
 ## 5. Orchestration protocol
 
@@ -121,7 +121,7 @@ Each normalized component is `0..100`; the configured traveler weights and objec
 
 ## 8. Public API boundary
 
-`openapi.json` defines these commands and responses:
+[`json/openapi.json`](json/openapi.json) (detailed in [`md/OPENAPI_SPECIFICATION.md`](md/OPENAPI_SPECIFICATION.md)) defines these commands and responses:
 
 - `POST /trips` — create draft trip.
 - `POST /trips/{tripId}/discovery-answers` — append normalized discovery answers.
@@ -137,12 +137,12 @@ No API in this contract performs booking, payment, authentication, source scrapi
 
 ## 9. Worked integration fixture
 
-[`examples/planning-run.json`](examples/planning-run.json) demonstrates an initial Kyoto planning result with ranked candidates and a rain replan that produces the two required repair branches. It is deliberately synthetic and is an integration fixture, not destination data.
+[`json/examples/planning-run.json`](json/examples/planning-run.json) (detailed in [`md/PLANNING_RUN_FIXTURE.md`](md/PLANNING_RUN_FIXTURE.md)) demonstrates an initial Kyoto planning result with ranked candidates and a rain replan that produces the two required repair branches. It is deliberately synthetic and is an integration fixture, not destination data.
 
 Run the portable structural checks with:
 
 ```bash
-python3 system-contract/tests/validate_contract.py
+python3 docs/tests/validate_contract.py
 ```
 
-For full Draft 2020-12 validation in CI, use any standards-compliant JSON Schema validator against `schemas/trip-state.schema.json`; the repository intentionally does not impose a backend language or runtime.
+For full Draft 2020-12 validation in CI, use any standards-compliant JSON Schema validator against `json/schemas/trip-state.schema.json`; the repository intentionally does not impose a backend language or runtime.
