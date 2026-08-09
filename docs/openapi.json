@@ -1,0 +1,33 @@
+{
+  "openapi": "3.1.0",
+  "info": { "title": "Agentic Travel Planner Contract API", "version": "1.0.0", "description": "Asynchronous commands and immutable itinerary reads." },
+  "paths": {
+    "/trips": { "post": { "operationId": "createTrip", "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateTripCommand" } } } }, "responses": { "201": { "$ref": "#/components/responses/TripState" } } } },
+    "/trips/{tripId}/discovery-answers": { "post": { "operationId": "submitDiscoveryAnswers", "parameters": [{ "$ref": "#/components/parameters/TripId" }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DiscoveryAnswersCommand" } } } }, "responses": { "202": { "$ref": "#/components/responses/RunAccepted" } } } },
+    "/trips/{tripId}/planning-runs": { "post": { "operationId": "startPlanningRun", "parameters": [{ "$ref": "#/components/parameters/TripId" }], "responses": { "202": { "$ref": "#/components/responses/RunAccepted" } } } },
+    "/planning-runs/{runId}": { "get": { "operationId": "getPlanningRun", "parameters": [{ "$ref": "#/components/parameters/RunId" }], "responses": { "200": { "description": "Run state", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PlanningRun" } } } } } } },
+    "/planning-runs/{runId}/constraint-relaxations": { "post": { "operationId": "resolveConstraintRelaxation", "parameters": [{ "$ref": "#/components/parameters/RunId" }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["option_id"], "properties": { "option_id": { "type": "string" } }, "additionalProperties": false } } } }, "responses": { "202": { "$ref": "#/components/responses/RunAccepted" } } } },
+    "/trips/{tripId}/versions": { "get": { "operationId": "listTripVersions", "parameters": [{ "$ref": "#/components/parameters/TripId" }], "responses": { "200": { "description": "Immutable version summaries", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/TripVersionSummary" } } } } } } } },
+    "/trips/{tripId}/versions/{version}": { "get": { "operationId": "getTripVersion", "parameters": [{ "$ref": "#/components/parameters/TripId" }, { "name": "version", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } }], "responses": { "200": { "$ref": "#/components/responses/TripState" } } } },
+    "/trips/{tripId}/alternatives/{candidateId}/select": { "post": { "operationId": "selectAlternative", "parameters": [{ "$ref": "#/components/parameters/TripId" }, { "name": "candidateId", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "202": { "$ref": "#/components/responses/RunAccepted" } } } },
+    "/trips/{tripId}/replans": { "post": { "operationId": "requestReplan", "parameters": [{ "$ref": "#/components/parameters/TripId" }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ReplanningRequest" } } } }, "responses": { "202": { "$ref": "#/components/responses/RunAccepted" } } } },
+    "/planning-runs/{runId}/events": { "get": { "operationId": "listRunEvents", "parameters": [{ "$ref": "#/components/parameters/RunId" }], "responses": { "200": { "description": "Events ordered by occurred_at", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/PlanningEvent" } } } } } } } }
+  },
+  "components": {
+    "parameters": { "TripId": { "name": "tripId", "in": "path", "required": true, "schema": { "type": "string" } }, "RunId": { "name": "runId", "in": "path", "required": true, "schema": { "type": "string" } } },
+    "responses": {
+      "RunAccepted": { "description": "Accepted asynchronous run", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RunAccepted" } } } },
+      "TripState": { "description": "Immutable canonical trip version", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TripState" } } } }
+    },
+    "schemas": {
+      "TripState": { "$ref": "./schemas/trip-state.schema.json" },
+      "PlanningRun": { "$ref": "./schemas/trip-state.schema.json#/$defs/PlanningRun" },
+      "PlanningEvent": { "$ref": "./schemas/trip-state.schema.json#/$defs/PlanningEvent" },
+      "ReplanningRequest": { "$ref": "./schemas/trip-state.schema.json#/$defs/ReplanningRequest" },
+      "CreateTripCommand": { "type": "object", "required": ["trip_request"], "properties": { "trip_request": { "$ref": "./schemas/trip-state.schema.json#/$defs/TripRequest" } }, "additionalProperties": false },
+      "DiscoveryAnswersCommand": { "type": "object", "required": ["answers"], "properties": { "answers": { "type": "object", "additionalProperties": true } }, "additionalProperties": false },
+      "RunAccepted": { "type": "object", "required": ["trip_id", "run_id", "status"], "properties": { "trip_id": { "type": "string" }, "run_id": { "type": "string" }, "status": { "enum": ["queued", "running", "awaiting_user_decision"] } }, "additionalProperties": false },
+      "TripVersionSummary": { "type": "object", "required": ["trip_id", "version", "status", "created_at"], "properties": { "trip_id": { "type": "string" }, "version": { "type": "integer" }, "parent_version": { "type": ["integer", "null"] }, "status": { "type": "string" }, "created_at": { "type": "string", "format": "date-time" } }, "additionalProperties": false }
+    }
+  }
+}

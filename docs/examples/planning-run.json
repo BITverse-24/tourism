@@ -1,0 +1,27 @@
+{
+  "initial_version": {
+    "schema_version": "1.0.0",
+    "trip": { "trip_id": "trip_kyoto_001", "created_at": "2026-08-09T09:00:00+05:30", "updated_at": "2026-08-09T09:04:00+05:30", "planning_currency": "INR" },
+    "status": "planned",
+    "version": 1,
+    "parent_version": null,
+    "traveler_profile": { "profile_id": "profile_001", "party_size": 2, "purpose": "culture and photography", "preference_weights": { "culture": 0.9, "photography": 0.9, "food": 0.6 }, "walking_tolerance": 0.45, "crowd_tolerance": 0.3, "pace": "balanced", "answers_complete": true },
+    "trip_request": { "request_id": "request_001", "destination_query": "Kyoto", "start_date": "2026-10-10", "end_date": "2026-10-13", "travelers": 2, "budget": { "amount": 85000, "currency": "INR" } },
+    "constraints": { "hard": { "budget_ceiling": { "amount": 85000, "currency": "INR" }, "must_visit": ["Fushimi Inari"], "avoid": ["late nightlife"], "dietary": [], "accessibility": [], "max_hotel_changes": 1 }, "soft_weights": { "photography": 0.9, "culture": 0.9, "comfort": 0.7 }, "objective_version": "1.0.0" },
+    "destination": { "country": "Japan", "region": "Kansai", "timezone": "Asia/Tokyo" },
+    "cities": [{ "city_id": "kyoto", "name": "Kyoto", "nights": 3, "order": 1 }],
+    "experience_catalog": [],
+    "transportation_options": [],
+    "candidates": [{ "candidate_id": "candidate_a", "branch": "initial", "rank": 1, "feasible": true, "hard_constraint_failures": [], "total_cost": { "amount": 79200, "currency": "INR" }, "score_components": { "preference_fit": 91, "experience_quality": 88, "comfort": 82, "authenticity": 86, "fatigue": 18, "cost_penalty": 12, "logistics_penalty": 10, "regret_risk": 8, "disruption_penalty": 0, "overall_score": 299 }, "confidence": 0.87, "assumptions": ["Opening hours verified from curated source"], "tradeoffs": ["Central hotel costs INR 4,000 more and saves 35 minutes daily transit"] }, { "candidate_id": "candidate_b", "branch": "alternative", "rank": 2, "feasible": true, "hard_constraint_failures": [], "total_cost": { "amount": 75400, "currency": "INR" }, "score_components": { "preference_fit": 88, "experience_quality": 84, "comfort": 86, "authenticity": 80, "fatigue": 14, "cost_penalty": 8, "logistics_penalty": 12, "regret_risk": 11, "disruption_penalty": 0, "overall_score": 293 }, "confidence": 0.84, "assumptions": [], "tradeoffs": ["Lower cost but misses sunrise photography"] }],
+    "active_candidate_id": "candidate_a",
+    "itinerary": { "days": [] },
+    "simulation": { "feasible": true, "fatigue_risk": 18, "walking_minutes": 310, "warnings": [] },
+    "optimization": { "objective_version": "1.0.0", "selected_candidate_id": "candidate_a", "candidate_count": 2, "tie_breaker": "candidate_id_ascending" },
+    "narrative": { "summary": "A photography-led Kyoto itinerary with moderate walking.", "decision_explanations": ["Candidate A has the best preference fit."] },
+    "data_facts": [], "warnings": [],
+    "run": { "run_id": "run_initial", "status": "completed", "started_at": "2026-08-09T09:00:00+05:30", "unanswered_questions": [], "constraint_report": [] },
+    "events": [{ "event_id": "event_001", "type": "itinerary.published", "occurred_at": "2026-08-09T09:04:00+05:30", "trip_id": "trip_kyoto_001", "run_id": "run_initial", "version": 1, "payload": {} }]
+  },
+  "weather_replan_request": { "request_id": "replan_001", "type": "weather", "occurred_at": "2026-10-10T06:00:00+09:00", "description": "Heavy rain forecast for the outdoor photography day.", "affected_activity_ids": ["fushimi_sunrise"] },
+  "replan_expectations": { "parent_version": 1, "required_branches": ["minimal_change", "full_reoptimization"], "completed_history_preserved": true, "published_only_after_feasible_candidate": true }
+}
