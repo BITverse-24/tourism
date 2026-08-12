@@ -7,8 +7,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 KNOWLEDGE_DIR = ROOT / "knowledge"
 DEFAULT_FIXTURE = ROOT / "fixtures" / "issues.json"
-REPO = os.getenv("ORCHESTRATOR_REPOSITORY", "SinisterDeveloper/tourism")
+REPO = os.getenv("GITHUB_REPOSITORY", os.getenv("ORCHESTRATOR_REPOSITORY", "SinisterDeveloper/tourism"))
 TOKEN_ENV = "GITHUB_TOKEN"
+KNOWN_TEAM_NAMES = {"Krishay", "Ayush", "Supreet", "Siddhant", "Aishwarya", "Zainab"}
 
 LABEL_TAXONOMY = {
     "status": ["backlog", "ready", "in-progress", "blocked", "review"],

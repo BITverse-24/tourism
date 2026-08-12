@@ -15,8 +15,11 @@ def default_team() -> list[TeamMember]:
 
 
 def recommend(tasks: list[CandidateTask], state: ProjectState, team: list[TeamMember] | None = None) -> list[AssignmentRecommendation]:
-    members = team or default_team(); result = []
+    members = team or default_team(); result = []; seen: set[tuple[int | None, str]] = set()
     for task in tasks:
+        key = (task.issue_number, task.title.strip().casefold())
+        if key in seen: continue
+        seen.add(key)
         scored = []
         for person in members:
             load = state.estimated_workload.get(person.name, 0)
@@ -24,13 +27,20 @@ def recommend(tasks: list[CandidateTask], state: ProjectState, team: list[TeamMe
             workstream = 1.0 if task.workstream.lower() in person.role.lower() or task.workstream.lower() in " ".join(person.skills).lower() else 0.25
             availability = max(0.0, 1 - load / max(person.max_concurrent_tasks, 1))
             dependency_fit = 1.0 if not task.depends_on or task.issue_number in state.newly_unblocked_issues else 0.7
-            strategic = 0.0 if task.strategic and person.name != "Krishay" else 1.0
-            score = .35 * skill + .20 * workstream + .20 * availability + .15 * dependency_fit + .10 * strategic
-            if load >= person.max_concurrent_tasks: score -= .25
-            scored.append((score, person, {"skill_match": skill, "workstream_match": workstream, "availability": availability, "dependency_fit": dependency_fit, "historical_success": strategic}))
+            strategic_alignment = 1.0 if not task.strategic or person.name == "Krishay" else 0.0
+            score = (.35 * skill + .20 * workstream + .20 * availability + .15 * dependency_fit) / .90
+            overload_penalty = .25 if load >= person.max_concurrent_tasks else 0.0
+            if overload_penalty: score -= overload_penalty
+            if task.strategic and not strategic_alignment: score -= .20
+            scored.append((score, person, {"skill_match": skill, "workstream_match": workstream, "availability": availability, "dependency_fit": dependency_fit, "current_load": float(load), "overloaded": float(bool(overload_penalty)), "strategic_alignment": strategic_alignment}))
         score, person, breakdown = max(scored, key=lambda x: (x[0], x[1].name == "Krishay"))
         approval = task.strategic
-        reason = task.reason + f" {person.name} matches the workstream and has a deterministic fit score of {score:.2f}."
+        fit_score = round(max(0.0, min(score, 1.0)), 2)
+        reason = task.reason + f" {person.name} matches the workstream with a deterministic fit score of {fit_score:.2f}."
+        if breakdown["current_load"] >= 1:
+            reason += f" Current active load: {int(breakdown['current_load'])}."
+        if breakdown["overloaded"]:
+            reason += " The member is at or above the recommended concurrent-task limit."
         if approval: reason += " This is strategic work and requires human approval."
-        result.append(AssignmentRecommendation(task, person.name, reason, round(max(0.0, min(score, 1.0)), 2), approval, breakdown))
+        result.append(AssignmentRecommendation(task, person.name, reason, fit_score, None, approval, breakdown))
     return result

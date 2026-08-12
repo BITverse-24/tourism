@@ -71,7 +71,8 @@ class AssignmentRecommendation:
     task: CandidateTask
     recommended_assignee: str | None
     reason: str
-    confidence: float
+    fit_score: float
+    confidence: float | None
     requires_human_approval: bool = False
     score_breakdown: dict[str, float] = field(default_factory=dict)
 
@@ -94,6 +95,7 @@ class ProjectState:
     estimated_workload: dict[str, int]
     project_risks: list[str]
     unresolved_decisions: list[str]
+    unknown_team_members: list[str] = field(default_factory=list)
 
 
 @dataclass

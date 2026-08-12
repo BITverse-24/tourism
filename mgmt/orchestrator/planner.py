@@ -15,8 +15,11 @@ def _objective(body: str, title: str) -> str:
 
 def plan(state: ProjectState) -> list[CandidateTask]:
     by_number = {x.number: x for x in state.issues}; candidates: list[CandidateTask] = []
+    seen: set[int] = set()
     selected = state.newly_unblocked_issues + [x for x in state.ready_issues if x not in state.newly_unblocked_issues]
     for number in selected:
+        if number in seen: continue
+        seen.add(number)
         issue = by_number[number]
         if issue.closed or number in state.blocked_issues: continue
         priority = _field(issue, "priority", "p2")

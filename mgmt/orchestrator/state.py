@@ -5,6 +5,7 @@ from collections import defaultdict
 from typing import Iterable
 
 from .models import Dependency, IssueState, ProjectState
+from .config import KNOWN_TEAM_NAMES
 
 REF = re.compile(r"#(\d+)")
 SECTION = re.compile(r"^\s*(Depends on|Blocks):\s*$", re.I | re.M)
@@ -56,7 +57,6 @@ def _cycles(graph: dict[int, set[int]]) -> list[list[int]]:
 def build_state(issues: Iterable[IssueState], phase: str, milestone: str) -> ProjectState:
     items = list(issues); known = {x.number for x in items}; by_number = {x.number: x for x in items}
     invalid: list[str] = []; graph: dict[int, set[int]] = defaultdict(set)
-    previous_closed = {x.number for x in items if x.closed}
     for issue in items:
         issue.dependencies, errors = parse_dependencies(issue, known); invalid.extend(errors)
         for dep in issue.dependencies:
@@ -79,8 +79,11 @@ def build_state(issues: Iterable[IssueState], phase: str, milestone: str) -> Pro
         if not issue.closed and issue.status == "in-progress":
             for person in issue.assignees: active[person].append(issue.number)
     workload = {person: len(numbers) for person, numbers in active.items()}
+    unknown_team_members = sorted(set(workload) - KNOWN_TEAM_NAMES)
     risks = list(invalid)
     if cycles: risks.extend("Dependency cycle: " + " → ".join(f"#{x}" for x in cycle) for cycle in cycles)
     if blocked: risks.append(f"{len(blocked)} open issue(s) are blocked")
+    if unknown_team_members:
+        risks.append("Unknown team member(s) in active work: " + ", ".join(unknown_team_members))
     health = "red" if cycles or any("missing" in x for x in invalid) else ("yellow" if blocked else "green")
-    return ProjectState(phase, milestone, health, items, [x.number for x in items if not x.closed], [x.number for x in items if x.closed], [x.number for x in items if not x.closed and x.status == "in-progress"], blocked, ready, newly, invalid, cycles, dict(active), workload, risks, [])
+    return ProjectState(phase, milestone, health, items, [x.number for x in items if not x.closed], [x.number for x in items if x.closed], [x.number for x in items if not x.closed and x.status == "in-progress"], blocked, ready, newly, invalid, cycles, dict(active), workload, risks, [], unknown_team_members)
