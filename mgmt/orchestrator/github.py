@@ -24,13 +24,23 @@ def _redact(value: object, secret: str | None) -> str:
     return text.replace(secret, "[REDACTED]") if secret else text
 
 
+def _comment_bodies(raw: dict[str, Any]) -> list[str]:
+    """Normalize fixture comment bodies while accepting GitHub's count field."""
+    comments = raw.get("comments", [])
+    if not isinstance(comments, list):
+        # GitHub's issue-list and issue-detail payloads expose `comments` as
+        # an integer count. Full comment bodies are fetched separately.
+        return []
+    return [x.get("body", "") if isinstance(x, dict) else str(x) for x in comments]
+
+
 def _issue(raw: dict[str, Any]) -> IssueState:
     labels = [x.get("name", x) if isinstance(x, dict) else x for x in raw.get("labels", [])]
     assignees = [x.get("login", x) if isinstance(x, dict) else x for x in raw.get("assignees", [])]
     return IssueState(
         number=int(raw["number"]), title=raw.get("title", ""), body=raw.get("body", "") or "",
         state=raw.get("state", "open"), labels=labels, assignees=assignees,
-        comments=[x.get("body", "") if isinstance(x, dict) else str(x) for x in raw.get("comments", [])],
+        comments=_comment_bodies(raw),
         pull_requests=raw.get("pull_requests", []), updated_at=raw.get("updated_at"),
     )
 

@@ -156,3 +156,12 @@ def test_successful_authenticated_repository_and_issue_requests():
         assert reader.issue(7).number == 7
         assert reader.issues()[0].number == 7
     assert seen_paths == ["/user", "/repos/SinisterDeveloper/tourism", "/repos/SinisterDeveloper/tourism/issues/7", "/repos/SinisterDeveloper/tourism/issues?state=all&per_page=100"]
+
+
+def test_github_issue_comment_count_is_not_treated_as_comment_list():
+    issue = IssueState(7, "Test issue")
+    payload = {"number": 7, "title": issue.title, "state": "open", "comments": 3}
+    with patch("orchestrator.github.urllib.request.urlopen", return_value=FakeResponse(payload)):
+        parsed = GitHubApiReader("SinisterDeveloper/tourism", token="token").issue(7)
+    assert parsed.number == 7
+    assert parsed.comments == []
