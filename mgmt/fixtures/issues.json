@@ -1,0 +1,11 @@
+{
+  "labels": ["status:ready", "status:in-progress", "status:blocked", "priority:p0", "priority:p1", "workstream:architecture", "workstream:api", "workstream:research", "type:architecture", "type:research"],
+  "issues": [
+    {"number": 17, "title": "Select travel API provider", "state": "closed", "labels": ["status:review", "priority:p1", "workstream:research", "type:research"], "assignees": ["zainab-placeholder"], "body": "## Objective\nEvaluate providers for travel and place data.\n\n## Dependencies\nDepends on:\n- None\n\nBlocks:\n- #18\n"},
+    {"number": 18, "title": "Define provider integration boundary", "state": "open", "labels": ["status:ready", "priority:p1", "workstream:api", "type:integration"], "body": "## Objective\nDefine the adapter boundary for the selected provider.\n\n## Dependencies\nDepends on:\n- #17\n\nBlocks:\n- None\n"},
+    {"number": 19, "title": "Define canonical planner-agent interface", "state": "open", "labels": ["status:backlog", "priority:p0", "workstream:product", "type:architecture"], "body": "## Objective\nConfirm the interface between workflow stages and typed agent patches.\n\n## Dependencies\nDepends on:\n- None\n\nBlocks:\n- None\n"},
+    {"number": 20, "title": "Blocked example", "state": "open", "labels": ["status:blocked", "priority:p2", "workstream:backend", "type:feature"], "body": "## Objective\nImplement the backend adapter.\n\n## Dependencies\nDepends on:\n- #999\n\nBlocks:\n- None\n"},
+    {"number": 21, "title": "Cycle A", "state": "open", "labels": ["status:ready", "priority:p2", "workstream:infra", "type:architecture"], "body": "## Dependencies\nDepends on:\n- #22\n\nBlocks:\n- None\n"},
+    {"number": 22, "title": "Cycle B", "state": "open", "labels": ["status:ready", "priority:p2", "workstream:infra", "type:architecture"], "body": "## Dependencies\nDepends on:\n- #21\n\nBlocks:\n- None\n"}
+  ]
+}
