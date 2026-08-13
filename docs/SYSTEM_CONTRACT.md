@@ -5,7 +5,7 @@
 
 ## Purpose
 
-This document defines the boundary between the product overview and the first two data contracts. It deliberately stays at the product and architecture level. Detailed workflow, evaluation, knowledge, persistence, and API contracts will be added only when their phase begins.
+This document defines the boundary between the product overview, the two user-facing data contracts, and the narrow internal workflow policy now required for implementation. Detailed evaluation, knowledge, persistence, and API contracts will be added only when their phase begins.
 
 ## Core transformation
 
@@ -20,6 +20,8 @@ Final Trip Plan
 ```
 
 The [Traveler Profile](md/TRAVELER_PROFILE_SCHEMA.md) is the normalized planning input. The [Final Trip Plan](md/FINAL_TRIP_PLAN_SCHEMA.md) is the user-facing planning output.
+
+The internal ownership and lifecycle rules are defined in [TripState Ownership and Lifecycle](md/TRIPSTATE_OWNERSHIP_AND_LIFECYCLE.md), with its focused machine-readable policy at [`docs/json/agent-ownership.json`](json/agent-ownership.json). The machine-readable policy covers path ownership, patch operations, transitions, version invariants, and event invariants only.
 
 ## Contract boundaries
 
@@ -58,7 +60,7 @@ It is not a booking confirmation, a provider response, or an internal optimizati
 - Inferred preferences carry their source and confidence.
 - Major final-plan decisions must be traceable to a profile preference, constraint, or documented assumption.
 - Dates, times, costs, and availability must state their scope and uncertainty.
-- Version lineage, immutable snapshots, runtime events, agent mutation rules, persistence, and API behavior are deferred.
+- User-facing version lineage, persistence, and API behavior are deferred. Internal state mutation, lifecycle transitions, version creation, events, and failure handling follow the workflow contract.
 
 ## Phased architecture
 
@@ -66,13 +68,13 @@ It is not a booking confirmation, a provider response, or an internal optimizati
 2. **Feasibility and simulation** — schedule, mobility, fatigue, weather, and risk.
 3. **Optimization and replanning** — alternatives, tradeoffs, changed conditions, and repair plans.
 4. **Knowledge data** — geography, experiences, accommodations, and transportation connections.
-5. **Workflow and integration** — agent interfaces, events, persistence, and APIs if required.
+5. **Workflow and integration** — agent interfaces, ownership, lifecycle, events, persistence, and APIs if required. Ownership and lifecycle are now specified; persistence and API details remain deferred.
 
 Later phases must consume and extend the core contracts without redefining their user-facing meaning.
 
 ## Retired contract material
 
-The former all-in-one state contract and its generated-format, API, patch-ownership, and fixture documents are retired from the active documentation set. They must not be treated as implementation authority for the core contracts.
+The former all-in-one user-data state contract, generated API contract, and fixture documents are retired from the active documentation set. The focused [TripState Ownership and Lifecycle](md/TRIPSTATE_OWNERSHIP_AND_LIFECYCLE.md) policy replaces the former broad ownership ambiguity without restoring the old all-in-one user-data contract.
 
 ## Product context
 

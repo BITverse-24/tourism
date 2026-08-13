@@ -55,7 +55,7 @@ Optionally add one-line notes to existing sections:
 
 ## 3. Historical record from the previous contract set
 
-The following entries record changes made before the Markdown-first contract reset. They are retained for audit context only; the referenced generated-format artifacts are no longer active or authoritative.
+The following entries record changes made before the Markdown-first contract reset. They are retained for audit context only; the former generated-format artifacts referenced there are no longer active or authoritative. The focused ownership/lifecycle policy added for the current architecture issue is separate.
 
 The following were applied directly in `docs/` during the previous contract state and do **not** need separate proposals:
 - `docs/SYSTEM_CONTRACT.md` — added §10 Implementation Decisions (D1–D5 Final), plus inline notes in §§1 and 8; removed “repository intentionally does not impose a backend language or runtime.”
@@ -93,3 +93,17 @@ Verify with: `python3 docs/tests/validate_contract.py` (portable checks) and ful
 **Reason:** Prevents agents and project planning work from implementing against contracts that are no longer authoritative.
 
 **Impact:** Documentation-only change outside this task’s writable boundary. The owner of `mgmt/knowledge/` should apply it before using those files as implementation guidance.
+
+## 6. Align management architecture with finalized TripState ownership and lifecycle
+
+**Target:** `mgmt/knowledge/architecture.md`, `mgmt/knowledge/project.md`, and the accepted decision record under `mgmt/knowledge/decisions/`
+
+**Issue:** Management knowledge still describes the old broad `/candidates` boundary and the superseded all-in-one state contract, without reflecting the focused ownership/lifecycle policy now active at `docs/json/agent-ownership.json`.
+
+**Evidence:** The active policy now gives Agent 3 `/candidates/skeletons`, Agent 8 `/candidates/ranked` and `/candidates/active_candidate_id`, and defines explicit lifecycle, patch, version, event, and failure rules in `docs/md/TRIPSTATE_OWNERSHIP_AND_LIFECYCLE.md` plus its focused machine-readable companion.
+
+**Suggested change:** Replace broad `/candidates` ownership and stale generated-schema references with the finalized paths and transition rules. Mark the old all-in-one TripState contract as superseded while retaining the architecture decision as historical context.
+
+**Reason:** Prevents management agents and future implementation work from using an ambiguous or deleted ownership contract.
+
+**Impact:** Documentation-only change outside this task’s writable boundary. The management knowledge owner should apply it before architecture approval is recorded.
