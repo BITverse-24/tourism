@@ -1,53 +1,46 @@
-# System Contracts — Markdown Documentation
+# Travel Planner Documentation
 
-Welcome to the human-readable system design contract documentation for the **Agentic Travel Planner**.
+This directory contains the human-readable product contracts for the Agentic Travel Planner.
 
-While the machine-readable specifications reside in the [`/docs/json`](file:///Users/krishay/projects/tourism/docs/json) directory, this directory (`/docs/md`) provides rich, human-friendly Markdown equivalents explaining every schema, endpoint, agent patch ownership boundary, and integration fixture.
+Markdown is the only authoritative contract format. The documents use field tables, plain-language rules, and illustrative examples. They are written for product, design, AI, backend, frontend, and QA collaboration; they are not generated API or serialization contracts.
 
----
+## Core contracts
 
-## 📚 Documentation Catalog
+| Document | Purpose |
+|---|---|
+| [Traveler Profile](TRAVELER_PROFILE_SCHEMA.md) | The normalized result after discovery questions finish. It is the complete input to planning. |
+| [Final Trip Plan](FINAL_TRIP_PLAN_SCHEMA.md) | The user-facing itinerary produced from a Traveler Profile. |
 
-| Document | Description | Machine Source Equivalent |
-|---|---|---|
-| 📐 [**TripState Data Schema**](file:///Users/krishay/projects/tourism/docs/md/TRIP_STATE_SCHEMA.md) | Complete reference for `TripState`, sub-schemas (`$defs`), object hierarchies, constraints, and validation rules. | [`json/schemas/trip-state.schema.json`](file:///Users/krishay/projects/tourism/docs/json/schemas/trip-state.schema.json) |
-| 🌐 [**OpenAPI Specification**](file:///Users/krishay/projects/tourism/docs/md/OPENAPI_SPECIFICATION.md) | Full breakdown of all 10 REST API endpoints, parameter schemas, request bodies, and asynchronous lifecycle operations. | [`json/openapi.json`](file:///Users/krishay/projects/tourism/docs/json/openapi.json) |
-| 🛡️ [**Agent Patch Ownership**](file:///Users/krishay/projects/tourism/docs/md/AGENT_OWNERSHIP.md) | Detailed mapping of JSON Pointer write boundaries across all 10 specialized agents and the workflow orchestrator. | [`json/agent-ownership.json`](file:///Users/krishay/projects/tourism/docs/json/agent-ownership.json) |
-| 🧪 [**Planning Run Fixture**](file:///Users/krishay/projects/tourism/docs/md/PLANNING_RUN_FIXTURE.md) | Walkthrough of the synthetic Kyoto integration fixture, candidate scoring, tradeoffs, and weather replan expectations. | [`json/examples/planning-run.json`](file:///Users/krishay/projects/tourism/docs/json/examples/planning-run.json) |
+## Core flow
 
----
-
-## 🏛️ High-Level System Architecture
-
-```mermaid
-flowchart TD
-    U[Client] --> API[Command API /openapi.json]
-    API --> O[Workflow Orchestrator]
-    O --> A1[1 Discovery]
-    A1 --> A2[2 Constraints]
-    A2 --> A3[3 Experience Designer]
-    A3 --> A4[4 Mobility]
-    A3 --> A5[5 Cost]
-    A3 --> A6[6 Local Intelligence]
-    A4 --> A7[7 Simulation & Risk]
-    A5 --> A7
-    A6 --> A7
-    A7 --> A8[8 Optimization]
-    A8 --> A9[9 Narrative]
-    A9 --> V[Immutable TripState version]
-    V --> E[Event stream / progress API]
-    R[10 Continuous Replanning] --> O
-    V --> R
+```text
+Discovery answers
+        ↓
+Traveler Profile
+        ↓
+Planning and decision making
+        ↓
+Final Trip Plan
 ```
 
----
+The two core documents intentionally separate what the system learns about the traveler from what it finally recommends. Internal evaluation, orchestration, persistence, and communication details are not part of either first-phase document.
 
-## 🔍 Validation & Compliance
+## Documentation phases
 
-To run the automated structural contract checks locally:
+1. **Core input and output** — Traveler Profile and Final Trip Plan.
+2. **Feasibility and simulation** — schedule, mobility, fatigue, weather, and risk details.
+3. **Optimization and replanning** — alternatives, tradeoffs, changed conditions, and repair plans.
+4. **Knowledge data** — experiences, geography, accommodations, and transportation connections.
+5. **Workflow and integration** — agent interfaces, events, persistence, and APIs if they become necessary.
 
-```bash
-python3 docs/tests/validate_contract.py
-```
+Later-phase documents must reference the core contracts rather than recreating their fields.
 
-For full JSON Schema Draft 2020-12 validation in CI, use any standard validator against [`docs/json/schemas/trip-state.schema.json`](file:///Users/krishay/projects/tourism/docs/json/schemas/trip-state.schema.json).
+## Contract rules
+
+- Unknown information is recorded explicitly; it is never silently replaced with a guessed value.
+- A hard constraint is either satisfied, clearly unresolved, or clearly reported as impossible.
+- Inferred preferences include their confidence and should not be presented as direct user statements.
+- Examples are illustrative and do not define additional fields.
+- Trip snapshot lineage, runtime state, events, agent mutation rules, and API behavior are deferred to later phases.
+
+The product and project context remains in the root [README](../../README.md). This directory defines the core data concepts that implementation must preserve.
