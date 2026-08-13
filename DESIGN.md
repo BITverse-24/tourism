@@ -1,4 +1,4 @@
-# Sahyatri — UI/UX Design System & Core Journey Specification
+# UI/UX Design System & Core Journey Specification
 ### *"Quiet Luxury, Liquid Intelligence"* — Desktop-First Web Application
 
 ---
