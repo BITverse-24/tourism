@@ -1,6 +1,6 @@
 # Agentic Travel Planner
 
-> **Current contracts:** see [docs/SYSTEM_CONTRACT.md](docs/SYSTEM_CONTRACT.md), [Traveler Profile](docs/md/TRAVELER_PROFILE_SCHEMA.md), and [Final Trip Plan](docs/md/FINAL_TRIP_PLAN_SCHEMA.md).
+> **Current contracts:** see [docs/SYSTEM_CONTRACT.md](docs/SYSTEM_CONTRACT.md), [Traveler Profile](docs/TRAVELER_PROFILE_SCHEMA.md), [Final Trip Plan](docs/FINAL_TRIP_PLAN_SCHEMA.md), and [WebSocket Core API](docs/WEBSOCKET_CONTRACT.md).
 
 ## 1. Core Idea
 
@@ -857,8 +857,9 @@ with the **10-agent architecture** operating underneath these three capabilities
 
 The active implementation guidance is intentionally narrow while the product foundation is being built:
 
-- **Planning input:** [Traveler Profile](docs/md/TRAVELER_PROFILE_SCHEMA.md), the normalized result after discovery.
-- **Planning output:** [Final Trip Plan](docs/md/FINAL_TRIP_PLAN_SCHEMA.md), the user-facing itinerary and explanation.
+- **Planning input:** [Traveler Profile](docs/TRAVELER_PROFILE_SCHEMA.md), the normalized result after discovery.
+- **Planning output:** [Final Trip Plan](docs/FINAL_TRIP_PLAN_SCHEMA.md), the user-facing itinerary and explanation.
+- **Frontend/backend transport:** [WebSocket Core API](docs/WEBSOCKET_CONTRACT.md), the command and event contract for discovery, planning, and replanning.
 - **Architecture boundary:** [docs/SYSTEM_CONTRACT.md](docs/SYSTEM_CONTRACT.md), which defines the transformation from discovery to final plan and the later documentation phases.
 
 Runtime, persistence, public API, deployment, provider selection, agent interfaces, and exact optimization weights remain separate implementation decisions until adopted in the active contract set.

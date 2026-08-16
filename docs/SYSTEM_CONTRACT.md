@@ -5,7 +5,7 @@
 
 ## Purpose
 
-This document defines the boundary between the product overview and the two user-facing data contracts. Detailed workflow, evaluation, knowledge, persistence, and API contracts will be added only when their phase begins.
+This document defines the boundary between the product overview, the two user-facing data contracts, and the initial workflow transport contract. Detailed evaluation, knowledge, persistence, and deployment contracts remain later-phase concerns.
 
 ## Core transformation
 
@@ -19,7 +19,8 @@ Planning and decision making
 Final Trip Plan
 ```
 
-The [Traveler Profile](md/TRAVELER_PROFILE_SCHEMA.md) is the normalized planning input. The [Final Trip Plan](md/FINAL_TRIP_PLAN_SCHEMA.md) is the user-facing planning output.
+The [Traveler Profile](TRAVELER_PROFILE_SCHEMA.md) is the normalized planning input. The [Final Trip Plan](FINAL_TRIP_PLAN_SCHEMA.md) is the user-facing planning output.
+The [WebSocket Core API](WEBSOCKET_CONTRACT.md) defines how the frontend and backend exchange commands, acknowledgements, workflow events, and full Profile/Plan snapshots.
 
 
 ## Contract boundaries
@@ -50,6 +51,10 @@ The plan contains:
 
 It is not a booking confirmation, a provider response, or an internal optimization record.
 
+### WebSocket Core API
+
+The WebSocket contract contains workflow and transport state around the core contracts, including sessions, runs, commands, acknowledgements, question schemas, lifecycle events, snapshots, retries, and recovery. It must not redefine the meaning of fields inside a Traveler Profile or Final Trip Plan.
+
 ## Shared rules
 
 - Markdown field tables are authoritative for the current phase.
@@ -59,7 +64,7 @@ It is not a booking confirmation, a provider response, or an internal optimizati
 - Inferred preferences carry their source and confidence.
 - Major final-plan decisions must be traceable to a profile preference, constraint, or documented assumption.
 - Dates, times, costs, and availability must state their scope and uncertainty.
-- Workflow state, orchestration, persistence, versioning, events, failure handling, and API behavior are deferred to later phases.
+- Persistence, deployment, authentication, and external-provider behavior remain later-phase concerns. Initial workflow state, versioning, events, failure handling, and API behavior are defined by the WebSocket Core API.
 
 ## Phased architecture
 
@@ -67,7 +72,7 @@ It is not a booking confirmation, a provider response, or an internal optimizati
 2. **Feasibility and simulation** — schedule, mobility, fatigue, weather, and risk.
 3. **Optimization and replanning** — alternatives, tradeoffs, changed conditions, and repair plans.
 4. **Knowledge data** — geography, experiences, accommodations, and transportation connections.
-5. **Workflow and integration** — agent interfaces, orchestration, persistence, events, and APIs if required.
+5. **Workflow and integration** — agent interfaces, orchestration, persistence, events, and APIs. The initial WebSocket behavior is defined by [WebSocket Core API](WEBSOCKET_CONTRACT.md); persistence, authentication, and deployment remain deferred.
 
 Later phases must consume and extend the core contracts without redefining their user-facing meaning.
 
@@ -77,4 +82,4 @@ The former all-in-one state contract, generated API contract, ownership policy, 
 
 ## Product context
 
-The root [README](../README.md) remains the product and project overview. This contract and the two linked core documents define the initial data concepts that implementation should preserve.
+The root [README](../README.md) remains the product and project overview. This contract and the linked core documents define the initial data and transport concepts that implementation should preserve.

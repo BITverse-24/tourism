@@ -1,0 +1,642 @@
+# WebSocket Core API Contract
+
+**Contract role:** Transport and workflow integration contract
+**Document revision:** 1.0
+**Status:** Active MVP contract
+
+## Purpose
+
+This document defines the JSON WebSocket protocol between the travel-planner frontend and backend. It carries the complete interactive MVP flow:
+
+```text
+Connect
+  ↓
+session.start
+  ↓
+Adaptive discovery questions ↔ answers
+  ↓
+Traveler Profile snapshot
+  ↓
+profile.confirm
+  ↓
+Planning, evaluation, optimization, and explanation
+  ↓
+Draft plan snapshots
+  ↓
+Final Trip Plan snapshot
+  ↓
+Typed replanning request ↔ updated plan
+```
+
+The protocol is transport-facing. The [Traveler Profile](TRAVELER_PROFILE_SCHEMA.md) and [Final Trip Plan](FINAL_TRIP_PLAN_SCHEMA.md) remain the authoritative definitions of those payloads. This document defines how they are delivered and how workflow commands are exchanged.
+
+## Scope and principles
+
+- The core product flow uses one JSON WebSocket connection. No HTTP request is required for discovery, planning, or replanning.
+- The server is authoritative for workflow state, profile inference, validation, and plan revisions.
+- The frontend renders server-provided question schemas rather than hardcoding the adaptive questionnaire.
+- Profile and plan resources are delivered as complete snapshots, not client-applied patches.
+- Client commands are acknowledged immediately; longer work is reported through later events.
+- Agent events expose stable lifecycle information and safe summaries, not hidden reasoning, raw patches, candidate rankings, or provider payloads.
+- Authentication, persistence, event replay, booking, payments, and user accounts are outside this MVP contract.
+
+## Transport
+
+| Property | Contract |
+|---|---|
+| Endpoint | `WS /ws` |
+| Frame format | UTF-8 JSON text frames |
+| Heartbeats | Native WebSocket ping/pong; no application heartbeat message is required |
+| Connection opening | The client connects, then sends `session.start` as its first command |
+| Connection ownership | One active connection per session; a newer connection supersedes the older one |
+| Authentication | Not defined for v1 |
+| Persistence | In-memory only; all sessions are lost when the backend process restarts |
+
+The endpoint may be hosted under a deployment-specific origin, but the path and message contract remain `/ws`.
+
+## Core concepts
+
+### Session
+
+`session_id` identifies one traveler conversation and trip-planning experience. It remains stable across network reconnects while its in-memory state exists.
+
+### Run
+
+`run_id` identifies one workflow execution. A new connection after a network disconnect creates a new run from the session's last user-confirmed checkpoint. Events are not replayed into the new run.
+
+### Checkpoint
+
+The resumable checkpoint contains the last user-confirmed Traveler Profile and, when one exists, the most recently completed Final Trip Plan. Work that was still in progress when the connection dropped is discarded.
+
+Before the first profile confirmation, there is no user-confirmed checkpoint. A reconnect at that point starts discovery again for the existing in-memory session.
+
+During replanning, the accepted change request is not itself a checkpoint. If the connection drops before the updated plan completes, the client must submit the change request again in the new run.
+
+### Revision
+
+`revision` is a monotonically increasing version for a profile or plan resource within a session. It distinguishes snapshots of the same resource; it is not a run identifier.
+
+### Sequence
+
+`sequence` orders server-originated messages within a run. It starts at `1` for each run and is used for ordering during the current connection only. It is not a replay cursor.
+
+## Message envelope
+
+Every JSON frame is an envelope with this shape:
+
+```json
+{
+  "protocol_version": "1.0",
+  "message_id": "msg_01J...",
+  "kind": "command",
+  "type": "discovery.answer",
+  "session_id": "sess_01J...",
+  "run_id": "run_01J...",
+  "command_id": "cmd_01J...",
+  "sequence": 12,
+  "occurred_at": "2026-08-16T12:00:00Z",
+  "payload": {}
+}
+```
+
+| Field | Required | Meaning |
+|---|---|---|
+| `protocol_version` | Yes | Protocol version. A major-version mismatch is rejected. |
+| `message_id` | Yes | Unique identifier for this envelope. The sender creates it. |
+| `kind` | Yes | One of `command`, `ack`, `event`, or `error`. |
+| `type` | Yes | Dot-delimited message type, such as `session.start` or `plan.snapshot`. |
+| `session_id` | Conditional | Required after the session exists. Omitted on the first `session.start` for a new session. |
+| `run_id` | Conditional | Required on all messages after the server creates a run. |
+| `command_id` | Conditional | Required on client commands and their acknowledgements. Events may include it when they are caused by a command. |
+| `sequence` | Server messages | Required on server `ack`, `event`, and `error` messages after a run exists. |
+| `occurred_at` | Yes | ISO 8601 UTC timestamp generated by the sender. |
+| `payload` | Yes | Message-specific JSON object. |
+
+Unknown fields must be ignored for forward compatibility. Unknown message types must receive an `unsupported_message_type` rejection when they are commands; clients must safely ignore unknown server event types after recording them for diagnostics.
+
+### Client command example
+
+```json
+{
+  "protocol_version": "1.0",
+  "message_id": "msg_cmd_01J...",
+  "kind": "command",
+  "type": "discovery.answer",
+  "session_id": "sess_01J...",
+  "run_id": "run_01J...",
+  "command_id": "cmd_01J...",
+  "occurred_at": "2026-08-16T12:03:00Z",
+  "payload": {
+    "question_id": "q_trip_purpose",
+    "selected_option_ids": ["culture", "photography"],
+    "free_text": "I prefer quiet neighborhoods over famous crowded spots."
+  }
+}
+```
+
+### Server event example
+
+```json
+{
+  "protocol_version": "1.0",
+  "message_id": "msg_evt_01J...",
+  "kind": "event",
+  "type": "discovery.question",
+  "session_id": "sess_01J...",
+  "run_id": "run_01J...",
+  "sequence": 4,
+  "occurred_at": "2026-08-16T12:03:01Z",
+  "payload": {
+    "question_id": "q_pace",
+    "prompt": "What pace would make this trip feel best?",
+    "selection_mode": "single",
+    "required": true,
+    "free_text_mode": "optional",
+    "free_text_placeholder": "Add a nuance if the options do not quite fit",
+    "options": [
+      {
+        "option_id": "slow",
+        "label": "Slow and spacious",
+        "description": "Fewer major activities with more recovery time."
+      },
+      {
+        "option_id": "balanced",
+        "label": "Balanced",
+        "description": "A mix of planned experiences and flexible time."
+      },
+      {
+        "option_id": "fast",
+        "label": "Full and energetic",
+        "description": "More coverage with less unplanned time."
+      }
+    ]
+  }
+}
+```
+
+## Workflow states
+
+| State | Meaning | Valid next actions |
+|---|---|---|
+| `discovery` | The backend is collecting adaptive answers. | `discovery.answer`, `run.cancel`, `session.close` |
+| `profile_review` | A complete or materially complete Profile is available for review. | `profile.confirm`, `profile.request_changes`, `run.cancel`, `session.close` |
+| `planning` | Planning, evaluation, optimization, or explanation is running. | `run.cancel`, `session.close` |
+| `plan_ready` | A Final Trip Plan is available. | `replan.request`, `run.cancel`, `session.close` |
+| `replanning` | A typed change request is being applied to the current plan. | `run.cancel`, `session.close` |
+| `cancelled` | The current run was cancelled. | `session.start` on a new connection/run, `session.close` |
+| `expired` | The session is no longer available in backend memory. | Start a new session |
+
+The backend is responsible for deciding when discovery is complete. The frontend does not use a question count or local heuristic to end discovery.
+
+## Client commands
+
+### `session.start`
+
+The first command on every connection. It creates a new session when `session_id` is absent, or creates a new run for an existing in-memory session when `session_id` is supplied.
+
+Payload:
+
+```json
+{
+  "session_id": null,
+  "client_capabilities": {
+    "protocol_versions": ["1.0"]
+  }
+}
+```
+
+Rules:
+
+- The server assigns `session_id` and `run_id` for a new session.
+- An existing `session_id` never causes event replay.
+- If the session has a checkpoint, the new run starts from that checkpoint.
+- If the session has no checkpoint, discovery starts again.
+- If the session was lost because the backend restarted, the server emits `session.expired` and does not fabricate state.
+- A retry with the same `command_id` is idempotent.
+
+### `discovery.answer`
+
+Submits an answer to the currently active server-issued question.
+
+Payload:
+
+```json
+{
+  "question_id": "q_pace",
+  "selected_option_ids": ["balanced"],
+  "free_text": "I want early mornings but relaxed evenings."
+}
+```
+
+Rules:
+
+- `selected_option_ids` is an array and may be empty only when the question's `free_text_mode` permits a text-only answer.
+- The backend validates that the question is current and that option IDs belong to it.
+- `selection_mode: "single"` accepts at most one option; `selection_mode: "multiple"` accepts one or more unless the question explicitly permits none.
+- Free text is optional unless the question says otherwise.
+- The backend normalizes the answer, updates the Profile, and determines the next question.
+- Discovery is forward-only in v1; prior answers cannot be edited directly.
+
+### `profile.confirm`
+
+Confirms the latest `profile.snapshot` and starts planning.
+
+Payload:
+
+```json
+{
+  "profile_revision": 7
+}
+```
+
+The command is rejected if the supplied revision is not the latest ready Profile, if blocking unknowns remain, or if the workflow is not in `profile_review`.
+
+### `profile.request_changes`
+
+Requests targeted follow-up discovery instead of confirming the Profile.
+
+Payload:
+
+```json
+{
+  "topics": ["budget scope", "walking tolerance"],
+  "free_text": "The budget should exclude international flights."
+}
+```
+
+The backend returns the workflow to discovery, asks targeted questions, and emits a revised Profile snapshot when ready. This is the v1 correction path; direct JSON field edits are not supported.
+
+### `replan.request`
+
+Requests a new plan in response to a changed condition.
+
+Payload:
+
+```json
+{
+  "change_type": "weather",
+  "details": {
+    "date": "2026-10-12",
+    "condition": "heavy rain"
+  },
+  "free_text": "Keep the sunrise photography if there is a safe indoor alternative."
+}
+```
+
+Allowed `change_type` values are:
+
+- `flight_delayed`
+- `weather`
+- `attraction_closed`
+- `budget_changed`
+- `duration_changed`
+- `fatigue`
+- `party_changed`
+- `preference_changed`
+- `other`
+
+The request is validated against the current `plan_ready` state. The server retains the existing Final Trip Plan until a replacement plan reaches `final` state.
+
+### `run.cancel`
+
+Cancels active discovery, planning, or replanning work.
+
+Payload:
+
+```json
+{
+  "reason": "Traveler left the planning flow"
+}
+```
+
+Cancellation is idempotent. Partial work is not promoted to a final Profile or Final Trip Plan.
+
+### `session.close`
+
+Explicitly closes the session and releases its in-memory state. This is the only normal way to release a session before backend process restart; the MVP defines no automatic expiry or eviction.
+
+Payload:
+
+```json
+{
+  "reason": "Traveler finished"
+}
+```
+
+## Discovery question schema
+
+The `discovery.question` event contains the complete renderable question. The frontend must not infer selection rules from the prompt or option labels.
+
+| Field | Required | Meaning |
+|---|---|---|
+| `question_id` | Yes | Stable identifier for this question within the run. |
+| `prompt` | Yes | Question displayed to the traveler. |
+| `selection_mode` | Yes | `single` or `multiple`. |
+| `required` | Yes | Whether an answer is required before continuing. |
+| `options` | Yes | Ordered list of selectable options. |
+| `options[].option_id` | Yes | Stable identifier submitted in `selected_option_ids`. |
+| `options[].label` | Yes | Human-readable option label. |
+| `options[].description` | Optional | Supporting explanation for the option. |
+| `free_text_mode` | Yes | `disabled`, `optional`, `only_if_no_option`, or `required`. |
+| `free_text_placeholder` | Optional | Suggested text-field placeholder. |
+
+When `free_text_mode` is `only_if_no_option`, the client must not submit both selected options and free text. The server remains the final validator for all combinations.
+
+## Server acknowledgements and events
+
+### Command acknowledgements
+
+Every valid command receives one immediate `ack` message.
+
+#### `command.accepted`
+
+```json
+{
+  "command_id": "cmd_01J...",
+  "accepted": true,
+  "deduplicated": false,
+  "workflow_state": "discovery"
+}
+```
+
+`deduplicated: true` means the server recognized a repeated `command_id` and returned the original command result without repeating its side effect.
+
+An accepted acknowledgement means the command passed envelope and current-state validation. It does not mean that asynchronous work has completed.
+
+#### `command.rejected`
+
+```json
+{
+  "command_id": "cmd_01J...",
+  "accepted": false,
+  "code": "question_not_current",
+  "message": "The submitted question is no longer active.",
+  "retryable": true,
+  "workflow_state": "discovery",
+  "recovery": {
+    "current_question_id": "q_pace"
+  }
+}
+```
+
+Stable rejection codes include:
+
+- `invalid_envelope`
+- `unsupported_protocol_version`
+- `unsupported_message_type`
+- `session_not_found`
+- `session_expired`
+- `invalid_workflow_state`
+- `question_not_current`
+- `invalid_selection`
+- `free_text_not_allowed`
+- `profile_not_ready`
+- `profile_revision_conflict`
+- `invalid_replan_request`
+- `run_cancelled`
+- `command_id_conflict`
+
+### `session.ready`
+
+Confirms the session and run identifiers and reports the starting workflow state.
+
+Payload:
+
+```json
+{
+  "session_id": "sess_01J...",
+  "run_id": "run_01J...",
+  "workflow_state": "discovery",
+  "has_checkpoint": false
+}
+```
+
+### `discovery.question`
+
+Delivers the next renderable question. The question schema is defined above. Only one question is active at a time.
+
+### `profile.snapshot`
+
+Delivers the complete current Traveler Profile without transport fields added to the Profile object.
+
+Payload:
+
+```json
+{
+  "revision": 7,
+  "state": "ready",
+  "profile": {
+    "profile_id": "profile_01J...",
+    "trip_context": {},
+    "purpose_and_priorities": {},
+    "preferences": [],
+    "travel_style": {},
+    "hard_constraints": {},
+    "unknowns": [],
+    "assumptions": []
+  }
+}
+```
+
+Allowed Profile snapshot states are `draft`, `ready`, and `confirmed`. The object under `profile` must obey the [Traveler Profile](TRAVELER_PROFILE_SCHEMA.md) contract, including explicit unknowns and assumptions.
+
+### `profile.ready`
+
+Marks that the latest Profile snapshot is ready for traveler review. The complete Profile is delivered in the immediately preceding or same logical `profile.snapshot` revision. The frontend must use the snapshot, not reconstruct a Profile from individual answers.
+
+Payload:
+
+```json
+{
+  "profile_revision": 7,
+  "blocking_unknowns": []
+}
+```
+
+### `agent.lifecycle`
+
+Reports safe lifecycle information for a logical planning agent.
+
+Payload:
+
+```json
+{
+  "agent": "experience_designer",
+  "stage": "experience_selection",
+  "status": "completed",
+  "progress": 100,
+  "summary": "Selected experiences aligned with the confirmed profile."
+}
+```
+
+Allowed `status` values are `started`, `progressed`, `completed`, and `failed`. `progress` is an optional integer from `0` to `100`.
+
+Public agent keys are logical modules, not deployment or implementation promises:
+
+- `discovery`
+- `constraint_preference`
+- `experience_designer`
+- `mobility_logistics`
+- `cost_optimization`
+- `local_intelligence`
+- `simulation_risk`
+- `optimization`
+- `narrative_explanation`
+- `continuous_replanning`
+
+The `summary` must be safe for a traveler to read. It must not contain chain-of-thought, hidden prompts, raw provider responses, internal scores, or unreviewed personal data.
+
+### `planning.status`
+
+Reports the user-facing planning phase independently of individual agent lifecycle events.
+
+Payload:
+
+```json
+{
+  "phase": "optimization",
+  "status": "running",
+  "message": "Balancing walking load, cost, and experience fit.",
+  "progress": 65
+}
+```
+
+Allowed phases are `profile_validation`, `destination_design`, `experience_selection`, `mobility`, `cost`, `simulation`, `optimization`, `explanation`, and `replanning`. Allowed statuses are `queued`, `running`, `completed`, and `failed`.
+
+### `plan.snapshot`
+
+Delivers a complete current plan snapshot.
+
+Payload:
+
+```json
+{
+  "revision": 3,
+  "state": "draft",
+  "plan": {
+    "plan_title": "Slow Kyoto",
+    "summary": "A photography- and culture-focused itinerary.",
+    "traveler_profile_reference": "profile_01J...",
+    "trip_dates": {},
+    "destination_route": [],
+    "city_allocations": [],
+    "days": [],
+    "cost_summary": {},
+    "fit_explanation": [],
+    "tradeoffs": [],
+    "assumptions": [],
+    "warnings": [],
+    "unresolved_details": []
+  }
+}
+```
+
+Allowed states are `draft` and `final`.
+
+- A `draft` is an explicitly incomplete or still-changing planning result and must be labeled as such in the UI.
+- A `final` plan must satisfy the [Final Trip Plan](FINAL_TRIP_PLAN_SCHEMA.md) contract and its invariants.
+- The server sends full snapshots; the frontend replaces the prior snapshot for that revision rather than applying a patch.
+- During replanning, the existing final plan remains authoritative until the replacement emits `state: "final"`.
+
+### `workflow.completed`
+
+Marks the end of a run.
+
+Payload:
+
+```json
+{
+  "outcome": "final_plan_available",
+  "final_plan_revision": 3
+}
+```
+
+Allowed outcomes are `final_plan_available` and `cancelled`.
+
+### `session.expired`
+
+Reports that a requested existing session is unavailable because backend memory was lost, normally after a process restart.
+
+Payload:
+
+```json
+{
+  "reason": "backend_restart",
+  "can_start_new_session": true
+}
+```
+
+### `session.superseded`
+
+Reports to an older connection that another connection for the same session has become active. The older connection should stop sending commands and close.
+
+Payload:
+
+```json
+{
+  "replacement_run_id": "run_01J..."
+}
+```
+
+## Ordering, retries, and recovery
+
+- The server emits messages in increasing `sequence` order for a run.
+- The client must process server events in sequence order and replace snapshots only when their resource revision is newer.
+- Commands use a client-generated `command_id` that is unique within a run.
+- The server provides at-least-once-safe command handling: a duplicate command returns the original acknowledgement/result and does not repeat the side effect.
+- A reused `command_id` with different payload content is rejected with `command_id_conflict`.
+- The server does not replay missed events after a network disconnect.
+- Reconnecting with a live `session_id` starts a new `run_id` from the checkpoint described above.
+- A command for an invalid workflow state is rejected with the current `workflow_state` and the recovery information needed by the client.
+- Backend process restart invalidates every session and checkpoint. The client must offer a new-session path after `session.expired`.
+
+## Error handling
+
+Envelope validation errors that cannot be associated with a command use `kind: "error"` and a stable `code`. Command-specific validation errors use `kind: "ack"` and `type: "command.rejected"`.
+
+Errors must include:
+
+```json
+{
+  "code": "invalid_envelope",
+  "message": "payload must be an object",
+  "retryable": false
+}
+```
+
+Messages must not include stack traces, secrets, internal prompts, provider credentials, or raw third-party error bodies.
+
+## Versioning and compatibility
+
+- `protocol_version` uses `major.minor` format.
+- Incompatible envelope or lifecycle changes require a major version.
+- Additive fields and new event types should use a minor version when existing clients can safely ignore them.
+- The server rejects unsupported major versions with `unsupported_protocol_version`.
+- The existing Profile and Final Trip Plan contracts retain their own document revisions; transport revisioning must not add fields to those objects.
+
+## Contract invariants
+
+- A client cannot directly mutate a Traveler Profile or Final Trip Plan.
+- A Profile is never considered confirmed unless the matching `profile_revision` was explicitly confirmed.
+- Planning does not begin before profile confirmation.
+- A draft plan is never presented as the final plan.
+- A final plan must obey the Final Trip Plan invariants, including visible assumptions, warnings, unresolved details, and profile traceability.
+- Unknown information remains explicit; the backend must not silently fabricate missing dates, budget, party size, or constraints.
+- Internal agent state is not a public payload.
+- Events are ordered within a run but are not durable history.
+- Sessions remain in memory until explicit `session.close` or backend process restart; v1 defines no automatic TTL or eviction.
+
+## Implementation acceptance scenarios
+
+1. A new connection sends `session.start` and receives `command.accepted`, `session.ready`, and the first `discovery.question`.
+2. A single-select answer with an optional note is accepted, updates the Profile snapshot, and produces the next question.
+3. A multi-select answer is rejected when it violates the question's selection rules.
+4. A text-only answer is accepted only when the question's `free_text_mode` permits it.
+5. When the Discovery Agent decides discovery is complete, the server emits a ready Profile snapshot and `profile.ready`; it does not start planning automatically.
+6. `profile.confirm` with the current revision starts planning and produces status, safe agent lifecycle events, labeled draft snapshots, and one final plan snapshot.
+7. A profile change request returns to targeted discovery and does not accept direct field patches.
+8. A duplicate command ID receives the original result without repeating the workflow side effect.
+9. An answer for a previous question receives `question_not_current` plus the current question recovery state.
+10. A network reconnect creates a new run from the last confirmed checkpoint without replaying old events.
+11. A backend restart causes a resume attempt to emit `session.expired` rather than returning fabricated or stale state.
+12. A typed weather, delay, budget, duration, fatigue, party, or preference change request retains the existing final plan until a replacement final snapshot is ready.
