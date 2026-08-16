@@ -86,7 +86,6 @@ Every JSON frame is an envelope with this shape:
 
 ```json
 {
-  "protocol_version": "1.0",
   "message_id": "msg_01J...",
   "kind": "command",
   "type": "discovery.answer",
@@ -101,7 +100,6 @@ Every JSON frame is an envelope with this shape:
 
 | Field | Required | Meaning |
 |---|---|---|
-| `protocol_version` | Yes | Protocol version. A major-version mismatch is rejected. |
 | `message_id` | Yes | Unique identifier for this envelope. The sender creates it. |
 | `kind` | Yes | One of `command`, `ack`, `event`, or `error`. |
 | `type` | Yes | Dot-delimited message type, such as `session.start` or `plan.snapshot`. |
@@ -118,7 +116,6 @@ Unknown fields must be ignored for forward compatibility. Unknown message types 
 
 ```json
 {
-  "protocol_version": "1.0",
   "message_id": "msg_cmd_01J...",
   "kind": "command",
   "type": "discovery.answer",
@@ -138,7 +135,6 @@ Unknown fields must be ignored for forward compatibility. Unknown message types 
 
 ```json
 {
-  "protocol_version": "1.0",
   "message_id": "msg_evt_01J...",
   "kind": "event",
   "type": "discovery.question",
@@ -198,10 +194,7 @@ Payload:
 
 ```json
 {
-  "session_id": null,
-  "client_capabilities": {
-    "protocol_versions": ["1.0"]
-  }
+  "session_id": null
 }
 ```
 
@@ -382,7 +375,6 @@ An accepted acknowledgement means the command passed envelope and current-state 
 Stable rejection codes include:
 
 - `invalid_envelope`
-- `unsupported_protocol_version`
 - `unsupported_message_type`
 - `session_not_found`
 - `session_expired`
@@ -606,13 +598,9 @@ Errors must include:
 
 Messages must not include stack traces, secrets, internal prompts, provider credentials, or raw third-party error bodies.
 
-## Versioning and compatibility
+## Compatibility
 
-- `protocol_version` uses `major.minor` format.
-- Incompatible envelope or lifecycle changes require a major version.
-- Additive fields and new event types should use a minor version when existing clients can safely ignore them.
-- The server rejects unsupported major versions with `unsupported_protocol_version`.
-- The existing Profile and Final Trip Plan contracts retain their own document revisions; transport revisioning must not add fields to those objects.
+This hackathon contract has no negotiation handshake. Additive fields should remain safe for existing clients: unknown fields must be ignored, and unknown server event types must not break the connection. The existing Profile and Final Trip Plan contracts retain their own document revisions.
 
 ## Contract invariants
 

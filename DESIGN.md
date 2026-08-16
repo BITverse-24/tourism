@@ -1,5 +1,6 @@
-# UI/UX Design System & Core Journey Specification
-### *"Quiet Luxury, Liquid Intelligence"* — Desktop-First Web Application
+# Voyager — UI/UX Design System & Core Journey Specification
+
+### v1.1 — "Quiet Luxury, Liquid Intelligence" · Desktop-First Web Application · Protocol-Reconciled
 
 ---
 
@@ -7,11 +8,12 @@
 
 Voyager is not a search engine for destinations — it is a private travel consultancy powered by ten specialized reasoning agents. The interface must never look like a dashboard, a form-builder, or a booking site. It should feel like sitting across from a trusted concierge at a quiet hotel desk: unhurried, precise, warm, and confident enough to say little.
 
-Three governing principles translate this into pixels:
+Four governing principles translate this into pixels:
 
-1. **Restraint as luxury.** Colour, motion, and ornament are budgeted like a rare material — used exactly where meaning lives (a decision, a tradeoff, an agent at work) and nowhere else. Silence (negative space) is the primary design tool.
-2. **Visible intelligence, invisible machinery.** The 10-agent architecture is a strength to be felt, not a system to be exposed. The user should sense *"something considered is happening on my behalf"* — never see a spinner, a percentage, or a technical label.
-3. **Liquid continuity.** Nothing cuts. Screens don't replace each other — they pour into one another. State changes (a re-optimized itinerary, a replanned day) should look like water finding a new, lower level: smooth, inevitable, calm.
+1. **Restraint as luxury.** Colour, motion, and ornament are budgeted like a rare material — used exactly where meaning lives, nowhere else.
+2. **Visible intelligence, invisible machinery.** The 10-agent architecture is felt, not exposed. No technical labels, no percentages, no raw system keys, ever.
+3. **Liquid continuity.** Nothing cuts. Screens pour into one another; state changes look like water finding a new level.
+4. **Honesty over illusion.** The interface only ever shows what is actually known, actually confirmed, or actually final. Assumptions are labeled as assumptions. Provisional states are labeled as provisional. Nothing is implied that the backend cannot back up.
 
 ---
 
@@ -19,76 +21,63 @@ Three governing principles translate this into pixels:
 
 ### 1.1 Color System
 
-The palette tells the product's story in two families: **Bone** (paper, maps, daylight — the traveler's world) and **Ink** (dusk, depth, reasoning — the agents' world), joined by a single restrained metal, **Brass**.
-
-#### Neutral — "Bone" (primary surfaces)
+**Neutral — "Bone" (primary surfaces)**
 | Token | Hex | Usage |
 |---|---|---|
-| `bone-50` (canvas) | `#F6F3ED` | App background — warm linen white, never pure white |
-| `bone-100` (surface) | `#EFE9DE` | Cards, panels, input fields |
+| `bone-50` (canvas) | `#F6F3ED` | App background |
+| `bone-100` (surface) | `#EFE9DE` | Cards, panels, input fields, Stated profile chips |
 | `bone-200` (line) | `#DDD5C7` | Hairline borders, dividers |
-| `bone-300` (muted) | `#A89F8F` | Disabled states, placeholder text |
+| `bone-300` (muted) | `#A89F8F` | Disabled states, placeholders |
 
-#### Neutral — "Ink" (text & dark surfaces)
+**Neutral — "Ink" (text & dark surfaces)**
 | Token | Hex | Usage |
 |---|---|---|
-| `ink-900` (primary text) | `#1B1F2A` | Headlines, primary body copy — deep navy-charcoal, never pure black |
-| `ink-700` (secondary text) | `#4A5063` | Supporting copy, labels |
-| `ink-400` (tertiary text) | `#8A8FA0` | Captions, timestamps, metadata |
-| `ink-950` (agent surface) | `#12141C` | Reserved exclusively for Agent Console & "consultation" panels |
+| `ink-900` | `#1B1F2A` | Headlines, primary body copy |
+| `ink-700` | `#4A5063` | Supporting copy, labels |
+| `ink-400` | `#8A8FA0` | Captions, timestamps, metadata |
+| `ink-950` | `#12141C` | Reserved for the Consultation screen only |
 
-#### Signature Accent — "Brass" (used on <10% of any screen)
+**Signature Accent — "Brass"**
 | Token | Hex | Usage |
 |---|---|---|
-| `brass-500` (primary accent) | `#B08D57` | Primary CTA, active agent state, key numerals, the liquid progress thread |
-| `brass-200` (tint) | `#D8C39A` | Hover backgrounds, subtle highlight fills |
-| `brass-700` (pressed) | `#8C6F42` | Pressed/active states |
+| `brass-500` | `#B08D57` | Primary CTA, active agent state, Assumed-chip outline, provisional borders |
+| `brass-200` | `#D8C39A` | Hover fills, subtle highlights |
+| `brass-700` | `#8C6F42` | Pressed state |
 
-#### Signal Colors (desaturated — luxury products never shout)
+**Signal Colors** (desaturated; always paired with text/shape, never colour alone)
 | Token | Hex | Usage |
 |---|---|---|
-| `clay-500` | `#B5654A` | Fatigue, regret risk, budget pressure — warmth, not alarm |
-| `clay-100` | `#EDD9CF` | Background tint for clay signals |
-| `sage-500` | `#7A8B72` | Optimized, resolved, "improved" states |
-| `sage-100` | `#E3E7DD` | Background tint for sage signals |
+| `clay-500` / `clay-100` | `#B5654A` / `#EDD9CF` | Warnings, "worth knowing" content |
+| `sage-500` / `sage-100` | `#7A8B72` / `#E3E7DD` | Confirmed/resolved states |
 
-**Rule of thumb:** any single screen uses Bone as 80%+ of surface area, Ink for text, and Brass as the *only* saturated colour permitted to appear more than once. Clay and Sage appear only inside data/metric contexts (Simulation, Replanning), never as decoration.
-
----
+**Rule of thumb:** any single screen uses Bone as 80%+ of surface, Ink for text, Brass as the only saturated colour permitted more than once.
 
 ### 1.2 Typography
 
-| Role | Typeface | Notes |
-|---|---|---|
-| Display / Headlines | **Fraunces** (variable, optical sizing on) | High-contrast editorial serif — the "hotel signage" voice. Production equivalent: GT Sectra / Canela. |
-| UI / Body | **General Sans** (fallback: Inter) | Humanist, quiet, legible at small sizes |
-| Data / Metrics | **IBM Plex Mono**, Light/Regular only | Used only for numerals in Simulation & Cost views — gives a "fine instrument" precision without feeling technical |
+| Role | Typeface |
+|---|---|
+| Display / Headlines | **Fraunces** (variable, optical sizing) — production equivalent GT Sectra/Canela |
+| UI / Body | **General Sans** (fallback Inter) |
+| Data / Metrics | **IBM Plex Mono**, Light/Regular — used sparingly, see §3 note on Metric Dial status |
 
-**Type scale** (base 17px — luxury interfaces run slightly larger than default web for airy readability):
-
-| Token | Size / Line-height | Weight | Face |
+| Token | Size/Line-height | Weight | Face |
 |---|---|---|---|
-| `display-xl` | 56px / 62px | 400 | Fraunces |
-| `display-l` | 40px / 46px | 400 | Fraunces |
-| `heading-l` | 28px / 34px | 500 | Fraunces |
-| `heading-m` | 22px / 28px | 500 | General Sans |
-| `body-l` | 18px / 28px | 400 | General Sans |
-| `body-m` | 16px / 24px | 400 | General Sans |
-| `caption` | 13px / 18px | 500, tracked +2% | General Sans, uppercase for labels |
-| `data-l` | 32px / 36px | 300 | IBM Plex Mono |
-| `data-m` | 18px / 24px | 400 | IBM Plex Mono |
+| `display-xl` | 56/62px | 400 | Fraunces |
+| `display-l` | 40/46px | 400 | Fraunces |
+| `heading-l` | 28/34px | 500 | Fraunces |
+| `heading-m` | 22/28px | 500 | General Sans |
+| `body-l` | 18/28px | 400 | General Sans |
+| `body-m` | 16/24px | 400 | General Sans |
+| `caption` | 13/18px | 500, +2% tracking | General Sans, uppercase for labels |
+| `data-l` / `data-m` | 32/36 · 18/24px | 300/400 | IBM Plex Mono |
 
-Rules: never bold body copy for emphasis — use Brass colour or Fraunces italic instead. All-caps is reserved for `caption` labels only, always letter-spaced, never for headlines.
-
----
+Never bold body copy for emphasis — use Brass colour or Fraunces italic instead.
 
 ### 1.3 Spatial System
 
-- **Canvas:** designed at 1440px, content column max-width 1240px, centered.
-- **Margins:** 96px side margins on large desktop (≥1440px), 64px at 1200px, 32px at 1024px (minimum supported width for MVP).
-- **Grid:** 12-column, 24px gutter.
-- **Spacing scale (4px base):** `4 · 8 · 12 · 16 · 24 · 32 · 48 · 64 · 96 · 128`
-- **Breathing rule:** no primary content block sits closer than 48px to another primary block. Cards internally use 24–32px padding minimum — cramped padding is the single fastest way to look cheap.
+- Canvas 1440px, content max-width 1240px centered. Margins 96px (≥1440px) → 64px (1200px) → 32px (1024px, minimum supported width).
+- Grid: 12-column, 24px gutter. Spacing scale (4px base): `4·8·12·16·24·32·48·64·96·128`.
+- No primary block sits closer than 48px to another; card padding minimum 24–32px.
 
 ### 1.4 Shape & Elevation
 
@@ -96,73 +85,76 @@ Rules: never bold body copy for emphasis — use Brass colour or Fraunces italic
 |---|---|---|
 | `radius-s` | 8px | Inputs, chips, buttons |
 | `radius-m` | 16px | Cards, experience tiles |
-| `radius-l` | 28px | Panels, modals, the Agent Console sheet |
-
-Corners are soft but never bubbly — a rounder radius reads playful/consumer-app; this restrained curve reads considered.
-
-**Shadows** — diffused, low-opacity, large blur, near-zero spread ("resting on velvet," not "floating in space"):
+| `radius-l` | 28px | Panels, modals, Agent Console sheet |
 
 | Token | Value |
 |---|---|
 | `elevation-1` | `0 2px 8px rgba(27,31,42,0.06)` |
 | `elevation-2` | `0 8px 24px rgba(27,31,42,0.08)` |
-| `elevation-3` (modals) | `0 24px 64px rgba(27,31,42,0.16)` |
+| `elevation-3` | `0 24px 64px rgba(27,31,42,0.16)` |
 
-No hard drop shadows, no coloured shadows, no borders + shadows combined (pick one per surface).
+**Border states (new in v1.1):**
+| Token | Value | Meaning |
+|---|---|---|
+| `border-solid` | 1px `bone-200` | Confirmed / settled content |
+| `border-provisional` | 1.5px dashed `brass-500` | Draft/unconfirmed data — used whenever content has not yet arrived as `state:"final"` |
+| `border-assumed` | 1.5px dashed `brass-500` (chip context) | System-inferred, not user-confirmed |
 
 ### 1.5 Iconography & Imagery
 
-- **Icons:** single-weight line icons, 1.5px stroke, no fills, no duotone — think Linear/Notion restraint, not Material Design fullness. Used sparingly; text labels are preferred over icon-only affordances.
-- **Photography:** full-bleed, editorial travel photography (soft natural light, no oversaturated tourist-brochure colour grading) — every destination/experience card carries a photograph, never a stock icon or illustrated placeholder.
-- **No emoji, no illustrated mascots, no gradients-as-decoration.** The only permitted gradient is the Brass-to-transparent radial used in the Agent Ripple (see 2.2).
+Single-weight line icons, 1.5px stroke, no fills, no duotone. **No emoji anywhere in the product — including condition chips and quick-select controls.** Photography is full-bleed, editorial, natural light. No stock icons, no illustrated mascots, no decorative gradients (the only permitted gradient is the Brass-to-transparent radial in the Agent Ripple).
 
 ---
 
 ## 2. Motion Language — "Liquid Flow"
 
-Motion is Sahyatri's second language after typography. It exists to communicate one thing consistently: *reasoning is happening, and it is unhurried and trustworthy.*
-
 ### 2.1 Easing & Duration Tokens
 
 | Token | Curve | Duration | Used for |
 |---|---|---|---|
-| `ease-flow` | `cubic-bezier(0.45, 0, 0.15, 1)` | 320–420ms | Primary transitions between screens/panels |
-| `ease-settle` | `cubic-bezier(0.16, 1, 0.3, 1)` | 400–600ms | Elements arriving into view (cards, results) |
-| `ease-micro` | `cubic-bezier(0.4, 0, 0.2, 1)` | 120–180ms | Hover, press, toggle |
-| `ease-ripple` | sinusoidal, looping | 2400–4000ms | Ambient "agent thinking" states |
-| `ease-pour` | `cubic-bezier(0.65, 0, 0.35, 1)` | 600–900ms | Card → detail expansion, itinerary morphs |
+| `ease-flow` | `cubic-bezier(0.45,0,0.15,1)` | 320–420ms | Primary screen/panel transitions |
+| `ease-settle` | `cubic-bezier(0.16,1,0.3,1)` | 400–600ms | Elements arriving into view |
+| `ease-micro` | `cubic-bezier(0.4,0,0.2,1)` | 120–180ms | Hover, press, toggle |
+| `ease-ripple` | sinusoidal, looping | 2400–4000ms | Ambient "agent active" states, indeterminate progress |
+| `ease-pour` | `cubic-bezier(0.65,0,0.35,1)` | 600–900ms | Card→detail expansion, itinerary recompose |
 
-**Global rule:** nothing on screen moves faster than 100ms or slower than 900ms except ambient loops. No bounce, no spring overshoot, no elastic easing anywhere — overshoot reads playful/cheap; this product only ever *settles*.
+No overshoot, no bounce, no elastic easing anywhere. Nothing moves faster than 100ms or slower than 900ms except ambient loops.
 
 ### 2.2 Signature Interactions
 
-These three motifs should recur everywhere and are what make the product feel designed rather than assembled:
+**① The Liquid Thread — indeterminate.** A 2px Brass line with a soft glow drifts continuously along its channel (`ease-ripple`); it never fills toward a target and never implies a known question count or percentage. Used wherever an interview or process is "in progress" with no knowable length: Discovery, Consultation, Replanning.
 
-**① The Liquid Thread** — replaces every progress bar in the product. A 2px Brass line runs through a channel and fills like mercury/liquid rather than in discrete steps; it has a soft leading glow and gently overshoots-and-settles at completion (a single, restrained wobble, not a bounce). Used in: Discovery question progress, itinerary generation, simulation runs, replanning.
+**② The Agent Ripple.** A soft radial pulse, `brass-500 → transparent`, looping on `ease-ripple`, always paired with exactly one line of server-provided `summary` text beneath it (never a raw key, never a percentage — see §6). **Carries a 12-second soft timeout**: past that point it swaps to a steady, non-looping fallback line plus a **Try again** action rather than looping indefinitely.
 
-**② The Agent Ripple** — replaces every spinner/loader. A soft radial pulse in `brass-500 → transparent`, like a drop of ink released in water, emanating from a fixed point (e.g., the Agent Console icon, or the centre of a card being re-optimized). Loops on `ease-ripple`. Never accompanied by a percentage or technical label — only a single line of considered copy beneath it (e.g. *"Consulting logistics and weather for tomorrow…"*).
+**③ Morph & Pour.** The primary navigation transition — a card expands in place, background defocuses (8px blur, `ease-flow`), new content fades up 8px staggered 40ms/element on `ease-settle`. Reversed exactly for "back." This is also now the **Recompose** transition: when a replanned itinerary arrives as a new final snapshot, the entire Day Canvas performs a full Morph & Pour re-render rather than any item-level diff animation (see §5.9 — v1.1 no longer guarantees old-to-new pairing).
 
-**③ Morph & Pour** — the primary navigation transition. A card does not "navigate" to a detail page; its bounding box expands in place, its image cross-fades into the new hero image, background content behind it defocuses (8px gaussian blur, `ease-flow`), and new content fades up 8px below its final position on `ease-settle`, staggered 40ms per element. Reversing this (closing a detail view) exactly retraces the motion — a true liquid return, not a hard "back."
-
-**Diff / Change motion:** When Replanning alters the itinerary, changed items receive a 1px Brass outline that "breathes" once (opacity 0→40%→0 over 1200ms) rather than a badge or highlight colour — a single quiet pulse announces "this changed," then recedes to full calm.
+**Provisional treatment (replaces the v1.0 "diff breathing" motif):** content that has arrived as a draft, not yet `state:"final"`, is rendered with `border-provisional` (dashed Brass) and a `caption` label reading *"Provisional — not yet confirmed."* No animation is used to claim a change happened until the confirmed snapshot arrives — the border alone communicates "not settled yet."
 
 ---
 
 ## 3. Core Component Library
 
-| Component | Description |
-|---|---|
-| **Button — Primary** | Bone text on Ink fill for the rare "committing" action (e.g. "Begin the Interview," "Confirm Itinerary"); Brass fill reserved only for the single most important action per screen. Radius `s`. 44px height. |
-| **Button — Ghost** | Ink text, no fill, hairline `bone-200` border. Default for all secondary actions — most buttons in the product should be ghost buttons; solid fills are rationed. |
-| **Choice Chip** | Used in Discovery for multi/single-select answers. Bone-100 fill, hairline border; selected state = Ink fill, Bone text, no border. No checkmarks — the fill inversion *is* the confirmation. |
-| **Slider (Budget/Pace)** | Thin 2px track in `bone-200`, filled portion in Brass, a single circular handle (16px) with `elevation-1`. Value shown in `data-m` mono above the handle, not in a floating tooltip. |
-| **Experience Card** | Full-bleed photo (4:3), radius `m`, `elevation-1`. On hover: `ease-micro` scale to 1.015 + `elevation-2`, image very slightly zooms (1.03). Caption overlay uses a bottom gradient scrim, never a solid bar. |
-| **Traveler Profile Chip Rail** | Horizontal row of small pill tokens (e.g. "Photography-led," "Low crowd tolerance") that quietly accrue as Discovery progresses — each new chip enters via `ease-settle`, never pops. |
-| **Metric Dial** | Replaces bar/progress charts for Simulation metrics (fatigue, preference-fit, regret risk). A thin circular arc, styled like a fine wristwatch dial, Ink track with Brass/Clay/Sage fill depending on signal type. Value in `data-l` mono at centre. |
-| **Tradeoff Card** | Two-column card: left = "removes/changes," right = "gains/saves," divided by a hairline, each side headed by a mono delta number (e.g. `−₹12,000` / `+35 min`). No colour-coding red/green — deltas are always Ink, framed as *information*, not judgment. |
-| **Agent Console Rail** | See Section 6. |
-| **Toast / Narrative Note** | Small Fraunces-italic annotation card, Bone-100 fill, appears anchored beside the decision it explains (e.g. beside a hotel choice: *"This hotel costs ₹2,800 more per night, but reduces daily transit by 46 minutes."*) — this is the Narrative & Explanation Agent's voice made visual. |
-| **Disruption Input Bar** | A single elegant text field, centred, Fraunces placeholder text ("What's changed?"), used for Replanning triggers — deliberately looks like a concierge note-taking pad, not a chat/search bar. |
+| Component | Description | Status |
+|---|---|---|
+| **Button — Primary** | Ink fill / Bone text, or Brass fill for the single most important action per screen. `radius-s`, 44px height. | Active |
+| **Button — Ghost** | Ink text, hairline border, no fill. Default for secondary actions. | Active |
+| **Choice Chip** | Single/multi-select, `bone-100` fill → Ink fill inverted when selected. **This is the only guaranteed v1 interaction control** for Discovery and Replanning condition intake. | Active |
+| **Optional Note Field** | Single-line text input beneath a Choice Chip group, behavior driven entirely by server-sent mode (`disabled` / `optional` / `only_if_no_option` / `required`). Never styled as chat. | Active — new |
+| **Profile Chip — Stated** | Solid `bone-100` fill, Ink text. Represents a user-confirmed preference. | Active — new |
+| **Profile Chip — Assumed** | Same shape, `border-assumed` (dashed Brass), small "assumed" caption on hover/tap. Represents system inference. | Active — new |
+| **Experience Card** | Full-bleed 4:3 photo, `radius-m`, `elevation-1`; hover scales 1.015 + `elevation-2`. | Active |
+| **Meal Card** | Same visual family, 2:3 photo, no time-slot emphasis. | Active — new |
+| **Movement Connector** | No photo; thin horizontal line + icon + mode + approximate duration; deliberately lower visual weight than any card. | Active — new |
+| **Rest Block** | `bone-100` fill, no photo, centred caption (e.g. *"Rest — no plans until 4:00 PM"*); styled as an intentional pause. | Active — new |
+| **Fixed/Flexible Tag** | Small `caption` pill on any itinerary item indicating timing rigidity. | Active — new |
+| **Tradeoff Card** | Two-column card, deltas in `data-m` mono, no red/green judgment colour. | Active |
+| **Plan Detail Accordion** | Closed-by-default sections: Recommended stay · Cost scope · Why this fits you · Tradeoffs · Assumptions we made · Worth knowing · Still to confirm. "Worth knowing" auto-expands if populated. | Active — new |
+| **Narrative Note** | Fraunces-italic annotation card, Brass left-rule, anchored beside the decision it explains. Always sourced from server narrative content. | Active |
+| **Agent Console Rail** | See §6. | Active |
+| **Slider** | Numeric range control. | **Deferred** — no protocol support for min/max/step; not used anywhere in v1.1 |
+| **Map-pin Picker** | Coordinate selection. | **Deferred** — same reason |
+| **Metric Dial** | Circular gauge for a scored value. | **Defined, unused in v1.1** — reintroduce only if a future `simulation.summary` / `experience_insights` contract ships user-safe scores |
+| **Disabled Control** | Any control at 40% opacity, `cursor:not-allowed`, no colour change, shown while workflow is busy. | Active — new |
 
 ---
 
@@ -170,359 +162,355 @@ These three motifs should recur everywhere and are what make the product feel de
 
 ```
 ARRIVAL
+   ↓  session.start
+DISCOVERY            (workflow: discovery)
+   ↓  discovery complete (agent-decided, no fixed question count)
+PROFILE REVIEW        (workflow: profile_review)
+   ↓  user confirms via "Confirm Profile"
+CONSULTATION           (workflow: planning — includes simulation as a sub-phase)
+   ↓  plan.snapshot { state: "final" }
+ITINERARY — TRIP OVERVIEW    (workflow: plan_ready)
    ↓
-DISCOVERY  (adaptive interview → Traveler Profile forms live)
-   ↓
-ITINERARY — TRIP OVERVIEW  (city allocation, map)
-   ↓
-ITINERARY — DAY / CITY CANVAS  (sequenced experiences)
-   ↓  (user opens a card, or system proposes)
+ITINERARY — DAY / CITY CANVAS
+   ↓ (open a card)
 ITINERARY — EXPERIENCE DETAIL
-   ↓
-SIMULATION — THE CONSULTATION  (agents evaluate silently)
-   ↓
-SIMULATION — BEFORE / AFTER  (tradeoffs surfaced, user accepts)
-   ↓
-[itinerary is now "live" — user can return to it anytime]
    ↓ (a condition changes)
-REPLANNING — DISRUPTION INTAKE
-   ↓
-REPLANNING — ALTERNATIVES & RESOLUTION
-   ↓
-back to ITINERARY (updated, changes gently pulsed)
+REPLANNING — DISRUPTION INTAKE    (workflow: replanning)
+   ↓  quiet in-place "Replanning…" state, existing plan stays authoritative
+   ↓  new plan.snapshot { state: "final" } arrives
+ITINERARY — DAY CANVAS (recomposed via Morph & Pour, narrative banner explains the change)
 ```
 
-A persistent top bar (72px) carries: wordmark left (Fraunces, "Sahyatri," letter-spaced), a quiet phase indicator centre (`caption` style — "Discovery" / "Itinerary" / "Simulation" / "Replanning," current phase in Brass, others in `ink-400`), and the Agent Console toggle + traveler avatar right.
+**Workflow state → phase indicator mapping** (top bar, `caption` style, current phase in Brass):
+
+| Protocol state | Phase label |
+|---|---|
+| `discovery` | Discovery |
+| `profile_review` | Review your profile |
+| `planning` | Consultation |
+| `plan_ready` | Itinerary |
+| `replanning` | Replanning |
+| `expired` / `cancelled` | *(phase bar hidden — recovery screen shown, §7)* |
 
 ---
 
 ## 5. Screen Specifications
 
-### 5.1 Arrival (Gateway)
+### 5.1 Arrival
 
-**Purpose:** Set tone before any form appears. A luxury consultancy never opens with a blank input field.
-
-**Layout:**
-```
-┌──────────────────────────────────────────────┐
-│                                                │
-│         [full-bleed, slow Ken-Burns           │
-│          photograph — dusk, a quiet            │
-│          departures hall or coastal road]      │
-│                                                │
-│              "Where shall we begin?"           │
-│                 (display-xl, Bone text          │
-│                  over scrim)                   │
-│                                                │
-│         [Begin the Interview] (Brass button)   │
-│                                                │
-└──────────────────────────────────────────────┘
-```
-- Background photo has a very slow (40s loop) 1.0→1.04 scale drift — motion so slow it registers as stillness, not animation.
-- Single CTA only. No pricing, no feature list, no navigation — arrival is a threshold, not a landing page.
-- On click: photo defocuses (`ease-flow`, 8px blur) and dims to Ink as the Discovery panel pours up from below (`ease-pour`).
+Unchanged. Full-bleed slow-drift photograph (40s loop, 1.0→1.04 scale), single headline (*"Where shall we begin?"*), single Brass CTA (*"Begin the Interview"*). Dispatches `session.start`. On click: photo defocuses and dims as the Discovery panel pours up (`ease-pour`).
 
 ---
 
 ### 5.2 Discovery — Adaptive Interview
 
-**Purpose:** Agent 1 (Discovery Agent) builds the Traveler Profile via one considered question at a time — never a long form.
-
-**Layout (two-zone, asymmetric 65/35):**
+**Layout (65/35 asymmetric):**
 ```
 ┌───────────────────────────────┬────────────────┐
-│                                │                 │
-│   Liquid Thread (progress)     │  Traveler       │
-│   ─────────●───────────────    │  Profile        │
-│                                │  (forming)      │
-│   "Estimated budget: ₹1.8L.    │                 │
-│    What matters more to you?"  │  ○ (empty       │
-│         (heading-l, Fraunces)  │    silhouette   │
-│                                │    until first   │
-│   ◯ Better hotels               │    answer)      │
-│   ◯ Better food                 │                 │
-│   ◯ More cities                 │  [chips accrue  │
-│   ◯ More shopping               │   here, one at  │
-│                                │   a time]        │
-│              [Continue →]      │                 │
-│                                │                 │
+│  Liquid Thread (indeterminate   │  Traveler       │
+│  drift, no fill target)          │  Profile        │
+│                                 │  (forming)      │
+│   [Server-authored question,      │                 │
+│    heading-l Fraunces]             │  [Stated chips  │
+│                                 │   solid fill]   │
+│   ◯ Choice Chip                  │  [Assumed chips │
+│   ◯ Choice Chip                  │   dashed brass] │
+│   ◯ Choice Chip   (single or       │                 │
+│      multi per selection_mode)      │                 │
+│                                 │                 │
+│   [Optional note field —           │                 │
+│    shown/required per server         │                 │
+│    mode, see table below]            │                 │
+│                                 │                 │
+│              [Continue →]        │                 │
 └───────────────────────────────┴────────────────┘
 ```
-- **Left zone (65%):** one question, presented as a Fraunces headline, answered via Choice Chips, a Slider, or a minimal map-pin picker depending on question type. Only one interaction pattern on screen at a time.
-- **Right zone (35%, `bone-100` fill):** the **Traveler Profile Chip Rail**, building silently and in real time as a quiet reassurance — *the system is already listening.* Between questions, a very brief (600ms) Agent Ripple appears here, with a single line of Narrative Note copy (*"Noting a preference for culture over nightlife…"*) before the next question renders — this is the adaptive branching made visible without ever saying "processing."
-- **Progress:** the Liquid Thread sits above the question, unlabeled — no "Question 4 of 12." Luxury interviews don't announce their own length.
-- **Transition out:** on final question, the right-panel profile silhouette "completes" with a slow cross-fade to a full profile summary card, then the whole screen performs a Morph & Pour into Trip Overview, with an Agent Ripple + the copy *"Composing your itinerary…"* bridging the two (typically 2–4s, never faked shorter than the actual generation).
+- **Only Choice Chips + optional note** are guaranteed controls. Any question requiring a numeric range (e.g. budget) is pre-bucketed into chips server-side (e.g. *Under ₹1L · ₹1–2L · ₹2–3L · Flexible*).
+- **Optional note field**, four server-controlled modes:
+
+| Mode | Behavior |
+|---|---|
+| `disabled` | Not rendered |
+| `optional` | Visible, can accompany selected chips |
+| `only_if_no_option` | Visible only while nothing is selected; disables the moment a chip is chosen |
+| `required` | Visible; `Continue` disabled until filled |
+
+- **Right panel** — Profile Chip Rail, built *exclusively* from `profile.snapshot`, never from local answer tracking. Stated vs. Assumed chip styling (§3) makes the system's confidence visible at every step.
+- Between questions: a brief (≤600ms) Agent Ripple with server `summary` text bridges to the next question — this is the adaptive branching made visible, without claiming a known progress amount.
+- Discovery ends when the **server** signals completion (`workflow → profile_review`) — there is no client-side "final question."
 
 ---
 
-### 5.3 Itinerary — Trip Overview
+### 5.3 Profile Review *(new gate — required before planning begins)*
 
-**Purpose:** Trip-level optimization output — city allocation, ordering, and the overall shape of the journey (Section 3 of the source spec) — before descending into day-level detail.
-
-**Layout:**
 ```
 ┌────────────────────────────────────────────────┐
-│  "Your Japan, in eleven days."  (display-l)      │
+│   "Here's what we've understood."  (heading-l)     │
 │                                                  │
-│  ┌──────────────────────────────────────────┐  │
-│  │  Tokyo ████████  Kyoto ██████  Osaka ████  │  │  ← horizontal city
-│  │  4 days           3 days        2 days     │  │    allocation bar,
-│  │  Hiroshima █                                │  │    Brass-tinted
-│  │  1 day                                      │  │    segments, hairline
-│  └──────────────────────────────────────────┘  │    dividers only
+│   Grouped by theme — Pace & Comfort · Interests ·   │
+│   Constraints — each line a Stated or Assumed chip.  │
 │                                                  │
-│   [subtle line map — muted Bone/Ink cartography, │
-│    not a Google-Maps-style colour map — showing  │
-│    the route between cities as a single hand-     │
-│    drawn-feeling Brass line]                      │
+│   Unknowns stated plainly:                          │
+│   "We don't yet know your walking tolerance —        │
+│    we'll assume moderate unless you tell us."         │
 │                                                  │
-│   Trip essentials (right rail, quiet):            │
-│   Budget · Pace · Comfort priorities (from        │
-│   Traveler Profile, shown as small caption text)  │
-│                                                  │
-│              [Review the full itinerary →]        │
+│        [Confirm Profile]  (Brass, primary)           │
+│        [Request changes]  (ghost)                      │
 └────────────────────────────────────────────────┘
 ```
-- The city-allocation bar is the single most important object on this screen — it should feel like a boarding pass or a fine timetable, not a Gantt chart. Segment widths are proportional to day-count; tapping a segment performs a Morph & Pour directly into that city's Day/City Canvas.
-- Map styling: custom muted line-art cartography (Bone base, Ink coastlines, single Brass route line) — never an embedded default Maps widget, which would break the material language instantly.
+- **No itinerary generation begins until "Confirm Profile" is pressed.** This is a hard gate, matching the protocol's required sequence.
+- "Request changes" reopens a scoped, topic-specific Choice Chip interaction (reusing the Discovery component) and dispatches `profile.request_changes`; on completion, returns to an updated Profile Review, not straight to planning.
+- On confirm: Morph & Pour into the Consultation screen.
 
 ---
 
-### 5.4 Itinerary — Day / City Canvas
+### 5.4 Consultation (Simulation, as a planning sub-phase)
 
-**Purpose:** City-level optimization output — sequenced experiences within a day (Section 3, city-level).
+**The one screen that shifts into the Ink palette** (`ink-950` background) — signals "the concierge has stepped away to consult":
 
-**Layout:**
+```
+┌────────────────────────────────────────────────┐
+│  [ink-950, full viewport]                          │
+│                                                  │
+│         (Agent Ripple, centred, large,              │
+│          12s soft timeout)                           │
+│                                                  │
+│      [server `summary` text, body-l, Bone,           │
+│       centred — e.g. "Consulting on comfort           │
+│       and feasibility…"]                              │
+└────────────────────────────────────────────────┘
+```
+- Numeric `progress` is **never rendered**. Raw agent keys and phase names (`mobility_logistics`, `experience_selection`, `simulation`) are **never shown** — only the mapped plain-language line (§6).
+- If the Ripple's 12s timeout is reached with no new event, it swaps to a steady fallback line + **Try again**, without disappearing.
+- On `plan.snapshot{state:"final"}`: slow `ease-flow` fade from Ink back to Bone as the Tradeoff summary (§5.5) pours in.
+
+---
+
+### 5.5 A Calmer Version of Your Trip (formerly "Before/After")
+
+**No numeric metrics** — the current contract excludes simulation internals, so this screen is now built entirely from the plan's `tradeoffs` / `fit_explanation` content:
+
+```
+┌────────────────────────────────────────────────┐
+│   "A calmer version of your trip."  (heading-l)     │
+│                                                  │
+│   [Tradeoff Cards, vertical stack]                    │
+│   "Replacing the central hotel with one 10 min         │
+│    farther saves ₹12,000 and adds 35 min daily          │
+│    transit."                                              │
+│                                                  │
+│        [View your itinerary →]  (Brass)               │
+└────────────────────────────────────────────────┘
+```
+"View your itinerary" is **local navigation only** — there is no `plan.accept` command; a plan is already final the instant its snapshot arrived. The button never implies it is "committing" anything.
+
+---
+
+### 5.6 Itinerary — Trip Overview
+
+```
+┌────────────────────────────────────────────────┐
+│  "Your Japan, in eleven days."  (display-l)          │
+│                                                  │
+│  [City allocation bar — Brass-tinted proportional       │
+│   segments, hairline dividers, tap → Day Canvas]           │
+│                                                  │
+│  [Muted line-art cartography — Bone/Ink, single           │
+│   Brass route line]                                        │
+│                                                  │
+│  Trip essentials (right rail, quiet captions)                │
+│                                                  │
+│  [Plan Detail accordion — closed by default,                │
+│   "Worth knowing" auto-expanded if populated]:                │
+│     Recommended stay                                          │
+│     What's included / not included                             │
+│     Why this fits you                                            │
+│     Tradeoffs                                                     │
+│     Assumptions we made                                            │
+│     Worth knowing                                                   │
+│     Still to confirm                                                  │
+│                                                  │
+│   "Want something different?"  (ghost — routes into           │
+│    Replanning with change_type: preference_changed)              │
+└────────────────────────────────────────────────┘
+```
+Language throughout avoids any implication that lodging or transport is booked — always "recommended" / "suggested," never "reserved."
+
+---
+
+### 5.7 Itinerary — Day / City Canvas
+
 ```
 ┌───────────────┬──────────────────────────────┐
-│  Day tabs      │   Day 2 · Kyoto                │
-│  (vertical,    │   "A morning among shrines,     │
-│  left rail,    │    an afternoon of quiet tea."  │
-│  minimal —     │        (heading-m, Fraunces      │
-│  Day 1..4,     │         italic subhead)          │
-│  current in    │                                  │
-│  Brass, rest   │   06:00  [Experience Card]        │
-│  in ink-400)   │            Sunrise Photography    │
-│                │            at Fushimi Inari        │
-│                │   ─────────────────────────────   │
-│                │   09:30  [Experience Card]        │
-│                │            Breakfast, Nishiki      │
-│                │   ─────────────────────────────   │
-│                │   13:00  [Experience Card]         │
-│                │            ...                     │
+│  Day tabs       │   Day 2 · Kyoto                  │
+│  (vertical,      │   "A morning among shrines…"       │
+│  minimal)         │                                    │
+│                 │   06:00  [Experience Card] [Fixed]    │
+│                 │   ───────────────────────────────      │
+│                 │   08:15  [Movement Connector —           │
+│                 │           walk, ~15 min]                   │
+│                 │   ───────────────────────────────          │
+│                 │   09:30  [Meal Card] [Flexible]              │
+│                 │   ───────────────────────────────              │
+│                 │   11:00  [Rest Block — "no plans                │
+│                 │           until 4:00 PM"]                          │
 └───────────────┴──────────────────────────────┘
 ```
-- Timeline uses a thin vertical Brass connecting line between cards (echoing the Liquid Thread) rather than a rigid calendar grid — reinforces "flow," not "schedule."
-- Each Experience Card shows time, photo, name, and one `caption`-style tag (e.g. "Photography · Low crowd"). No dense metadata on the canvas itself — depth lives one tap away.
-- A slim `elevation-1` floating summary strip pins to the bottom of the viewport on scroll: walking distance today, estimated cost, one-line fatigue read-out (mono numerals, quiet) — always visible, never intrusive.
+All four item types (`experience`, `meal`, `movement`, `rest`) now have explicit, intentional presentation — a rest block is a designed moment, not empty space. Fixed/Flexible tags appear wherever the plan indicates timing rigidity.
+
+A floating `elevation-1` summary strip pins to the bottom on scroll (distance, cost, one-line comfort read) — quiet, always visible.
 
 ---
 
-### 5.5 Itinerary — Experience Detail
+### 5.8 Itinerary — Experience Detail
 
-**Purpose:** The atomic unit of the product (per the Experience Schema) made tangible — and where the Narrative & Explanation Agent's voice appears directly.
-
-**Layout:** full-width Morph & Pour expansion from the card:
 ```
 ┌────────────────────────────────────────────────┐
-│  [full-bleed hero photograph, 40vh]              │
+│  [full-bleed hero photograph, 40vh]                  │
 │                                                  │
-│   Sunrise Photography at Fushimi Inari            │
-│   (display-l)                                    │
+│   Sunrise Photography at Fushimi Inari                  │
+│   06:00–08:00 · Fushimi, Kyoto · Free                      │
 │                                                  │
-│   06:00 – 08:00 · Fushimi, Kyoto · Free           │
-│   (caption row, ink-400)                          │
+│   [Narrative Note — the entire explanatory content       │
+│    of this screen, sourced from the plan's fit             │
+│    explanation / tradeoff content]                           │
+│   "Included for its regret score — travelers who              │
+│    skip this consistently name it their biggest miss."         │
 │                                                  │
-│   [Narrative Note — Fraunces italic, brass        │
-│    left-rule]                                     │
-│   "Included for its regret score — travelers      │
-│    who skip this consistently name it their        │
-│    biggest miss."                                  │
-│                                                  │
-│   [Metric Dials, small, inline]:                   │
-│   Walking intensity ● Crowd level ● Authenticity   │
-│                                                  │
-│   [Swap this experience]  (ghost button)           │
+│   [Swap this experience]  (ghost)                           │
 └────────────────────────────────────────────────┘
 ```
-- This is the only place raw schema attributes (`regret_score`, `crowd_level`, `authenticity`) surface — always reframed in the Narrative Agent's voice first, with Metric Dials as secondary, optional detail.
-- "Swap this experience" opens a small drawer of 2–3 alternatives from the Experience Designer Agent, presented as a horizontal card row — never a long list.
+Raw metric dials (regret score, crowd level, authenticity, walking intensity) are **removed** — not currently exposed by the Final Trip Plan schema. The Narrative Note carries the full explanatory weight instead.
 
 ---
 
-### 5.6 Simulation — The Consultation
+### 5.9 Replanning — Disruption Intake
 
-**Purpose:** Visualize Agents 7 & 8 (Simulation & Risk, Optimization) doing their work — the emotional high point where "agentic" becomes felt, not explained.
-
-**Layout — the one screen permitted to shift into the Ink palette**, signalling a mode-change ("the concierge has stepped away to consult"):
 ```
 ┌────────────────────────────────────────────────┐
-│  [ink-950 background, full viewport]              │
+│         "What's changed?"  (heading-l)                │
 │                                                  │
-│         (Agent Ripple, centred, large,            │
-│          Brass → transparent, slow loop)           │
+│   [Weather]  [Flight delay]  [Attraction closed]         │
+│   [Budget]   [Trip length]   [Fatigue]  [Other]              │
+│   (single-weight line-icon chips — no emoji)                    │
 │                                                  │
-│      "Simulating fatigue, cost, and crowds        │
-│       across your eleven days…"                    │
-│           (body-l, Bone text, centred)             │
+│   Optional note — visible once a chip is chosen,                  │
+│   required only when "Other" is selected                              │
 │                                                  │
-│   [as each pass completes, a single word          │
-│    fades in beneath, left to right, mono caps,    │
-│    tracked wide: FEASIBILITY · BUDGET · COMFORT]   │
+│              [Replan →]  (Brass)                          │
 └────────────────────────────────────────────────┘
 ```
-- Duration matches real computation time; never artificially shortened, but capped with graceful ambient looping if the backend takes longer than ~4s.
-- No progress percentage, ever. The completing words are the only feedback the user needs.
-- On completion, the whole screen performs a slow `ease-flow` fade from Ink back to Bone as the Before/After view pours in — literally "the lights coming back up."
+Typed `change_type` chips are primary; free text is secondary context, matching the required command shape. "Other" is the only path where text becomes mandatory (the backend needs *some* signal to reason from).
 
 ---
 
-### 5.7 Simulation — Before / After Tradeoffs
+### 5.10 Replanning — In Progress & Resolution
 
-**Purpose:** Present the optimizer's output honestly, per the source spec's exact example (walking 14.2→8.1 km/day, preference fit 78→87, etc.), using explicit tradeoff language rather than a verdict.
-
-**Layout:**
-```
-┌───────────────────┬───────────────────┐
-│   BEFORE            │   AFTER              │
-│  (caption, ink-400)  │  (caption, brass-500) │
-│                     │                     │
-│   Walking  14.2 km   │   Walking   8.1 km    │
-│   Fit      78/100    │   Fit       87/100    │
-│   Fatigue  High       │   Fatigue   Low        │
-│   Budget   ₹1.87L     │   Budget    ₹1.82L     │
-│   Regret   18%         │   Regret    11%        │
-│   (all in Metric Dials,│   (Metric Dials)        │
-│    Clay-tinted where    │   Sage-tinted where     │
-│    elevated)             │   improved)              │
-├───────────────────┴───────────────────┤
-│  Tradeoff Cards (horizontal scroll):     │
-│  [Replacing the central hotel with one   │
-│   10 min farther saves ₹12,000 but adds  │
-│   35 min daily transit.]                  │
-│  [ ... ]                                  │
-├──────────────────────────────────────────┤
-│        [Accept this itinerary]  (Brass)   │
-│        [Adjust priorities]  (ghost)        │
-└──────────────────────────────────────────┘
-```
-- The Before column is deliberately quieter (lower contrast, `ink-400` numerals) so the eye naturally settles on After — without using red/green judgment colour, only weight and contrast.
-- "Adjust priorities" returns the user to a lightweight re-weighting of their Traveler Profile sliders (not the full Discovery interview) and re-runs a shorter Consultation pass.
-
----
-
-### 5.8 Replanning — Disruption Intake
-
-**Purpose:** Agent 10 entry point — handling both real disruptions (rain, delay) and "what if" exploration, per the source spec.
-
-**Layout:**
 ```
 ┌────────────────────────────────────────────────┐
+│  [existing Day Canvas — fully visible, unchanged,      │
+│   remains authoritative]                                 │
 │                                                  │
-│         "What's changed?"                        │
-│           (heading-l, Fraunces italic)             │
-│                                                  │
-│   ┌────────────────────────────────────────┐   │
-│   │  Heavy rain expected tomorrow             │   │  ← Disruption
-│   └────────────────────────────────────────┘   │    Input Bar
-│                                                  │
-│   Quick conditions (ghost chips):                  │
-│   ⛅ Weather change  ✈ Flight delay                │
-│   🕒 Trip shortened   ₹ Budget change               │
-│   (icons minimal, single line-weight)              │
-│                                                  │
-│              [Replan →]  (Brass button)            │
+│  ┌────────────────────────────────────────┐         │
+│  │  ○ Replanning your trip…  (small Agent      │         │
+│  │    Ripple, banner pinned above canvas)       │         │
+│  └────────────────────────────────────────┘         │
 └────────────────────────────────────────────────┘
 ```
-- Freeform text is primary (matches the spec's natural-language trigger examples); quick-chips are a secondary accelerant, not the default path — reinforces the "concierge note-taking," not "support ticket," feeling.
-- On submit: Morph & Pour directly into the itinerary view with affected items already breathing (see 2.2 diff motion) while an Agent Ripple runs quietly in the Agent Console rail (not full-screen this time — a disruption is smaller than a full Consultation).
+- The current plan **stays fully visible and authoritative** throughout — no items are marked as changed, moved, or removed before a new final snapshot exists, since the protocol provides no stable IDs to support a trustworthy diff.
+- If the server sends an interim/draft snapshot, it renders with `border-provisional` (dashed Brass) and the caption *"Provisional — not yet confirmed."*
+- On `plan.snapshot{state:"final"}`: the Day Canvas performs a full **Recompose** (Morph & Pour across the whole canvas), followed by a single Narrative Note banner at the top carrying the server's own plain-language summary of the change — e.g. *"Because of tomorrow's rain, we moved your afternoon indoors."*
 
 ---
 
-### 5.9 Replanning — Alternatives & Resolution
+## 6. Agent Console — Formal Mapping
 
-**Purpose:** Show what changed, why, and what replaced it — closing the loop back into the live Itinerary.
-
-**Layout:**
-```
-┌────────────────────────────────────────────────┐
-│   "Because of tomorrow's rain…"  (heading-m)      │
-│                                                  │
-│   Affected (2)                                    │
-│   ┌─────────────────────────────────────────┐   │
-│   │ [struck-through outline, Clay hairline]   │   │
-│   │  Arashiyama Bamboo Walk — outdoor, high    │   │
-│   │  rain sensitivity                          │   │
-│   └─────────────────────────────────────────┘   │
-│                    ↓  (thin Brass connecting line) │
-│   ┌─────────────────────────────────────────┐   │
-│   │ [new card, entering via ease-settle]       │   │
-│   │  Nishiki Market + Tea Ceremony — indoor     │   │
-│   │  alternative, preserves food + culture      │   │
-│   │  preference fit                             │   │
-│   └─────────────────────────────────────────┘   │
-│                                                  │
-│   Narrative Note: "This keeps your afternoon      │
-│   photography goals intact — we moved the walk    │
-│   to Day 4, which stays dry."                       │
-│                                                  │
-│        [Accept]  (Brass)   [See other options]     │
-└────────────────────────────────────────────────┘
-```
-- The old→new pairing is shown explicitly rather than just presenting a new list — this is what makes replanning feel considered rather than regenerated from scratch, and it directly reflects the spec's requirement to *"preserve high-value experiences and avoid unnecessary changes to unaffected parts of the trip."*
-- On Accept: single Morph & Pour back to the Day/City Canvas, with the resolved items receiving one final breathing pulse before settling to normal state permanently.
-
----
-
-## 6. The Agent Console (Persistent Signature Element)
-
-A slim 4px Brass-on-Ink rail, collapsed by default, fixed to the right viewport edge across every screen post-Discovery. On hover/click it expands into a 320px panel:
+Persistent 4px Brass-on-Ink rail, right edge, collapsed by default; expands to a 320px panel:
 
 ```
 ┌─────────────────────┐
-│  In consultation      │
-│                        │
-│  ● Mobility & Logistics │  ← currently active, Agent Ripple
-│    Checking transfer    │    dot beside its name
-│    times…                │
-│                        │
-│  ○ Cost Optimization    │  ← idle, ink-400, no ripple
-│  ○ Local Intelligence    │
-│  ○ Narrative              │
-│  ...                      │
+│  In consultation        │
+│  ● Mobility & Logistics   │  ← active, Ripple dot
+│    [server `summary`]        │
+│  ○ Cost Optimization       │  ← idle
+│  ○ Experience Design         │
+│  ○ Trip Explanation             │
 └─────────────────────┘
 ```
-- Agents are always named in plain language (never "Agent 4," never technical labels) and only ever show *what* they're doing, in a single present-participle line — this is the one place the multi-agent architecture becomes visible, and it should read like a hotel's back-of-house being glimpsed through a half-open door: reassuring, not exposed.
-- This panel is the natural home for a hackathon demo moment — judges can open it to "see the system think" without it ever being forced on an ordinary user.
+
+| Protocol key | Rendered as |
+|---|---|
+| `experience_designer` | Experience Design |
+| `mobility_logistics` | Mobility & Logistics |
+| `simulation_risk` | Comfort & Feasibility |
+| `narrative_explanation` | Trip Explanation |
+| *(any other key)* | Static lookup table — never shown raw |
+
+**Absolute rules:** numeric `progress` is never rendered; raw agent keys are never shown; technical phase names (`experience_selection`, `simulation`, etc.) are never shown; the single line of copy under any Ripple is always the server's `summary`, falling back to a static per-agent phrase (never a raw value) if `summary` is missing.
 
 ---
 
-## 7. Accessibility & Contrast
+## 7. Error & Recovery States
 
-- `ink-900` on `bone-50` = 15.1:1 contrast (AAA). `ink-700` on `bone-100` = 7.8:1 (AAA for body text).
-- Brass (`#B08D57`) on Bone fails AA for small text (3.1:1) — **Brass is never used for body copy**, only for large display numerals (≥24px, which only needs 3:1), icons with adjacent text labels, and fills with Bone/Ink text on top (not Brass text itself).
-- All signal meaning (Clay/Sage) is paired with a text label or icon shape difference — never colour alone.
-- Motion: every ambient loop (Agent Ripple, Ken-Burns) respects `prefers-reduced-motion` — falls back to a single static state with a subtle opacity fade only.
+All treated with the same restraint as the rest of the product — no red alert banners, no blocking modal dialogs:
+
+| Situation | Treatment |
+|---|---|
+| Stale/invalid answer selected | Inline note beside the rejected chip; chip returns to unselected |
+| Connection dropped, reconnecting | Slim top banner, *"Reconnecting…"*, micro Ripple, non-blocking |
+| `session.expired` | Full calm screen: *"This session has ended,"* single **Start again** |
+| `session.superseded` | Full calm screen: *"You're viewing this from another tab,"* single **Continue here** |
+| Planning/replanning failure | Ripple swaps copy to a steady fallback line + **Try again** |
+| Cancellation | Confirms locally, returns to last stable screen, no modal |
+| Command disabled (workflow busy) | Control at 40% opacity, `cursor:not-allowed`, no tooltip |
+| Ripple exceeds 12s with no event | Same as failure — never loops indefinitely |
 
 ---
 
-## 8. Implementation Handoff — Token Quick Reference
+## 8. Accessibility & Contrast
+
+- `ink-900` on `bone-50` = 15.1:1 (AAA). `ink-700` on `bone-100` = 7.8:1 (AAA, body text).
+- Brass fails AA for small text (3.1:1) — never used for body copy, only large numerals (≥24px), icons with adjacent labels, or as a fill beneath Bone/Ink text.
+- **Stated vs. Assumed, and Confirmed vs. Provisional, are never colour-only distinctions** — each pairs a shape change (solid vs. dashed border) with a text label, satisfying non-colour-dependent recognition.
+- All ambient loops (Ripple, Ken-Burns, indeterminate Thread) respect `prefers-reduced-motion`, falling back to a static state with a subtle opacity fade only.
+
+---
+
+## 9. Implementation Handoff — Token & Protocol Reference
 
 ```
 COLOR
-  bone-50   #F6F3ED   bone-100  #EFE9DE   bone-200  #DDD5C7   bone-300  #A89F8F
-  ink-900   #1B1F2A   ink-700   #4A5063   ink-400   #8A8FA0   ink-950   #12141C
-  brass-500 #B08D57   brass-200 #D8C39A   brass-700 #8C6F42
-  clay-500  #B5654A   clay-100  #EDD9CF   sage-500  #7A8B72   sage-100  #E3E7DD
+  bone-50 #F6F3ED  bone-100 #EFE9DE  bone-200 #DDD5C7  bone-300 #A89F8F
+  ink-900 #1B1F2A  ink-700 #4A5063  ink-400 #8A8FA0  ink-950 #12141C
+  brass-500 #B08D57  brass-200 #D8C39A  brass-700 #8C6F42
+  clay-500 #B5654A  clay-100 #EDD9CF  sage-500 #7A8B72  sage-100 #E3E7DD
 
-TYPE
-  Display/Headings : Fraunces (400/500)   Body/UI : General Sans (400)   Data : IBM Plex Mono (300/400)
-  Scale: 56/40/28/22/18/16/13px
+TYPE   Display/Headings: Fraunces (400/500)  ·  Body/UI: General Sans (400)  ·  Data: IBM Plex Mono (300/400)
+       Scale: 56/40/28/22/18/16/13px
 
-SPACE   4·8·12·16·24·32·48·64·96·128
-RADIUS  s:8  m:16  l:28
-MOTION  flow:cubic-bezier(.45,0,.15,1)@320-420ms · settle:cubic-bezier(.16,1,.3,1)@400-600ms
-        micro:cubic-bezier(.4,0,.2,1)@120-180ms · pour:cubic-bezier(.65,0,.35,1)@600-900ms
+SPACE  4·8·12·16·24·32·48·64·96·128        RADIUS  s:8  m:16  l:28
+BORDER solid:1px bone-200  ·  provisional/assumed:1.5px dashed brass-500
+
+MOTION flow:cubic-bezier(.45,0,.15,1)@320-420ms  ·  settle:cubic-bezier(.16,1,.3,1)@400-600ms
+       micro:cubic-bezier(.4,0,.2,1)@120-180ms   ·  pour:cubic-bezier(.65,0,.35,1)@600-900ms
+       ripple: sinusoidal loop @2400-4000ms, 12s soft timeout
+
+WORKFLOW STATE MAP
+  discovery → Discovery · profile_review → Review your profile · planning → Consultation
+  plan_ready → Itinerary · replanning → Replanning · expired/cancelled → recovery screen
+
+AGENT KEY MAP
+  experience_designer → Experience Design · mobility_logistics → Mobility & Logistics
+  simulation_risk → Comfort & Feasibility · narrative_explanation → Trip Explanation
+
+CHANGE_TYPE (Replanning, typed, chip-driven)
+  flight_delayed · weather · attraction_closed · budget_changed · duration_changed
+  fatigue · party_changed · preference_changed · other (note required)
+
+DEFERRED (not in v1.1)
+  Slider control · Map-pin picker · Metric Dial (unused, pending simulation.summary /
+  experience_insights contracts) · plan.accept/reject/alternatives commands ·
+  item-level old→new diff pairing
 ```
 
 ---
