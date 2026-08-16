@@ -1,6 +1,6 @@
 # Agentic Travel Planner
 
-> **Implementation decisions (Final — 2026-08-13):** see [docs/SYSTEM_CONTRACT.md §10](docs/SYSTEM_CONTRACT.md#10-implementation-decisions-final--2026-08-13) and [mgmt/knowledge/decisions/2026-08-13-architecture-grill.md](mgmt/knowledge/decisions/2026-08-13-architecture-grill.md).
+> **Current contracts:** see [docs/SYSTEM_CONTRACT.md](docs/SYSTEM_CONTRACT.md), [Traveler Profile](docs/md/TRAVELER_PROFILE_SCHEMA.md), and [Final Trip Plan](docs/md/FINAL_TRIP_PLAN_SCHEMA.md).
 
 ## 1. Core Idea
 
@@ -457,7 +457,7 @@ A limited number of well-covered destinations is preferable to shallow global co
 
 The MVP retains the **10-agent architecture**, but the agents are logical specialized components rather than ten completely independent products.
 
-> **Implementation (D1/D4, Final — 2026-08-13):** Product orchestrator and Command API are **TypeScript (Express + Socket.IO)** with **MongoDB via Mongoose** (Supreet); management orchestrator under `mgmt/orchestrator/` is separate **Python** and recommendation-only over GitHub Issues (see `docs/SYSTEM_CONTRACT.md` §10).
+> **Architecture boundary:** The 10 agents are logical modules in the planning workflow. Detailed orchestration and runtime contracts are deferred while the core product contracts are being finalized. The management orchestrator under `mgmt/orchestrator/` remains a separate Python, recommendation-only GitHub Issues analyzer.
 
 ## Agent 1: Discovery Agent
 
@@ -853,13 +853,12 @@ with the **10-agent architecture** operating underneath these three capabilities
 
 ---
 
-# 11. Implementation Stack (Final — 2026-08-13)
+# 11. Current Documentation Contracts
 
-> Committed per [mgmt/knowledge/decisions/2026-08-13-architecture-grill.md](mgmt/knowledge/decisions/2026-08-13-architecture-grill.md) (Final). See [docs/SYSTEM_CONTRACT.md §10](docs/SYSTEM_CONTRACT.md#10-implementation-decisions-final--2026-08-13).
+The active implementation guidance is intentionally narrow while the product foundation is being built:
 
-- **Runtime & API:** TypeScript — Express (REST Command API per `docs/json/openapi.json`) + Socket.IO (real-time `PlanningEvent` feed complementing `GET /planning-runs/{runId}/events`).
-- **Persistence:** MongoDB via Mongoose — `TripState` stored as immutable versioned documents (`trip_id`/`version`/`parent_version` indexed, `schema_version` validated, parity with `docs/json/schemas/trip-state.schema.json`).
-- **Orchestration boundary:** Product orchestrator (this repo, `docs/SYSTEM_CONTRACT.md`) ≠ management orchestrator (`mgmt/orchestrator/`, Python, recommendation-only over GitHub Issues).
-- **Data & freshness:** Curated Experience Knowledge Base primary (Aishwarya); external facts carry `source/observed_at/fresh_until/confidence`; stale allowed only when hard feasibility verifiable.
-- **Optimization:** Config-driven normalized weights (`0..100` per component, `overall_score` composite, `candidate_id` tie-break, ≤3 candidates).
-- **Deployment & auth:** Manual deployment (no containers/managed platform) in MVP; no authentication/user accounts (out of scope); env-based secrets/logging under Supreet.
+- **Planning input:** [Traveler Profile](docs/md/TRAVELER_PROFILE_SCHEMA.md), the normalized result after discovery.
+- **Planning output:** [Final Trip Plan](docs/md/FINAL_TRIP_PLAN_SCHEMA.md), the user-facing itinerary and explanation.
+- **Architecture boundary:** [docs/SYSTEM_CONTRACT.md](docs/SYSTEM_CONTRACT.md), which defines the transformation from discovery to final plan and the later documentation phases.
+
+Runtime, persistence, public API, deployment, provider selection, agent interfaces, and exact optimization weights remain separate implementation decisions until adopted in the active contract set.

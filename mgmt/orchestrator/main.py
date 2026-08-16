@@ -23,12 +23,12 @@ def _args() -> argparse.Namespace:
     source.add_argument("--live", action="store_true", help="Read live GitHub state; never writes")
     parser.add_argument("--repository", default=REPO)
     parser.add_argument("--phase", default="MVP contract and architecture foundation")
-    parser.add_argument("--milestone", default="Canonical workflow and TripState foundation")
+    parser.add_argument("--milestone", default="MVP contract and integration foundation")
     parser.add_argument("--json", action="store_true", dest="as_json")
     return parser.parse_args()
 
 
-def run(fixture: str | None = None, repository: str = REPO, phase: str = "MVP contract and architecture foundation", milestone: str = "Canonical workflow and TripState foundation", *, live: bool = False) -> dict:
+def run(fixture: str | None = None, repository: str = REPO, phase: str = "MVP contract and integration foundation", milestone: str = "MVP contract and integration foundation", *, live: bool = False) -> dict:
     path = fixture or str(DEFAULT_FIXTURE)
     reader = reader_from_args(path if Path(path).exists() else None, repository, live=live)
     if live:

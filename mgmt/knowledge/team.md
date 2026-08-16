@@ -36,7 +36,7 @@ Every subsystem has exactly one owner responsible for correctness, interface, an
 
 - GitHub username: `TODO: discover from GitHub`
 - Role: Backend, APIs, database, infrastructure
-- Owns: API layer, persistence, CRUD, indexes, TripState storage, agent execution infrastructure, external integrations, caching, environment/secrets, deployment, logging, monitoring, error handling, rate limiting
+- Owns: API layer when introduced, workflow-state persistence when that phase is approved, CRUD, indexes, agent execution infrastructure, external integrations, caching, environment/secrets, deployment, logging, monitoring, error handling, and rate limiting
 - Agent ownership: Mobility & Logistics
 - Skills: Backend, APIs, database, infrastructure, integrations
 - Preferred work: Backend foundation and external service implementation

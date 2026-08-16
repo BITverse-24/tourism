@@ -341,7 +341,7 @@ Own:
 * CRUD
 * Indexing
 * Data persistence
-* Trip state
+* Workflow state
 * Traveler profiles
 * Itineraries
 * Experiences
@@ -820,7 +820,7 @@ This is what I would put into your team's project tracker.
 **Done when:**
 
 * Agent orchestration works
-* Canonical trip state exists
+* Core contracts and the end-to-end planning workflow exist
 * Optimization engine works
 * Replanning engine works
 * All components communicate through defined contracts
@@ -891,4 +891,3 @@ This is what I would put into your team's project tracker.
 I would establish this immediately:
 
 > **Nobody changes another person's subsystem without notifying the owner.**
-

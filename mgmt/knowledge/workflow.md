@@ -1,6 +1,6 @@
 # Orchestration workflow
 
-**Sources:** [`mgmt/README.md`](../README.md), [`README.md`](../../README.md), [`TEAM.md`](../../TEAM.md), [`docs/SYSTEM_CONTRACT.md`](../../docs/SYSTEM_CONTRACT.md).
+**Sources:** [`mgmt/README.md`](../README.md), [`README.md`](../../README.md), [`TEAM.md`](../../TEAM.md), and [`docs/SYSTEM_CONTRACT.md`](../../docs/SYSTEM_CONTRACT.md).
 
 ## Project-management primitive
 
@@ -96,10 +96,10 @@ Penalize overloaded members, role mismatch, work outside declared responsibiliti
 The management planner should understand the product’s delivery dependencies:
 
 ```text
-Discovery → Constraints → Destination/Country planning → City allocation
+Discovery → Traveler Profile → Constraints → Destination/City planning
 → Experience Design → Mobility + Cost + Local Intelligence
-→ Candidate Itinerary → Simulation & Risk → Optimization
-→ Narrative & Explanation → Final Personalized Itinerary
+→ Simulation & Risk → Optimization → Narrative & Explanation
+→ Final Trip Plan
 ```
 
 For replanning:
