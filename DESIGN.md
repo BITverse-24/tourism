@@ -1,11 +1,11 @@
-# Sahyatri — UI/UX Design System & Core Journey Specification
+# UI/UX Design System & Core Journey Specification
 ### *"Quiet Luxury, Liquid Intelligence"* — Desktop-First Web Application
 
 ---
 
 ## 0. Design Philosophy
 
-Sahyatri is not a search engine for destinations — it is a private travel consultancy powered by ten specialized reasoning agents. The interface must never look like a dashboard, a form-builder, or a booking site. It should feel like sitting across from a trusted concierge at a quiet hotel desk: unhurried, precise, warm, and confident enough to say little.
+Voyager is not a search engine for destinations — it is a private travel consultancy powered by ten specialized reasoning agents. The interface must never look like a dashboard, a form-builder, or a booking site. It should feel like sitting across from a trusted concierge at a quiet hotel desk: unhurried, precise, warm, and confident enough to say little.
 
 Three governing principles translate this into pixels:
 
