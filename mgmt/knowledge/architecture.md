@@ -1,62 +1,26 @@
 # Architecture knowledge
 
-**Active sources:** [`README.md`](../../README.md), [`docs/SYSTEM_CONTRACT.md`](../../docs/SYSTEM_CONTRACT.md), [`Traveler Profile`](../../docs/md/TRAVELER_PROFILE_SCHEMA.md), and [`Final Trip Plan`](../../docs/md/FINAL_TRIP_PLAN_SCHEMA.md).
+The canonical detailed architecture is [Lean Agentic Travel Planner Architecture](../../docs/AGENT_ARCHITECTURE.md). This knowledge file summarizes the decisions that are relevant to the project-management orchestrator.
 
-## Authority and scope
+## Current system shape
 
-The active product contracts are the Markdown documents under `docs/md/`. They define the normalized planning input and the user-facing planning output. Workflow internals, persistence, public APIs, runtime choices, agent mutation rules, and event contracts are intentionally deferred until a later architecture phase.
+The product is one planning workflow. Ten names remain as logical lifecycle capabilities, but the runtime is intentionally lean: one workflow orchestrator, three reasoning capabilities, deterministic policy/feasibility/cost/simulation/optimization engines, and knowledge retrieval.
 
-Previous all-in-one state, generated API, ownership, and fixture documents are retired. They must not be recreated or treated as implementation authority.
+Agent 2 is not an independent agent. Its natural-language interpretation belongs to Discovery; its deterministic behavior belongs to shared policy tools. Agent 10 is reserved for a later continuous-replanning phase.
 
-## System shape
+The orchestrator owns canonical workflow state, artifact publication, ordering, retries, idempotency, and decision checkpoints. Components return structured artifacts and cannot mutate the Profile or Plan directly.
 
-The MVP is one planning workflow. The ten agents are logical modules, not ten independently deployed products.
+## Planning sequence
 
-```text
-Discovery answers
-        ↓
-Traveler Profile
-        ↓
-Planning workflow
-        ↓
-Experience selection and itinerary design
-        ↓
-Feasibility, simulation, and optimization
-        ↓
-Final Trip Plan
-```
+1. Discovery compiles a Profile draft.
+2. Policy tools validate constraints, contradictions, provenance, and blocking unknowns.
+3. The traveler confirms a Profile revision.
+4. Candidate Design proposes route-level or city-level candidates.
+5. Mobility, Cost, Local Intelligence, and Simulation evaluate candidates.
+6. Optimization selects an admissible candidate or requests a typed traveler decision.
+7. Narrative renders the selected result into a validated Final Trip Plan.
 
-The product goal is a personalized plan, not a generic list of popular attractions. The same destination, budget, and duration may produce different plans for different Traveler Profiles.
-
-## Logical agent responsibilities
-
-| Agent | Primary responsibility | Owner from TEAM.md |
-|---|---|---|
-| 1 — Discovery | Adaptive questions and Traveler Profile inference | Siddhant |
-| 2 — Constraint & Preference | Hard constraints, preferences, and contradictions | Krishay |
-| 3 — Experience Designer | Destination, city, and experience selection | Siddhant |
-| 4 — Mobility & Logistics | Movement, timing, and schedule feasibility | Supreet |
-| 5 — Cost Optimization | Cost estimates, budget fit, and substitutions | Krishay |
-| 6 — Local Intelligence | Local context and practical advice | Siddhant |
-| 7 — Simulation & Risk | Fatigue, risk, comfort, and feasibility evaluation | Siddhant |
-| 8 — Optimization | Candidate comparison and final itinerary selection | Krishay |
-| 9 — Narrative & Explanation | Human-readable reasoning and tradeoffs | Siddhant |
-| 10 — Continuous Replanning | Changed-condition planning in a later phase | Krishay |
-
-These are responsibility boundaries, not executable mutation or API contracts. Detailed interfaces will be defined only after the core documents and the first vertical slice are accepted.
-
-## Processing sequence
-
-1. Discovery produces a normalized Traveler Profile.
-2. Constraints identifies hard requirements and meaningful preferences.
-3. Experience Design proposes destinations, cities, and experiences.
-4. Mobility, Cost, and Local Intelligence evaluate the proposal.
-5. Simulation evaluates fatigue, risk, and practical feasibility.
-6. Optimization compares alternatives and selects a plan.
-7. Narrative explains the plan using the structured decisions.
-8. The product presents the Final Trip Plan.
-
-Replanning, persistence, event delivery, and public API behavior are later phases.
+The public lifecycle keys remain compatible, but they represent workflow capabilities rather than independent deployments. Continuous replanning is not emitted or executed during initial planning.
 
 ## Separate management orchestrator
 

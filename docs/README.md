@@ -11,6 +11,7 @@ Markdown is the only authoritative contract format. The documents use field tabl
 | [Traveler Profile](TRAVELER_PROFILE_SCHEMA.md) | The normalized result after discovery questions finish. It is the complete input to planning. |
 | [Final Trip Plan](FINAL_TRIP_PLAN_SCHEMA.md) | The user-facing itinerary produced from a Traveler Profile. |
 | [WebSocket Core API](WEBSOCKET_CONTRACT.md) | The frontend/backend transport and workflow contract for discovery, planning, and replanning. |
+| [Lean Agent Architecture](AGENT_ARCHITECTURE.md) | The approved capability boundaries, deterministic engines, orchestrator responsibilities, and decision checkpoint for initial planning. |
 
 ## Core flow
 
@@ -25,6 +26,8 @@ Final Trip Plan
 ```
 
 The Traveler Profile and Final Trip Plan intentionally separate what the system learns about the traveler from what it finally recommends. Internal evaluation, orchestration, and persistence details are not part of those user-facing data contracts; communication behavior is defined separately by the WebSocket contract.
+
+The [Lean Agent Architecture](AGENT_ARCHITECTURE.md) defines the internal planning shape without changing the meaning of the user-facing Profile or Plan contracts.
 
 ## Documentation phases
 

@@ -2,7 +2,7 @@
 
 **Contract role:** Transport and workflow integration contract
 **Document revision:** 1.0
-**Status:** Active MVP contract
+**Status:** Active initial-planning contract; continuous replanning reserved for a later phase
 
 ## Purpose
 
@@ -21,24 +21,25 @@ profile.confirm
   ↓
 Planning, evaluation, optimization, and explanation
   ↓
+Optional typed decision checkpoint
+  ↓
 Draft plan snapshots
   ↓
 Final Trip Plan snapshot
-  ↓
-Typed replanning request ↔ updated plan
 ```
 
 The protocol is transport-facing. The [Traveler Profile](TRAVELER_PROFILE_SCHEMA.md) and [Final Trip Plan](FINAL_TRIP_PLAN_SCHEMA.md) remain the authoritative definitions of those payloads. This document defines how they are delivered and how workflow commands are exchanged.
 
 ## Scope and principles
 
-- The core product flow uses one JSON WebSocket connection. No HTTP request is required for discovery, planning, or replanning.
+- The core product flow uses one JSON WebSocket connection. No HTTP request is required for discovery or initial planning.
 - The server is authoritative for workflow state, profile inference, validation, and plan revisions.
 - The frontend renders server-provided question schemas rather than hardcoding the adaptive questionnaire.
 - Profile and plan resources are delivered as complete snapshots, not client-applied patches.
 - Client commands are acknowledged immediately; longer work is reported through later events.
 - Agent events expose stable lifecycle information and safe summaries, not hidden reasoning, raw patches, candidate rankings, or provider payloads.
 - Authentication, persistence, event replay, booking, payments, and user accounts are outside this MVP contract.
+- Continuous replanning is reserved for a later phase and is not part of the initial planning workflow.
 
 ## Transport
 
@@ -177,8 +178,9 @@ Unknown fields must be ignored for forward compatibility. Unknown message types 
 | `discovery` | The backend is collecting adaptive answers. | `discovery.answer`, `run.cancel`, `session.close` |
 | `profile_review` | A complete or materially complete Profile is available for review. | `profile.confirm`, `profile.request_changes`, `run.cancel`, `session.close` |
 | `planning` | Planning, evaluation, optimization, or explanation is running. | `run.cancel`, `session.close` |
-| `plan_ready` | A Final Trip Plan is available. | `replan.request`, `run.cancel`, `session.close` |
-| `replanning` | A typed change request is being applied to the current plan. | `run.cancel`, `session.close` |
+| `decision_required` | Planning found a material unresolved tradeoff or no admissible candidate and needs a typed traveler choice. | `decision.respond`, `run.cancel`, `session.close` |
+| `plan_ready` | A Final Trip Plan is available. | `run.cancel`, `session.close` |
+| `replanning` | Reserved for the later continuous-replanning phase; not available in the initial planning workflow. | None in the initial workflow |
 | `cancelled` | The current run was cancelled. | `session.start` on a new connection/run, `session.close` |
 | `expired` | The session is no longer available in backend memory. | Start a new session |
 
@@ -259,9 +261,31 @@ Payload:
 
 The backend returns the workflow to discovery, asks targeted questions, and emits a revised Profile snapshot when ready. This is the v1 correction path; direct JSON field edits are not supported.
 
-### `replan.request`
+### `decision.respond`
 
-Requests a new plan in response to a changed condition.
+Responds to a server-issued planning decision request. This is the only way to resolve a material planning tradeoff during the initial planning workflow.
+
+Payload:
+
+```json
+{
+  "decision_id": "decision_profile7_route_a_route_b",
+  "option_id": "option_a"
+}
+```
+
+Rules:
+
+- The command is accepted only in `decision_required`.
+- `decision_id` must match the current server-issued decision.
+- `option_id` must belong to that decision's typed options.
+- A stale decision or duplicate command cannot mutate workflow state twice.
+- After acceptance, the server returns to `planning` and resumes evaluation or explanation.
+- The client cannot submit an arbitrary Profile or Plan patch as a decision response.
+
+### `replan.request` — reserved
+
+Reserved for the later continuous-replanning phase. The initial planning workflow does not accept this command. Its payload shape is retained below as future compatibility material and is not an active v1 command.
 
 Payload:
 
@@ -288,7 +312,7 @@ Allowed `change_type` values are:
 - `preference_changed`
 - `other`
 
-The request is validated against the current `plan_ready` state. The server retains the existing Final Trip Plan until a replacement plan reaches `final` state.
+When continuous replanning is implemented, the request will be validated against the current `plan_ready` state and the existing Final Trip Plan will remain authoritative until a replacement reaches `final` state.
 
 ### `run.cancel`
 
@@ -476,6 +500,8 @@ Public agent keys are logical modules, not deployment or implementation promises
 - `narrative_explanation`
 - `continuous_replanning`
 
+Some lifecycle keys are tool-backed capabilities rather than LLM agents. In particular, constraint validation, mobility, cost, simulation, and optimization may complete through deterministic code. `continuous_replanning` is reserved and is not emitted during initial planning.
+
 The `summary` must be safe for a traveler to read. It must not contain chain-of-thought, hidden prompts, raw provider responses, internal scores, or unreviewed personal data.
 
 ### `planning.status`
@@ -493,7 +519,36 @@ Payload:
 }
 ```
 
-Allowed phases are `profile_validation`, `destination_design`, `experience_selection`, `mobility`, `cost`, `simulation`, `optimization`, `explanation`, and `replanning`. Allowed statuses are `queued`, `running`, `completed`, and `failed`.
+Allowed phases are `profile_validation`, `destination_design`, `experience_selection`, `mobility`, `cost`, `simulation`, `optimization`, `decision_required`, `explanation`, and `replanning`. Allowed statuses are `queued`, `running`, `completed`, and `failed`.
+
+### `decision.request`
+
+Reports that planning requires a typed traveler choice before a final plan can be published.
+
+Payload:
+
+```json
+{
+  "decision_id": "decision_profile7_route_a_route_b",
+  "profile_revision": 7,
+  "reason": "material_tradeoff",
+  "prompt": "Choose whether to prioritize comfort or coverage.",
+  "options": [
+    {
+      "option_id": "option_a",
+      "label": "Prioritize comfort",
+      "tradeoff": "Fewer experiences and less movement."
+    },
+    {
+      "option_id": "option_b",
+      "label": "Prioritize coverage",
+      "tradeoff": "More experiences and a higher movement burden."
+    }
+  ]
+}
+```
+
+The payload contains no hidden reasoning, raw rankings, internal scores, or provider responses.
 
 ### `plan.snapshot`
 
@@ -607,6 +662,7 @@ This hackathon contract has no negotiation handshake. Additive fields should rem
 - A client cannot directly mutate a Traveler Profile or Final Trip Plan.
 - A Profile is never considered confirmed unless the matching `profile_revision` was explicitly confirmed.
 - Planning does not begin before profile confirmation.
+- A decision response is accepted only for the current decision ID and one of its typed options.
 - A draft plan is never presented as the final plan.
 - A final plan must obey the Final Trip Plan invariants, including visible assumptions, warnings, unresolved details, and profile traceability.
 - Unknown information remains explicit; the backend must not silently fabricate missing dates, budget, party size, or constraints.
@@ -627,4 +683,6 @@ This hackathon contract has no negotiation handshake. Additive fields should rem
 9. An answer for a previous question receives `question_not_current` plus the current question recovery state.
 10. A network reconnect creates a new run from the last confirmed checkpoint without replaying old events.
 11. A backend restart causes a resume attempt to emit `session.expired` rather than returning fabricated or stale state.
-12. A typed weather, delay, budget, duration, fatigue, party, or preference change request retains the existing final plan until a replacement final snapshot is ready.
+12. A typed weather, delay, budget, duration, fatigue, party, or preference change request is reserved for the future replanning phase and is rejected by the initial workflow.
+13. A material optimizer tradeoff emits `decision.request` and moves the workflow to `decision_required` instead of silently selecting a plan.
+14. A valid `decision.respond` resumes planning and eventually produces one final plan snapshot; a stale or duplicate response has no additional side effect.

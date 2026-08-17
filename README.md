@@ -457,6 +457,8 @@ A limited number of well-covered destinations is preferable to shallow global co
 
 The MVP retains the **10-agent architecture**, but the agents are logical specialized components rather than ten completely independent products.
 
+> **Current architecture decision:** The detailed runtime design, capability boundaries, deterministic engines, orchestrator ownership, and typed decision checkpoint are defined in [Lean Agentic Travel Planner Architecture](docs/AGENT_ARCHITECTURE.md). The summaries below describe product responsibilities; they do not imply ten independent LLM agents.
+
 > **Architecture boundary:** The 10 agents are logical modules in the planning workflow. Detailed orchestration and runtime contracts are deferred while the core product contracts are being finalized. The management orchestrator under `mgmt/orchestrator/` remains a separate Python, recommendation-only GitHub Issues analyzer.
 
 ## Agent 1: Discovery Agent
