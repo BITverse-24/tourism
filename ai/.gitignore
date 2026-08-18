@@ -1,5 +1,5 @@
-node_modules/
-dist/
-.env
-.npm-cache/
-logs/
+# Keep the backend-facing agent entrypoint in version control. The remaining
+# files stay available locally for tests, demos, and development.
+*
+!.gitignore
+!agent-1.ts
