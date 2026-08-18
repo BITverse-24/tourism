@@ -66,7 +66,7 @@ The optimizer may use a bounded adjudication prompt for a close non-material com
 
 | Component | Responsibility |
 |---|---|
-| **Workflow Orchestrator** | Canonical state, ordering, validation, retries, idempotency, lifecycle events, decision checkpoints, and publication |
+| **Workflow Orchestrator** | Canonical state, per-answer recovery state, confirmed Profile revision markers, ordering, validation, retries, idempotency, lifecycle events, decision checkpoints, and publication |
 | **Profile Policy Tools** | Schema validation, contradiction detection, hard/soft constraint checks, blocking-unknown checks, and derived evaluation views |
 | **Experience KB and Retrieval** | Curated experiences, geography, local facts, provenance, freshness, and confidence |
 | **Mobility Engine** | Routes, durations, opening hours, transfers, overlaps, check-in/out, travel burden, and violations |
@@ -187,7 +187,9 @@ The normal planning sequence is:
 8. Narrative renders the selected structured result.
 9. The orchestrator validates and publishes one Final Trip Plan snapshot.
 
-The orchestrator also owns command idempotency, stale revision checks, retry behavior, lifecycle events, and rejection of partial work. No component may publish a final snapshot directly.
+The orchestrator also owns per-answer recovery state, confirmed Profile revision markers, command idempotency, stale revision checks, retry behavior, lifecycle events, and rejection of partial work. No component may publish a final snapshot directly.
+
+Every accepted discovery answer creates recovery state containing the latest Profile draft, Profile revision, active question, and discovery state. The answer is acknowledged only after that state is written. A reconnect resumes from the latest recovery state; it does not replay prior events. Profile confirmation records `confirmed_profile_revision` as the planning baseline, while the resulting Plan stores or immutably references the exact Profile revision/snapshot it used. No second checkpoint or duplicate Profile store is required.
 
 ## Lifecycle compatibility
 

@@ -63,15 +63,19 @@ The endpoint may be hosted under a deployment-specific origin, but the path and 
 
 ### Run
 
-`run_id` identifies one workflow execution. A new connection after a network disconnect creates a new run from the session's last user-confirmed checkpoint. Events are not replayed into the new run.
+`run_id` identifies one workflow execution. A new connection after a network disconnect creates a new run from the session's latest recovery state. Events are not replayed into the new run.
 
-### Checkpoint
+### Recovery state and Profile confirmation
 
-The resumable checkpoint contains the last user-confirmed Traveler Profile and, when one exists, the most recently completed Final Trip Plan. Work that was still in progress when the connection dropped is discarded.
+The server maintains one recovery state. It is created or updated atomically after every accepted `discovery.answer` and contains the latest normalized Profile draft, Profile revision, active question, and discovery workflow state. A reconnect resumes from this state rather than restarting discovery.
 
-Before the first profile confirmation, there is no user-confirmed checkpoint. A reconnect at that point starts discovery again for the existing in-memory session.
+The session also records a `confirmed_profile_revision` marker. `profile.confirm` sets this marker and starts planning; it does not create a second checkpoint or duplicate the Profile data. The resulting Plan stores or immutably references the exact Profile revision/snapshot used to create it.
 
-During replanning, the accepted change request is not itself a checkpoint. If the connection drops before the updated plan completes, the client must submit the change request again in the new run.
+The server acknowledges a `discovery.answer` only after the corresponding recovery state has been written. Duplicate commands return the original result without creating another state transition.
+
+Recovery state is in-memory in v1. A backend process restart invalidates all sessions and recovery state and emits `session.expired`; this contract does not imply durable persistence.
+
+During future replanning, the accepted change request is not itself recovery state. If the connection drops before the updated plan completes, the client must submit the change request again in the new run.
 
 ### Revision
 
@@ -204,8 +208,8 @@ Rules:
 
 - The server assigns `session_id` and `run_id` for a new session.
 - An existing `session_id` never causes event replay.
-- If the session has a checkpoint, the new run starts from that checkpoint.
-- If the session has no checkpoint, discovery starts again.
+- If the session has recovery state, the new run starts from that state and emits the current question/Profile state.
+- If the session has no recovery state, discovery starts again.
 - If the session was lost because the backend restarted, the server emits `session.expired` and does not fabricate state.
 - A retry with the same `command_id` is idempotent.
 
@@ -230,6 +234,7 @@ Rules:
 - `selection_mode: "single"` accepts at most one option; `selection_mode: "multiple"` accepts one or more unless the question explicitly permits none.
 - Free text is optional unless the question says otherwise.
 - The backend normalizes the answer, updates the Profile, and determines the next question.
+- After the answer is accepted, the backend atomically writes recovery state containing the updated Profile draft and next-question state before acknowledging the command.
 - Discovery is forward-only in v1; prior answers cannot be edited directly.
 
 ### `profile.confirm`
@@ -244,7 +249,7 @@ Payload:
 }
 ```
 
-The command is rejected if the supplied revision is not the latest ready Profile, if blocking unknowns remain, or if the workflow is not in `profile_review`.
+The command is rejected if the supplied revision is not the latest ready Profile, if blocking unknowns remain, or if the workflow is not in `profile_review`. On success, the server records `confirmed_profile_revision` and starts planning; it does not create a duplicate checkpoint.
 
 ### `profile.request_changes`
 
@@ -423,7 +428,8 @@ Payload:
   "session_id": "sess_01J...",
   "run_id": "run_01J...",
   "workflow_state": "discovery",
-  "has_checkpoint": false
+  "has_recovery_state": false,
+  "confirmed_profile_revision": null
 }
 ```
 
@@ -633,9 +639,9 @@ Payload:
 - The server provides at-least-once-safe command handling: a duplicate command returns the original acknowledgement/result and does not repeat the side effect.
 - A reused `command_id` with different payload content is rejected with `command_id_conflict`.
 - The server does not replay missed events after a network disconnect.
-- Reconnecting with a live `session_id` starts a new `run_id` from the checkpoint described above.
+- Reconnecting with a live `session_id` starts a new `run_id` from the latest recovery state described above.
 - A command for an invalid workflow state is rejected with the current `workflow_state` and the recovery information needed by the client.
-- Backend process restart invalidates every session and checkpoint. The client must offer a new-session path after `session.expired`.
+- Backend process restart invalidates every session and recovery state. The client must offer a new-session path after `session.expired`.
 
 ## Error handling
 
@@ -681,8 +687,9 @@ This hackathon contract has no negotiation handshake. Additive fields should rem
 7. A profile change request returns to targeted discovery and does not accept direct field patches.
 8. A duplicate command ID receives the original result without repeating the workflow side effect.
 9. An answer for a previous question receives `question_not_current` plus the current question recovery state.
-10. A network reconnect creates a new run from the last confirmed checkpoint without replaying old events.
-11. A backend restart causes a resume attempt to emit `session.expired` rather than returning fabricated or stale state.
-12. A typed weather, delay, budget, duration, fatigue, party, or preference change request is reserved for the future replanning phase and is rejected by the initial workflow.
-13. A material optimizer tradeoff emits `decision.request` and moves the workflow to `decision_required` instead of silently selecting a plan.
-14. A valid `decision.respond` resumes planning and eventually produces one final plan snapshot; a stale or duplicate response has no additional side effect.
+10. A network reconnect after one or more accepted answers creates a new run from the latest recovery state, restores the current question/Profile state, and does not replay old events.
+11. A network reconnect before the first accepted answer starts discovery with no recovery state.
+12. A backend restart causes a resume attempt to emit `session.expired` rather than returning fabricated or stale state.
+13. A typed weather, delay, budget, duration, fatigue, party, or preference change request is reserved for the future replanning phase and is rejected by the initial workflow.
+14. A material optimizer tradeoff emits `decision.request` and moves the workflow to `decision_required` instead of silently selecting a plan.
+15. A valid `decision.respond` resumes planning and eventually produces one final plan snapshot; a stale or duplicate response has no additional side effect.
