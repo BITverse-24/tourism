@@ -469,9 +469,9 @@ Payload:
 }
 ```
 
-### `agent.lifecycle`
+### `agent.lifecycle` — legacy event name
 
-Reports safe lifecycle information for a logical planning agent.
+Reports safe lifecycle information for a logical planning stage. The event name remains for client compatibility; the payload keys do not imply independent LLM agents.
 
 Payload:
 
@@ -487,7 +487,7 @@ Payload:
 
 Allowed `status` values are `started`, `progressed`, `completed`, and `failed`. `progress` is an optional integer from `0` to `100`.
 
-Public agent keys are logical modules, not deployment or implementation promises:
+Public lifecycle keys are logical workflow stages, not deployment or implementation promises:
 
 - `discovery`
 - `constraint_preference`
@@ -500,7 +500,7 @@ Public agent keys are logical modules, not deployment or implementation promises
 - `narrative_explanation`
 - `continuous_replanning`
 
-Some lifecycle keys are tool-backed capabilities rather than LLM agents. In particular, constraint validation, mobility, cost, simulation, and optimization may complete through deterministic code. `continuous_replanning` is reserved and is not emitted during initial planning.
+Some lifecycle keys are tool-backed stages rather than LLM agents. In particular, constraint validation, mobility, cost, simulation, and optimization may complete through deterministic code. `continuous_replanning` is reserved and is not emitted during initial planning.
 
 The `summary` must be safe for a traveler to read. It must not contain chain-of-thought, hidden prompts, raw provider responses, internal scores, or unreviewed personal data.
 

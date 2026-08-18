@@ -1,4 +1,4 @@
-# Lean Agentic Travel Planner Architecture
+# Three-Agent, Ten-Stage Travel Planner Architecture
 
 **Status:** Architecture decision for the initial planning workflow  
 **Decision date:** 2026-08-17  
@@ -6,9 +6,9 @@
 
 ## Purpose
 
-The product keeps ten named planning capabilities for lifecycle compatibility and product communication, but does not require ten independent LLM agents.
+The product has **three actual reasoning agents** and **ten logical workflow stages**.
 
-The runtime is organized around the smallest useful set of reasoning capabilities, deterministic planning engines, knowledge services, and one workflow orchestrator. The ten names describe responsibilities in the workflow; they do not imply ten deployments, ten models, or ten independently mutable state stores.
+The three agents handle language-heavy work. Deterministic engines, retrieval services, and the Workflow Orchestrator handle the remaining stages. The ten stage names remain for lifecycle compatibility and product communication; they do not imply ten agents, ten models, or ten deployments.
 
 This document is the detailed architecture reference for the planning workflow. The [Traveler Profile](TRAVELER_PROFILE_SCHEMA.md), [Final Trip Plan](FINAL_TRIP_PLAN_SCHEMA.md), and [WebSocket Core API](WEBSOCKET_CONTRACT.md) remain the authoritative user-facing data and transport contracts.
 
@@ -19,7 +19,7 @@ This document is the detailed architecture reference for the planning workflow. 
 3. **One owner for canonical state.** Only the Workflow Orchestrator advances workflow state and publishes Profile or Plan snapshots.
 4. **Evidence before prose.** Candidate and plan decisions must reference knowledge records, provider facts, profile values, or explicit assumptions.
 5. **Hard constraints are never silently relaxed.** If no admissible plan exists, the system reports the conflict or asks for a typed decision.
-6. **Ten names are compatibility labels.** A lifecycle key identifies a workflow capability, not an implementation boundary or deployment promise.
+6. **Stages are not agents.** A lifecycle key identifies a workflow stage, not an implementation boundary or deployment promise.
 
 ## Runtime topology
 
@@ -46,26 +46,56 @@ This document is the detailed architecture reference for the planning workflow. 
                               Objective Optimizer
 ```
 
-The reasoning capabilities may call only an allowlisted catalog of typed, read-only tools. Tool calls may retrieve facts or calculate results, but may not mutate canonical Profile, Plan, or workflow state. The orchestrator commits returned artifacts.
+The three reasoning agents may call only an allowlisted catalog of typed, read-only tools. Tool calls may retrieve facts or calculate results, but may not mutate canonical Profile, Plan, or workflow state. The orchestrator commits returned artifacts.
 
-## Capability architecture
+## Actual runtime agents
 
-| Logical capability | Runtime role | Owns | Must not do |
-|---|---|---|---|
-| **1. Discovery** | Reasoning capability | Adaptive questions, answer interpretation, profile compilation, provenance, unknowns, and assumptions | Design an itinerary or silently promote an inference to a hard constraint |
-| **2. Constraint & Preference** | Deterministic policy tools; not an independent agent | Profile schema validation, contradiction detection, hard/soft constraint checks, blocking-unknown checks, and derived evaluation views | Maintain a separate source of truth or make unconfirmed decisions |
-| **3. Experience Designer** | One reasoning capability with two explicit modes | Evidence-backed candidates for `trip_route` and `city_day_plan` | Make the final plan selection or invent unsupported places |
-| **4. Mobility & Logistics** | Deterministic feasibility engine | Routes, durations, opening-hour checks, transfers, overlaps, check-in/out, travel burden, and violations | Write narrative or override a confirmed hard constraint |
-| **5. Cost Optimization** | Deterministic cost engine | Scoped estimates, budget position, cost deltas, and substitutions | Change budget scope or silently reject without alternatives or an explicit issue |
-| **6. Local Intelligence** | Retrieval/enrichment capability | Sourced destination facts, local context, freshness, and confidence | Become a separate conversational planner or make unsupported recommendations |
-| **7. Simulation & Risk** | Deterministic scenario evaluator | Fatigue, walking, crowd, weather, delay, closure, transfer, comfort, and risk metrics | Mutate the itinerary or turn a risk estimate into a hidden constraint |
-| **8. Optimization** | Versioned objective function and solver | Candidate comparison, admissibility, scoring, tie detection, and selection | Select an infeasible candidate or override deterministic facts |
-| **9. Narrative & Explanation** | Reasoning/rendering capability | Final plan prose, fit explanations, tradeoffs, assumptions, warnings, and unresolved details | Add new planning decisions, facts, costs, or bookings |
-| **10. Continuous Replanning** | Deferred future controller | Nothing in the initial vertical slice | Be implemented as a second planning brain now |
+Only these three components are agents in the runtime:
 
-### Agent 1 and Agent 2 boundary
+| Runtime agent | Responsibility | Must not do |
+|---|---|---|
+| **Discovery/Profile Agent** | Adaptive questions, answer interpretation, profile compilation, provenance, unknowns, and assumptions | Design an itinerary or silently promote an inference to a hard constraint |
+| **Candidate Design Agent** | Evidence-backed route and experience candidates in `trip_route` and `city_day_plan` modes | Make the final plan selection or invent unsupported places |
+| **Narrative/Explanation Agent** | Final plan prose, fit explanations, tradeoffs, assumptions, warnings, and unresolved details | Add new planning decisions, facts, costs, or bookings |
 
-Agent 1 owns the natural-language part of discovery and profile compilation. It may produce an interpretation such as “the traveler prefers less exhausting days,” but that interpretation remains sourced and confidence-tagged.
+There is no standalone Constraint Agent, Mobility Agent, Cost Agent, Local Intelligence Agent, Simulation Agent, Optimization Agent, or Replanning Agent. Those names belong to logical stages described below.
+
+The optimizer may use a bounded adjudication prompt for a close non-material comparison, but that is a mode of the planning workflow—not a fourth independent agent. Material ambiguity always produces a typed traveler decision.
+
+## Deterministic and service components
+
+| Component | Responsibility |
+|---|---|
+| **Workflow Orchestrator** | Canonical state, ordering, validation, retries, idempotency, lifecycle events, decision checkpoints, and publication |
+| **Profile Policy Tools** | Schema validation, contradiction detection, hard/soft constraint checks, blocking-unknown checks, and derived evaluation views |
+| **Experience KB and Retrieval** | Curated experiences, geography, local facts, provenance, freshness, and confidence |
+| **Mobility Engine** | Routes, durations, opening hours, transfers, overlaps, check-in/out, travel burden, and violations |
+| **Cost Engine** | Scoped estimates, budget position, cost deltas, and substitutions |
+| **Simulation Engine** | Fatigue, walking, crowd, weather, delay, closure, transfer, comfort, and risk metrics |
+| **Objective Optimizer** | Candidate admissibility, versioned scoring, tie detection, and final selection |
+
+None of these components directly mutates the canonical Profile or Plan.
+
+## Ten logical workflow stages
+
+The ten-stage architecture is retained as a workflow map. Each stage maps to an actual agent, deterministic component, service, or future controller.
+
+| Stage | Logical name | Execution owner | Initial status |
+|---:|---|---|---|
+| 1 | Discovery | Discovery/Profile Agent + Policy Tools | Active |
+| 2 | Constraint & Preference | Profile Policy Tools | Active; not an agent |
+| 3 | Experience Designer | Candidate Design Agent + KB/Retrieval | Active |
+| 4 | Mobility & Logistics | Mobility Engine | Active; deterministic |
+| 5 | Cost Optimization | Cost Engine | Active; deterministic |
+| 6 | Local Intelligence | KB/Retrieval service | Active; enrichment only |
+| 7 | Simulation & Risk | Simulation Engine | Active; deterministic |
+| 8 | Optimization | Objective Optimizer | Active; deterministic with bounded adjudication mode |
+| 9 | Narrative & Explanation | Narrative/Explanation Agent | Active |
+| 10 | Continuous Replanning | Future workflow controller | Deferred |
+
+### Stage 1 and Stage 2 boundary
+
+The Discovery/Profile Agent owns the natural-language part of discovery and profile compilation. It may produce an interpretation such as “the traveler prefers less exhausting days,” but that interpretation remains sourced and confidence-tagged.
 
 The policy tools then validate the resulting Profile and derive planning views. Only user-stated or explicitly accepted requirements may enter the hard-constraint set. Contradictions and blocking unknowns remain visible instead of being resolved silently.
 
@@ -80,16 +110,16 @@ Answer
 
 There is no second LLM handoff whose purpose is to tell other agents what deterministic code could do.
 
-### Agent 3 boundary
+### Stage 3 boundary
 
-Agent 3 remains one reasoning capability rather than two agents. It has two contract modes:
+The Candidate Design Agent has two contract modes rather than becoming two agents:
 
 - `trip_route`: cities or regions, ordering, allocation, inter-city movement, and lodging-base candidates;
 - `city_day_plan`: experiences, meals, rest, timing, and local sequencing.
 
 It proposes multiple evidence-backed candidates. It does not make the final choice. This avoids duplicated ranking authority between experience selection and optimization.
 
-### Agents 4, 5, and 7
+### Stages 4, 5, and 7
 
 These capabilities return measurements and structured alternatives:
 
@@ -99,21 +129,21 @@ These capabilities return measurements and structured alternatives:
 
 They do not directly edit a candidate or write user-facing explanations. The orchestrator and optimizer decide how those measurements affect workflow state.
 
-### Agent 6
+### Stage 6
 
 Local Intelligence is a retrieval and enrichment layer. Curated knowledge is primary. External maps, places, transport, and weather facts are secondary and must carry `source`, `observed_at`, `fresh_until`, and `confidence` metadata. LLM-assisted enrichment must be validated before entering the knowledge base.
 
-### Agent 8 and ambiguity
+### Stage 8 and ambiguity
 
 The optimizer uses a versioned deterministic objective function. An LLM may provide bounded qualitative adjudication only when candidates are close and the difference is not material.
 
 When close candidates represent a material tradeoff—such as comfort versus coverage or cost versus a must-have experience—the optimizer returns `decision_required` instead of silently choosing. The traveler selects among typed options. The LLM cannot change costs, durations, feasibility, hard constraints, or source facts.
 
-### Agent 9
+### Stage 9
 
 Narrative receives the selected candidate, evaluation artifacts, profile references, evidence, assumptions, and tradeoffs. It produces a Final Trip Plan that passes the existing plan invariants. It is a renderer of structured decisions, not a hidden second optimizer.
 
-### Agent 10
+### Stage 10
 
 Continuous replanning is deferred from the initial implementation and architecture contract. A future replanner should identify affected components and reuse the same candidate, mobility, cost, simulation, optimization, and narrative pipeline. It should not introduce a separate planning authority.
 
@@ -123,13 +153,13 @@ Components return immutable-style artifacts. The orchestrator is the only compon
 
 | Artifact | Producer | Required meaning |
 |---|---|---|
-| `ProfileDraft` | Discovery | Interpreted answers, extracted fields, inferred fields, and a proposed Profile |
+| `ProfileDraft` | Discovery/Profile Agent | Interpreted answers, extracted fields, inferred fields, and a proposed Profile |
 | `ValidatedTravelerProfile` | Policy tools + orchestrator | Profile satisfying schema and provenance rules, with explicit unknowns and assumptions |
-| `CandidateBundle` | Experience Designer | Diverse route/day candidates with knowledge IDs, fit signals, and evidence |
+| `CandidateBundle` | Candidate Design Agent | Diverse route/day candidates with knowledge IDs, fit signals, and evidence |
 | `EvaluationBundle` | Mobility, Cost, Local Intelligence, Simulation | Feasibility, cost, sourced facts, risk, comfort, and model metadata |
 | `OptimizationResult` | Optimizer | Selected candidate or a typed decision request; includes objective version and traceable scores internally |
 | `DecisionRequest` | Orchestrator/Optimizer | Stable decision ID, prompt, typed options, tradeoff summaries, and profile revision |
-| `FinalTripPlanDraft` | Narrative | User-facing plan payload before final schema and invariant validation |
+| `FinalTripPlanDraft` | Narrative/Explanation Agent | User-facing plan payload before final schema and invariant validation |
 
 Internal artifacts may contain candidate rankings, model scores, provider payload normalization, and decision traces. These are not added to the public Traveler Profile or Final Trip Plan schemas.
 
@@ -176,7 +206,7 @@ narrative_explanation
 continuous_replanning
 ```
 
-These keys are logical workflow capabilities. Tool-backed capabilities may emit lifecycle events even when no LLM is running. `continuous_replanning` remains reserved for the future phase and is not emitted during initial planning.
+These keys are logical workflow stages. Tool-backed stages may emit lifecycle events even when no LLM is running. `continuous_replanning` remains reserved for the future phase and is not emitted during initial planning.
 
 Lifecycle summaries must be safe user-facing text. They must not expose chain-of-thought, hidden prompts, raw provider responses, internal rankings, or unreviewed personal data.
 
