@@ -1,0 +1,1282 @@
+/**
+ * Voyager Agent 2: grounded candidate design.
+ *
+ * Agent 2 proposes route and city-day candidates for deterministic evaluation.
+ * It does not choose the final itinerary, call downstream planning engines, or
+ * write to a knowledge dataset.
+ */
+
+import "dotenv/config";
+import type { TravelerProfile } from "./src/types.js";
+
+export type { TravelerProfile } from "./src/types.js";
+
+export type CandidateDesignMode = "trip_route" | "city_day_plan";
+export type DestinationScopeType = "city" | "region" | "country";
+
+export interface DestinationScope {
+  type: DestinationScopeType;
+  name: string;
+  resolved_city_ids: string[];
+}
+
+export interface HardConstraintGuardrails {
+  allowed_city_ids: string[];
+  excluded_attraction_ids: string[];
+}
+
+export interface RunBudget {
+  max_candidates: number;
+  max_tool_calls: number;
+  max_rows_per_tool_call: number;
+  timeout_ms: number;
+}
+
+export interface CandidateDesignInput {
+  mode: CandidateDesignMode;
+  profile: TravelerProfile;
+  profile_revision: number;
+  destination_scope: DestinationScope;
+  city_dataset_revision: string;
+  attraction_dataset_revision: string;
+  hard_constraint_guardrails: HardConstraintGuardrails;
+  route_context?: RouteCandidate;
+  city_context?: CityContext;
+  run_budget: RunBudget;
+}
+
+export interface CityContext {
+  city_id: string;
+  allocated_days: number;
+}
+
+/** The fields are intentionally limited to facts useful to candidate design. */
+export interface CityRecord {
+  city_id: string;
+  city_name: string;
+  state?: string;
+  region?: string;
+  climate_type?: string;
+  destination_type?: string[];
+  tourism_popularity?: string;
+  recommended_days_min?: number;
+  recommended_days_max?: number;
+  source?: string[];
+  [key: string]: unknown;
+}
+
+/** The retrieval adapter may return the full dataset record. */
+export interface AttractionRecord {
+  attraction_id: string;
+  city_id: string;
+  name: string;
+  description?: string;
+  attraction_type?: string;
+  best_for?: string[];
+  best_time_of_day?: string[];
+  visit_duration_min?: number;
+  visit_duration_typical?: number;
+  visit_duration_max?: number;
+  crowd_level?: string;
+  accessibility_level?: string;
+  adventure_level?: string;
+  indoor_outdoor?: string;
+  source?: string[];
+  [key: string]: unknown;
+}
+
+export interface SearchCitiesInput {
+  destination_scope: DestinationScope;
+  filters: {
+    region: string | null;
+    destination_types: string[];
+    climate_types: string[];
+    tourism_popularity: string | null;
+  };
+  allowed_city_ids: string[];
+  page_size: number;
+  dataset_revision: string;
+}
+
+export interface SearchCitiesResult {
+  cities: CityRecord[];
+  dataset_revision: string;
+  next_cursor: string | null;
+}
+
+export interface GetCityInput {
+  city_id: string;
+  dataset_revision: string;
+}
+
+export interface GetCityResult {
+  city: CityRecord;
+  dataset_revision: string;
+}
+
+export interface QueryAttractionsInput {
+  city_id: string;
+  query: string;
+  best_for: string[];
+  attraction_types: string[];
+  excluded_attraction_ids: string[];
+  page_size: number;
+  dataset_revision: string;
+}
+
+export interface QueryAttractionsResult {
+  attractions: AttractionRecord[];
+  dataset_revision: string;
+  query_id: string;
+  next_cursor: string | null;
+}
+
+export interface GetAttractionsByIdsInput {
+  city_id: string;
+  attraction_ids: string[];
+  excluded_attraction_ids: string[];
+  page_size: number;
+  dataset_revision: string;
+}
+
+export interface GetAttractionsByIdsResult {
+  attractions: AttractionRecord[];
+  dataset_revision: string;
+}
+
+export interface CandidateDesignTools {
+  searchCities(input: SearchCitiesInput): Promise<SearchCitiesResult>;
+  getCity(input: GetCityInput): Promise<GetCityResult>;
+  queryAttractions(input: QueryAttractionsInput): Promise<QueryAttractionsResult>;
+  getAttractionsByIds(input: GetAttractionsByIdsInput): Promise<GetAttractionsByIdsResult>;
+}
+
+export interface RouteStop {
+  city_id: string;
+  city_name?: string | null;
+  order: number;
+  days: number;
+  reason?: string;
+  evidence_refs?: string[];
+}
+
+export interface RouteCandidate {
+  route_id: string;
+  stops: RouteStop[];
+  assumptions: string[];
+  tradeoffs: string[];
+  unresolved_details: string[];
+}
+
+export interface VisitApproach {
+  mode: string;
+  timing_preference: string;
+  duration_minutes: number;
+  pace: string;
+  focus: string[];
+  rationale: string;
+  tradeoffs: string[];
+}
+
+export interface SoftConflict {
+  topic: string;
+  explanation: string;
+  alternative_attraction_id: string | null;
+  evidence_refs: string[];
+}
+
+export type CandidateDayItemType = "experience" | "meal" | "rest";
+
+export interface CandidateDayItem {
+  type: CandidateDayItemType;
+  attraction_id: string | null;
+  city_id: string | null;
+  title: string;
+  description: string;
+  visit_approach: VisitApproach | null;
+  evidence_refs: string[];
+  soft_conflicts: SoftConflict[];
+}
+
+export interface CandidateDay {
+  city_id: string;
+  day_number: number;
+  items: CandidateDayItem[];
+}
+
+export interface CandidateBundle {
+  candidate_id: string;
+  profile_revision: number;
+  dataset_revisions: {
+    city: string;
+    attraction: string;
+  };
+  route: RouteCandidate;
+  days: CandidateDay[];
+  assumptions: string[];
+  tradeoffs: string[];
+  unresolved_details: string[];
+}
+
+export interface CandidateDesignResult {
+  mode: CandidateDesignMode;
+  profile_revision: number;
+  dataset_revisions: {
+    city: string;
+    attraction: string;
+  };
+  candidates: CandidateBundle[];
+  operational: {
+    tool_calls: number;
+    retrieved_rows: number;
+  };
+}
+
+export interface FetchRequestInit {
+  method?: string;
+  headers?: Record<string, string>;
+  body?: string;
+  signal?: AbortSignal;
+}
+
+export interface FetchResponse {
+  ok: boolean;
+  status: number;
+  text(): Promise<string>;
+}
+
+export type Fetcher = (input: string, init?: FetchRequestInit) => Promise<FetchResponse>;
+
+export interface CandidateDesignOptions {
+  tools: CandidateDesignTools;
+  api_key?: string;
+  model?: string;
+  reasoning_effort?: "low" | "medium" | "high";
+  api_url?: string;
+  timeout_ms?: number;
+  fetcher?: Fetcher;
+}
+
+export class CandidateDesignConfigurationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CandidateDesignConfigurationError";
+  }
+}
+
+export class CandidateDesignApiError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "CandidateDesignApiError";
+    this.status = status;
+  }
+}
+
+export class CandidateDesignToolError extends Error {
+  readonly code: string;
+
+  constructor(message: string, code = "tool_error") {
+    super(message);
+    this.name = "CandidateDesignToolError";
+    this.code = code;
+  }
+}
+
+export class CandidateDesignResponseError extends Error {
+  readonly validation_errors: string[];
+
+  constructor(message: string, validation_errors: string[] = []) {
+    super(message);
+    this.name = "CandidateDesignResponseError";
+    this.validation_errors = validation_errors;
+  }
+}
+
+export class CandidateDesignTimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CandidateDesignTimeoutError";
+  }
+}
+
+const DEFAULT_MODEL = "openai/gpt-oss-20b";
+const DEFAULT_API_URL = "https://api.groq.com/openai/v1/chat/completions";
+const DEFAULT_TIMEOUT_MS = 30_000;
+const MAX_ROUTE_CANDIDATES = 3;
+const MAX_DAY_CANDIDATES = 2;
+
+const stringOrNullSchema = { type: ["string", "null"] } as const;
+const integerOrNullSchema = { type: ["integer", "null"] } as const;
+
+const VISIT_APPROACH_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    mode: { type: "string" },
+    timing_preference: { type: "string" },
+    duration_minutes: { type: "integer" },
+    pace: { type: "string" },
+    focus: { type: "array", items: { type: "string" } },
+    rationale: { type: "string" },
+    tradeoffs: { type: "array", items: { type: "string" } },
+  },
+  required: [
+    "mode",
+    "timing_preference",
+    "duration_minutes",
+    "pace",
+    "focus",
+    "rationale",
+    "tradeoffs",
+  ],
+} as const;
+
+const SOFT_CONFLICT_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    topic: { type: "string" },
+    explanation: { type: "string" },
+    alternative_attraction_id: stringOrNullSchema,
+    evidence_refs: { type: "array", items: { type: "string" } },
+  },
+  required: ["topic", "explanation", "alternative_attraction_id", "evidence_refs"],
+} as const;
+
+const DAY_ITEM_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    type: { type: "string", enum: ["experience", "meal", "rest"] },
+    attraction_id: stringOrNullSchema,
+    city_id: stringOrNullSchema,
+    title: { type: "string" },
+    description: { type: "string" },
+    visit_approach: {
+      type: ["object", "null"],
+      additionalProperties: false,
+      properties: VISIT_APPROACH_SCHEMA.properties,
+      required: VISIT_APPROACH_SCHEMA.required,
+    },
+    evidence_refs: { type: "array", items: { type: "string" } },
+    soft_conflicts: { type: "array", items: SOFT_CONFLICT_SCHEMA },
+  },
+  required: [
+    "type",
+    "attraction_id",
+    "city_id",
+    "title",
+    "description",
+    "visit_approach",
+    "evidence_refs",
+    "soft_conflicts",
+  ],
+} as const;
+
+export const CANDIDATE_DESIGN_RESPONSE_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    candidates: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          candidate_id: { type: "string" },
+          profile_revision: { type: "integer" },
+          dataset_revisions: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              city: { type: "string" },
+              attraction: { type: "string" },
+            },
+            required: ["city", "attraction"],
+          },
+          route: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              route_id: { type: "string" },
+              stops: {
+                type: "array",
+                items: {
+                  type: "object",
+                  additionalProperties: false,
+                  properties: {
+                    city_id: { type: "string" },
+                    city_name: stringOrNullSchema,
+                    order: { type: "integer" },
+                    days: { type: "integer" },
+                    reason: { type: "string" },
+                    evidence_refs: { type: "array", items: { type: "string" } },
+                  },
+                  required: ["city_id", "city_name", "order", "days", "reason", "evidence_refs"],
+                },
+              },
+              assumptions: { type: "array", items: { type: "string" } },
+              tradeoffs: { type: "array", items: { type: "string" } },
+              unresolved_details: { type: "array", items: { type: "string" } },
+            },
+            required: ["route_id", "stops", "assumptions", "tradeoffs", "unresolved_details"],
+          },
+          days: {
+            type: "array",
+            items: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                city_id: { type: "string" },
+                day_number: { type: "integer" },
+                items: { type: "array", items: DAY_ITEM_SCHEMA },
+              },
+              required: ["city_id", "day_number", "items"],
+            },
+          },
+          assumptions: { type: "array", items: { type: "string" } },
+          tradeoffs: { type: "array", items: { type: "string" } },
+          unresolved_details: { type: "array", items: { type: "string" } },
+        },
+        required: [
+          "candidate_id",
+          "profile_revision",
+          "dataset_revisions",
+          "route",
+          "days",
+          "assumptions",
+          "tradeoffs",
+          "unresolved_details",
+        ],
+      },
+    },
+  },
+  required: ["candidates"],
+} as const;
+
+type ChatMessage = Record<string, unknown>;
+
+interface ToolCall {
+  id: string;
+  type: "function";
+  function: { name: string; arguments: string };
+}
+
+interface ModelMessage {
+  content: string | null;
+  tool_calls: ToolCall[];
+}
+
+interface RunState {
+  input: CandidateDesignInput;
+  options: CandidateDesignOptions;
+  deadline: number;
+  tool_calls: number;
+  retrieved_rows: number;
+  known_cities: Map<string, CityRecord>;
+  known_attractions: Map<string, AttractionRecord>;
+}
+
+const SYSTEM_PROMPT = `You are Agent 2, the Candidate Design Agent for Voyager.
+
+Your job is to propose grounded candidate route or city-day designs for later deterministic evaluation. You are not the final itinerary selector. Use retrieval tools for every city and attraction decision. Stable city_id and attraction_id values are the only valid place identifiers.
+
+General rules:
+- Return exactly one JSON object matching the supplied schema. Never return markdown or commentary.
+- Use only city and attraction records returned by tools or the validated route context.
+- Do not invent places, restaurants, providers, prices, fares, distances, travel durations, opening-hour guarantees, bookings, or feasibility decisions.
+- Keep the supplied profile revision and both dataset revisions unchanged.
+- Hard guardrails are absolute. Never include an excluded attraction or a city outside the allowed scope.
+- Soft conflicts may remain in a candidate. If you choose one, expose the conflict on the experience item, explain why it may still fit, and reference a known alternative when practical.
+- Evidence references must contain the stable ID of the place decision they support.
+
+trip_route mode:
+- For a city scope, use the fixed resolved city and get_city. Never replace it.
+- For a country or region scope, use search_cities, then use only returned city_id values. Produce materially different alternatives when duration supports them, including depth versus coverage tradeoffs.
+- Route days are tentative allocations. Mobility and Cost decide inter-city feasibility later.
+
+city_day_plan mode:
+- Query attractions with the selected city_id as mandatory scope. Use get_attractions_by_ids only for exact hydration.
+- Map must-visit requests to known records or put them in unresolved_details.
+- Generate a visit approach for every experience. Duration is a proposal based on retrieved duration fields, not a guarantee.
+- Meal and rest slots must stay generic. A meal may describe flexible timing or dietary needs but must not name a venue or provider.
+- Return up to two materially different day variants.
+
+The final JSON contains candidate bundles, not a final plan or ranking.`;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function nonEmptyString(value: unknown, path: string): string {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new CandidateDesignResponseError(`${path} must be a non-empty string`, [`${path}: non-empty string required`]);
+  }
+  return value.trim();
+}
+
+function stringArray(value: unknown, path: string): string[] {
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string" || item.trim().length === 0)) {
+    throw new CandidateDesignResponseError(`${path} must be an array of non-empty strings`, [`${path}: string array required`]);
+  }
+  return value.map((item) => (item as string).trim());
+}
+
+function positiveInteger(value: unknown, path: string): number {
+  if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
+    throw new CandidateDesignResponseError(`${path} must be a positive integer`, [`${path}: positive integer required`]);
+  }
+  return value;
+}
+
+function exactKeys(value: Record<string, unknown>, keys: readonly string[], path: string): void {
+  const expected = new Set(keys);
+  for (const key of Object.keys(value)) {
+    if (!expected.has(key)) {
+      throw new CandidateDesignResponseError(`${path} contains unsupported field ${key}`, [`${path}.${key}: unsupported field`]);
+    }
+  }
+}
+
+function optionalString(value: unknown, path: string): string | null {
+  if (value === null) return null;
+  return nonEmptyString(value, path);
+}
+
+function optionalInteger(value: unknown, path: string): number | null {
+  if (value === null) return null;
+  return positiveInteger(value, path);
+}
+
+function validateProfile(profile: TravelerProfile): void {
+  if (!isRecord(profile)) throw new CandidateDesignConfigurationError("profile must be an object");
+  for (const key of [
+    "profile_id",
+    "trip_context",
+    "purpose_and_priorities",
+    "preferences",
+    "travel_style",
+    "hard_constraints",
+    "unknowns",
+    "assumptions",
+  ]) {
+    if (!(key in profile)) throw new CandidateDesignConfigurationError(`profile.${key} is required`);
+  }
+  if (typeof profile.profile_id !== "string" || profile.profile_id.trim().length === 0) {
+    throw new CandidateDesignConfigurationError("profile.profile_id must be a non-empty string");
+  }
+  if (!isRecord(profile.trip_context) || !isRecord(profile.hard_constraints)) {
+    throw new CandidateDesignConfigurationError("profile trip_context and hard_constraints must be objects");
+  }
+}
+
+function validateInput(input: CandidateDesignInput): void {
+  if (!isRecord(input)) throw new CandidateDesignConfigurationError("planning input must be an object");
+  validateProfile(input.profile);
+  positiveInteger(input.profile_revision, "profile_revision");
+  if (!isRecord(input.destination_scope)) throw new CandidateDesignConfigurationError("destination_scope is required");
+  if (!(["city", "region", "country"] as string[]).includes(input.destination_scope.type)) {
+    throw new CandidateDesignConfigurationError("destination_scope.type must be city, region, or country");
+  }
+  if (typeof input.destination_scope.name !== "string" || input.destination_scope.name.trim().length === 0) {
+    throw new CandidateDesignConfigurationError("destination_scope.name must be non-empty");
+  }
+  if (!Array.isArray(input.destination_scope.resolved_city_ids) || input.destination_scope.resolved_city_ids.some((id) => typeof id !== "string" || !id)) {
+    throw new CandidateDesignConfigurationError("destination_scope.resolved_city_ids must be a string array");
+  }
+  if (input.destination_scope.type === "city" && input.destination_scope.resolved_city_ids.length !== 1) {
+    throw new CandidateDesignConfigurationError("city scope requires exactly one resolved city_id");
+  }
+  for (const revision of [input.city_dataset_revision, input.attraction_dataset_revision]) {
+    if (typeof revision !== "string" || revision.trim().length === 0) {
+      throw new CandidateDesignConfigurationError("dataset revisions must be non-empty strings");
+    }
+  }
+  if (!isRecord(input.hard_constraint_guardrails)) {
+    throw new CandidateDesignConfigurationError("hard_constraint_guardrails is required");
+  }
+  for (const ids of [input.hard_constraint_guardrails.allowed_city_ids, input.hard_constraint_guardrails.excluded_attraction_ids]) {
+    if (!Array.isArray(ids) || ids.some((id) => typeof id !== "string" || id.trim().length === 0)) {
+      throw new CandidateDesignConfigurationError("guardrail IDs must be non-empty string arrays");
+    }
+  }
+  if (input.destination_scope.type === "city" && !input.hard_constraint_guardrails.allowed_city_ids.includes(input.destination_scope.resolved_city_ids[0] as string)) {
+    throw new CandidateDesignConfigurationError("the resolved city must be in allowed_city_ids");
+  }
+  if (!isRecord(input.run_budget)) throw new CandidateDesignConfigurationError("run_budget is required");
+  if (!Number.isInteger(input.run_budget.max_candidates) || input.run_budget.max_candidates < 1 || input.run_budget.max_candidates > MAX_ROUTE_CANDIDATES) {
+    throw new CandidateDesignConfigurationError("run_budget.max_candidates must be between 1 and 3");
+  }
+  if (!Number.isInteger(input.run_budget.max_tool_calls) || input.run_budget.max_tool_calls < 1 || input.run_budget.max_tool_calls > 100) {
+    throw new CandidateDesignConfigurationError("run_budget.max_tool_calls must be between 1 and 100");
+  }
+  if (!Number.isInteger(input.run_budget.max_rows_per_tool_call) || input.run_budget.max_rows_per_tool_call < 1 || input.run_budget.max_rows_per_tool_call > 50) {
+    throw new CandidateDesignConfigurationError("run_budget.max_rows_per_tool_call must be between 1 and 50");
+  }
+  if (!Number.isInteger(input.run_budget.timeout_ms) || input.run_budget.timeout_ms < 1_000 || input.run_budget.timeout_ms > 120_000) {
+    throw new CandidateDesignConfigurationError("run_budget.timeout_ms must be between 1000 and 120000");
+  }
+  if (input.mode !== "trip_route" && input.mode !== "city_day_plan") {
+    throw new CandidateDesignConfigurationError("mode must be trip_route or city_day_plan");
+  }
+  if (input.mode === "city_day_plan") {
+    if (!input.route_context || !input.city_context) {
+      throw new CandidateDesignConfigurationError("city_day_plan requires route_context and city_context");
+    }
+    validateRouteShape(input.route_context, "route_context");
+    positiveInteger(input.city_context.allocated_days, "city_context.allocated_days");
+    const selectedStop = input.route_context.stops.find((stop) => stop.city_id === input.city_context?.city_id);
+    if (!selectedStop) throw new CandidateDesignConfigurationError("city_context.city_id must be a route stop");
+    if (selectedStop.days !== input.city_context.allocated_days) {
+      throw new CandidateDesignConfigurationError("city_context.allocated_days must match the route stop allocation");
+    }
+    if (!input.hard_constraint_guardrails.allowed_city_ids.includes(input.city_context.city_id)) {
+      throw new CandidateDesignConfigurationError("city_context.city_id must be allowed");
+    }
+  }
+}
+
+function validateRouteShape(route: RouteCandidate, path: string): void {
+  if (!isRecord(route)) throw new CandidateDesignConfigurationError(`${path} must be an object`);
+  const stops = route.stops;
+  if (!Array.isArray(stops) || stops.length === 0) throw new CandidateDesignConfigurationError(`${path}.stops must not be empty`);
+  const ids = new Set<string>();
+  for (const [index, stop] of stops.entries()) {
+    if (!isRecord(stop)) throw new CandidateDesignConfigurationError(`${path}.stops[${index}] must be an object`);
+    if (typeof stop.city_id !== "string" || !stop.city_id) throw new CandidateDesignConfigurationError(`${path}.stops[${index}].city_id is required`);
+    if (ids.has(stop.city_id)) throw new CandidateDesignConfigurationError(`${path}.stops contains duplicate city_id ${stop.city_id}`);
+    ids.add(stop.city_id);
+    positiveInteger(stop.order, `${path}.stops[${index}].order`);
+    positiveInteger(stop.days, `${path}.stops[${index}].days`);
+  }
+}
+
+function validateToolResultRevision(resultRevision: unknown, expected: string, toolName: string): void {
+  if (resultRevision !== expected) {
+    throw new CandidateDesignToolError(`${toolName} returned dataset revision different from the frozen run revision`, "dataset_revision_mismatch");
+  }
+}
+
+function cityIdsForInput(input: CandidateDesignInput): Set<string> {
+  return new Set(input.hard_constraint_guardrails.allowed_city_ids);
+}
+
+function buildToolSchemas(input: CandidateDesignInput): unknown[] {
+  const searchCities = {
+    type: "function",
+    function: {
+      name: "search_cities",
+      description: "Search known cities within the requested country or region scope.",
+      strict: true,
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          region: stringOrNullSchema,
+          destination_types: { type: "array", items: { type: "string" } },
+          climate_types: { type: "array", items: { type: "string" } },
+          tourism_popularity: stringOrNullSchema,
+        },
+        required: ["region", "destination_types", "climate_types", "tourism_popularity"],
+      },
+    },
+  };
+  const getCity = {
+    type: "function",
+    function: {
+      name: "get_city",
+      description: "Load one authoritative city record by stable city_id.",
+      strict: true,
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: { city_id: { type: "string" } },
+        required: ["city_id"],
+      },
+    },
+  };
+  const queryAttractions = {
+    type: "function",
+    function: {
+      name: "query_attractions",
+      description: "Query known attractions. The runtime forces the selected city scope and hard exclusions.",
+      strict: true,
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          query: { type: "string" },
+          best_for: { type: "array", items: { type: "string" } },
+          attraction_types: { type: "array", items: { type: "string" } },
+        },
+        required: ["query", "best_for", "attraction_types"],
+      },
+    },
+  };
+  const getAttractionsByIds = {
+    type: "function",
+    function: {
+      name: "get_attractions_by_ids",
+      description: "Hydrate exact known attraction IDs within the selected city.",
+      strict: true,
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: { attraction_ids: { type: "array", items: { type: "string" } } },
+        required: ["attraction_ids"],
+      },
+    },
+  };
+  if (input.mode === "trip_route") return [searchCities, getCity];
+  return [queryAttractions, getAttractionsByIds];
+}
+
+function buildUserMessage(input: CandidateDesignInput, preloadedCity: CityRecord | null): string {
+  return JSON.stringify({
+    mode: input.mode,
+    profile: input.profile,
+    profile_revision: input.profile_revision,
+    destination_scope: input.destination_scope,
+    city_dataset_revision: input.city_dataset_revision,
+    attraction_dataset_revision: input.attraction_dataset_revision,
+    hard_constraint_guardrails: input.hard_constraint_guardrails,
+    route_context: input.route_context ?? null,
+    city_context: input.city_context ?? null,
+    preloaded_authoritative_city: preloadedCity,
+  });
+}
+
+function defaultFetcher(input: string, init?: FetchRequestInit): Promise<FetchResponse> {
+  return fetch(input, init as RequestInit);
+}
+
+async function withDeadline<T>(promise: Promise<T>, deadline: number, label: string): Promise<T> {
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) throw new CandidateDesignTimeoutError(`${label} exceeded the run timeout`);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new CandidateDesignTimeoutError(`${label} exceeded the run timeout`)), remaining);
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+function toolFailureMessage(error: unknown): string {
+  if (error instanceof CandidateDesignToolError) return JSON.stringify({ error: { code: error.code, message: error.message } });
+  return JSON.stringify({ error: { code: "retrieval_failed", message: "The retrieval adapter failed without exposing provider details." } });
+}
+
+function ensureToolBudget(state: RunState): void {
+  if (state.tool_calls >= state.input.run_budget.max_tool_calls) {
+    throw new CandidateDesignToolError("The run tool-call budget was exhausted", "tool_budget_exhausted");
+  }
+  if (Date.now() >= state.deadline) throw new CandidateDesignTimeoutError("The run timeout was exceeded");
+  state.tool_calls += 1;
+}
+
+function validateCityRecord(city: CityRecord): void {
+  if (!isRecord(city) || typeof city.city_id !== "string" || typeof city.city_name !== "string") {
+    throw new CandidateDesignToolError("retrieval returned an invalid city record", "invalid_city_record");
+  }
+}
+
+function validateAttractionRecord(attraction: AttractionRecord, input: CandidateDesignInput, cityId: string): void {
+  if (!isRecord(attraction) || typeof attraction.attraction_id !== "string" || typeof attraction.city_id !== "string" || typeof attraction.name !== "string") {
+    throw new CandidateDesignToolError("retrieval returned an invalid attraction record", "invalid_attraction_record");
+  }
+  if (attraction.city_id !== cityId) throw new CandidateDesignToolError("retrieval returned an attraction outside the selected city", "out_of_scope_attraction");
+  if (input.hard_constraint_guardrails.excluded_attraction_ids.includes(attraction.attraction_id)) {
+    throw new CandidateDesignToolError("retrieval returned an explicitly excluded attraction", "excluded_attraction");
+  }
+}
+
+async function executeTool(state: RunState, name: string, rawArguments: string): Promise<string> {
+  ensureToolBudget(state);
+  const input = state.input;
+  let args: Record<string, unknown>;
+  try {
+    const parsed: unknown = JSON.parse(rawArguments);
+    if (!isRecord(parsed)) throw new Error("arguments must be an object");
+    args = parsed;
+  } catch {
+    return JSON.stringify({ error: { code: "invalid_arguments", message: "Tool arguments must be valid JSON object arguments." } });
+  }
+  const allowed = input.mode === "trip_route" ? ["search_cities", "get_city"] : ["query_attractions", "get_attractions_by_ids"];
+  if (!allowed.includes(name)) return JSON.stringify({ error: { code: "tool_not_allowed", message: `Tool ${name} is not available in ${input.mode}.` } });
+  try {
+    if (name === "search_cities") {
+      exactKeys(args, ["region", "destination_types", "climate_types", "tourism_popularity"], "search_cities arguments");
+      const result = await withDeadline(state.options.tools!.searchCities({
+        destination_scope: input.destination_scope,
+        filters: {
+          region: args.region === null ? null : nonEmptyString(args.region, "search_cities.region"),
+          destination_types: stringArray(args.destination_types, "search_cities.destination_types"),
+          climate_types: stringArray(args.climate_types, "search_cities.climate_types"),
+          tourism_popularity: args.tourism_popularity === null ? null : nonEmptyString(args.tourism_popularity, "search_cities.tourism_popularity"),
+        },
+        allowed_city_ids: [...cityIdsForInput(input)],
+        page_size: input.run_budget.max_rows_per_tool_call,
+        dataset_revision: input.city_dataset_revision,
+      }), state.deadline, "search_cities");
+      validateToolResultRevision(result.dataset_revision, input.city_dataset_revision, name);
+      if (result.cities.length > input.run_budget.max_rows_per_tool_call) throw new CandidateDesignToolError("search_cities exceeded the row limit", "row_budget_exhausted");
+      for (const city of result.cities) {
+        validateCityRecord(city);
+        if (!cityIdsForInput(input).has(city.city_id)) throw new CandidateDesignToolError("search_cities returned a city outside allowed scope", "out_of_scope_city");
+        state.known_cities.set(city.city_id, city);
+      }
+      state.retrieved_rows += result.cities.length;
+      return JSON.stringify({ dataset_revision: result.dataset_revision, cities: result.cities, next_cursor: result.next_cursor });
+    }
+    if (name === "get_city") {
+      exactKeys(args, ["city_id"], "get_city arguments");
+      const cityId = nonEmptyString(args.city_id, "get_city.city_id");
+      if (!cityIdsForInput(input).has(cityId)) throw new CandidateDesignToolError("get_city city_id is outside allowed scope", "out_of_scope_city");
+      const result = await withDeadline(state.options.tools!.getCity({ city_id: cityId, dataset_revision: input.city_dataset_revision }), state.deadline, "get_city");
+      validateToolResultRevision(result.dataset_revision, input.city_dataset_revision, name);
+      validateCityRecord(result.city);
+      if (result.city.city_id !== cityId) throw new CandidateDesignToolError("get_city returned a different city_id", "city_id_mismatch");
+      state.known_cities.set(cityId, result.city);
+      state.retrieved_rows += 1;
+      return JSON.stringify({ dataset_revision: result.dataset_revision, city: result.city });
+    }
+    if (name === "query_attractions") {
+      exactKeys(args, ["query", "best_for", "attraction_types"], "query_attractions arguments");
+      const cityId = input.city_context?.city_id;
+      if (!cityId) throw new CandidateDesignToolError("city context is missing", "missing_city_scope");
+      const result = await withDeadline(state.options.tools!.queryAttractions({
+        city_id: cityId,
+        query: typeof args.query === "string" ? args.query.trim() : "",
+        best_for: stringArray(args.best_for, "query_attractions.best_for"),
+        attraction_types: stringArray(args.attraction_types, "query_attractions.attraction_types"),
+        excluded_attraction_ids: input.hard_constraint_guardrails.excluded_attraction_ids,
+        page_size: input.run_budget.max_rows_per_tool_call,
+        dataset_revision: input.attraction_dataset_revision,
+      }), state.deadline, "query_attractions");
+      validateToolResultRevision(result.dataset_revision, input.attraction_dataset_revision, name);
+      if (result.attractions.length > input.run_budget.max_rows_per_tool_call) throw new CandidateDesignToolError("query_attractions exceeded the row limit", "row_budget_exhausted");
+      for (const attraction of result.attractions) {
+        validateAttractionRecord(attraction, input, cityId);
+        state.known_attractions.set(attraction.attraction_id, attraction);
+      }
+      state.retrieved_rows += result.attractions.length;
+      return JSON.stringify({ dataset_revision: result.dataset_revision, query_id: result.query_id, attractions: result.attractions, next_cursor: result.next_cursor });
+    }
+    exactKeys(args, ["attraction_ids"], "get_attractions_by_ids arguments");
+    const cityId = input.city_context?.city_id;
+    if (!cityId) throw new CandidateDesignToolError("city context is missing", "missing_city_scope");
+    const attractionIds = stringArray(args.attraction_ids, "get_attractions_by_ids.attraction_ids");
+    if (attractionIds.length === 0 || attractionIds.length > input.run_budget.max_rows_per_tool_call) throw new CandidateDesignToolError("attraction_ids exceed the row limit", "row_budget_exhausted");
+    const result = await withDeadline(state.options.tools!.getAttractionsByIds({
+      city_id: cityId,
+      attraction_ids: attractionIds,
+      excluded_attraction_ids: input.hard_constraint_guardrails.excluded_attraction_ids,
+      page_size: input.run_budget.max_rows_per_tool_call,
+      dataset_revision: input.attraction_dataset_revision,
+    }), state.deadline, "get_attractions_by_ids");
+    validateToolResultRevision(result.dataset_revision, input.attraction_dataset_revision, name);
+    if (result.attractions.length > input.run_budget.max_rows_per_tool_call) throw new CandidateDesignToolError("get_attractions_by_ids exceeded the row limit", "row_budget_exhausted");
+    for (const attraction of result.attractions) {
+      validateAttractionRecord(attraction, input, cityId);
+      state.known_attractions.set(attraction.attraction_id, attraction);
+    }
+    state.retrieved_rows += result.attractions.length;
+    return JSON.stringify({ dataset_revision: result.dataset_revision, attractions: result.attractions });
+  } catch (error) {
+    if (error instanceof CandidateDesignTimeoutError) throw error;
+    if (error instanceof CandidateDesignToolError) return toolFailureMessage(error);
+    return toolFailureMessage(error);
+  }
+}
+
+function parseModelMessage(payload: unknown): ModelMessage {
+  if (!isRecord(payload) || !Array.isArray(payload.choices) || !isRecord(payload.choices[0])) {
+    throw new CandidateDesignResponseError("model response did not contain choices", ["choices: response array required"]);
+  }
+  const choice = payload.choices[0];
+  const message = isRecord(choice.message) ? choice.message : null;
+  if (!message) throw new CandidateDesignResponseError("model response did not contain a message", ["choices[0].message: object required"]);
+  const rawCalls = message.tool_calls;
+  const calls: ToolCall[] = [];
+  if (rawCalls !== undefined) {
+    if (!Array.isArray(rawCalls)) throw new CandidateDesignResponseError("tool_calls must be an array", ["tool_calls: array required"]);
+    for (const [index, rawCall] of rawCalls.entries()) {
+      if (!isRecord(rawCall) || rawCall.type !== "function" || typeof rawCall.id !== "string" || !isRecord(rawCall.function) || typeof rawCall.function.name !== "string" || typeof rawCall.function.arguments !== "string") {
+        throw new CandidateDesignResponseError(`invalid tool call at index ${index}`, [`tool_calls[${index}]: invalid function call`]);
+      }
+      calls.push({ id: rawCall.id, type: "function", function: { name: rawCall.function.name, arguments: rawCall.function.arguments } });
+    }
+  }
+  return { content: typeof message.content === "string" ? message.content : null, tool_calls: calls };
+}
+
+async function requestModel(state: RunState, messages: ChatMessage[], tools: unknown[]): Promise<ModelMessage> {
+  const apiKey = state.options.api_key ?? process.env.GROQ_API_KEY;
+  if (!apiKey) throw new CandidateDesignConfigurationError("Missing GROQ_API_KEY. Set it in the environment or pass api_key.");
+  const apiUrl = state.options.api_url ?? process.env.GROQ_API_URL ?? DEFAULT_API_URL;
+  const model = state.options.model ?? process.env.GROQ_MODEL ?? DEFAULT_MODEL;
+  const fetcher = state.options.fetcher ?? defaultFetcher;
+  const controller = new AbortController();
+  const remaining = Math.max(1, state.deadline - Date.now());
+  const abortTimer = setTimeout(() => controller.abort(), remaining);
+  try {
+    const response = await withDeadline(fetcher(apiUrl, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model,
+        messages,
+        tools,
+        tool_choice: "auto",
+        reasoning_effort: state.options.reasoning_effort ?? "medium",
+        response_format: {
+          type: "json_schema",
+          json_schema: { name: "candidate_design_result", strict: true, schema: CANDIDATE_DESIGN_RESPONSE_SCHEMA },
+        },
+      }),
+    }), state.deadline, "model request");
+    const rawText = await withDeadline(response.text(), state.deadline, "model response read");
+    if (!response.ok) throw new CandidateDesignApiError(`Candidate Design model request failed with status ${response.status}`, response.status);
+    let payload: unknown;
+    try {
+      payload = JSON.parse(rawText);
+    } catch {
+      throw new CandidateDesignResponseError("model API returned malformed JSON", ["api_response: valid JSON required"]);
+    }
+    return parseModelMessage(payload);
+  } finally {
+    clearTimeout(abortTimer);
+  }
+}
+
+async function modelToolLoop(state: RunState, messages: ChatMessage[], tools: unknown[]): Promise<string> {
+  const maxTurns = state.input.run_budget.max_tool_calls + 2;
+  for (let turn = 0; turn < maxTurns; turn += 1) {
+    const message = await requestModel(state, messages, tools);
+    if (message.tool_calls.length > 0) {
+      const assistantMessage: ChatMessage = { role: "assistant", content: message.content, tool_calls: message.tool_calls };
+      messages.push(assistantMessage);
+      for (const call of message.tool_calls) {
+        const output = await executeTool(state, call.function.name, call.function.arguments);
+        messages.push({ role: "tool", tool_call_id: call.id, name: call.function.name, content: output });
+      }
+      continue;
+    }
+    if (!message.content) throw new CandidateDesignResponseError("model returned neither tool calls nor final JSON", ["message.content: final JSON required"]);
+    return message.content;
+  }
+  throw new CandidateDesignToolError("model/tool-call loop exceeded its bounded turn budget", "tool_budget_exhausted");
+}
+
+function normalizeVisitApproach(raw: Record<string, unknown>, path: string): VisitApproach {
+  exactKeys(raw, ["mode", "timing_preference", "duration_minutes", "pace", "focus", "rationale", "tradeoffs"], path);
+  return {
+    mode: nonEmptyString(raw.mode, `${path}.mode`),
+    timing_preference: nonEmptyString(raw.timing_preference, `${path}.timing_preference`),
+    duration_minutes: positiveInteger(raw.duration_minutes, `${path}.duration_minutes`),
+    pace: nonEmptyString(raw.pace, `${path}.pace`),
+    focus: stringArray(raw.focus, `${path}.focus`),
+    rationale: nonEmptyString(raw.rationale, `${path}.rationale`),
+    tradeoffs: stringArray(raw.tradeoffs, `${path}.tradeoffs`),
+  };
+}
+
+function normalizeSoftConflict(raw: Record<string, unknown>, path: string): SoftConflict {
+  exactKeys(raw, ["topic", "explanation", "alternative_attraction_id", "evidence_refs"], path);
+  return {
+    topic: nonEmptyString(raw.topic, `${path}.topic`),
+    explanation: nonEmptyString(raw.explanation, `${path}.explanation`),
+    alternative_attraction_id: optionalString(raw.alternative_attraction_id, `${path}.alternative_attraction_id`),
+    evidence_refs: stringArray(raw.evidence_refs, `${path}.evidence_refs`),
+  };
+}
+
+function normalizeDayItem(raw: unknown, path: string): CandidateDayItem {
+  if (!isRecord(raw)) throw new CandidateDesignResponseError(`${path} must be an object`, [`${path}: object required`]);
+  exactKeys(raw, ["type", "attraction_id", "city_id", "title", "description", "visit_approach", "evidence_refs", "soft_conflicts"], path);
+  const type = raw.type;
+  if (type !== "experience" && type !== "meal" && type !== "rest") throw new CandidateDesignResponseError(`${path}.type is invalid`, [`${path}.type: invalid item type`]);
+  if (raw.visit_approach !== null && !isRecord(raw.visit_approach)) throw new CandidateDesignResponseError(`${path}.visit_approach is invalid`, [`${path}.visit_approach: object or null required`]);
+  if (!Array.isArray(raw.soft_conflicts) || raw.soft_conflicts.some((item) => !isRecord(item))) throw new CandidateDesignResponseError(`${path}.soft_conflicts is invalid`, [`${path}.soft_conflicts: object array required`]);
+  return {
+    type,
+    attraction_id: optionalString(raw.attraction_id, `${path}.attraction_id`),
+    city_id: optionalString(raw.city_id, `${path}.city_id`),
+    title: nonEmptyString(raw.title, `${path}.title`),
+    description: nonEmptyString(raw.description, `${path}.description`),
+    visit_approach: raw.visit_approach === null ? null : normalizeVisitApproach(raw.visit_approach, `${path}.visit_approach`),
+    evidence_refs: stringArray(raw.evidence_refs, `${path}.evidence_refs`),
+    soft_conflicts: raw.soft_conflicts.map((item, index) => normalizeSoftConflict(item as Record<string, unknown>, `${path}.soft_conflicts[${index}]`)),
+  };
+}
+
+function normalizeRoute(raw: unknown, path: string): RouteCandidate {
+  if (!isRecord(raw)) throw new CandidateDesignResponseError(`${path} must be an object`, [`${path}: object required`]);
+  exactKeys(raw, ["route_id", "stops", "assumptions", "tradeoffs", "unresolved_details"], path);
+  if (!Array.isArray(raw.stops)) throw new CandidateDesignResponseError(`${path}.stops must be an array`, [`${path}.stops: array required`]);
+  const stops: RouteStop[] = raw.stops.map((rawStop, index) => {
+    if (!isRecord(rawStop)) throw new CandidateDesignResponseError(`${path}.stops[${index}] must be an object`, [`${path}.stops[${index}]: object required`]);
+    exactKeys(rawStop, ["city_id", "city_name", "order", "days", "reason", "evidence_refs"], `${path}.stops[${index}]`);
+    return {
+      city_id: nonEmptyString(rawStop.city_id, `${path}.stops[${index}].city_id`),
+      city_name: optionalString(rawStop.city_name, `${path}.stops[${index}].city_name`),
+      order: positiveInteger(rawStop.order, `${path}.stops[${index}].order`),
+      days: positiveInteger(rawStop.days, `${path}.stops[${index}].days`),
+      reason: nonEmptyString(rawStop.reason, `${path}.stops[${index}].reason`),
+      evidence_refs: stringArray(rawStop.evidence_refs, `${path}.stops[${index}].evidence_refs`),
+    };
+  });
+  return {
+    route_id: nonEmptyString(raw.route_id, `${path}.route_id`),
+    stops,
+    assumptions: stringArray(raw.assumptions, `${path}.assumptions`),
+    tradeoffs: stringArray(raw.tradeoffs, `${path}.tradeoffs`),
+    unresolved_details: stringArray(raw.unresolved_details, `${path}.unresolved_details`),
+  };
+}
+
+function normalizeCandidateResponse(content: string): CandidateBundle[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    throw new CandidateDesignResponseError("model final response was not valid JSON", ["response: valid JSON object required"]);
+  }
+  if (!isRecord(parsed)) throw new CandidateDesignResponseError("model final response must be an object", ["response: object required"]);
+  exactKeys(parsed, ["candidates"], "response");
+  if (!Array.isArray(parsed.candidates)) throw new CandidateDesignResponseError("response.candidates must be an array", ["candidates: array required"]);
+  return parsed.candidates.map((rawCandidate, index) => {
+    const path = `candidates[${index}]`;
+    if (!isRecord(rawCandidate)) throw new CandidateDesignResponseError(`${path} must be an object`, [`${path}: object required`]);
+    exactKeys(rawCandidate, ["candidate_id", "profile_revision", "dataset_revisions", "route", "days", "assumptions", "tradeoffs", "unresolved_details"], path);
+    if (!isRecord(rawCandidate.dataset_revisions)) throw new CandidateDesignResponseError(`${path}.dataset_revisions must be an object`, [`${path}.dataset_revisions: object required`]);
+    exactKeys(rawCandidate.dataset_revisions, ["city", "attraction"], `${path}.dataset_revisions`);
+    if (!Array.isArray(rawCandidate.days)) throw new CandidateDesignResponseError(`${path}.days must be an array`, [`${path}.days: array required`]);
+    const days: CandidateDay[] = rawCandidate.days.map((rawDay, dayIndex) => {
+      if (!isRecord(rawDay)) throw new CandidateDesignResponseError(`${path}.days[${dayIndex}] must be an object`, [`${path}.days[${dayIndex}]: object required`]);
+      exactKeys(rawDay, ["city_id", "day_number", "items"], `${path}.days[${dayIndex}]`);
+      if (!Array.isArray(rawDay.items)) throw new CandidateDesignResponseError(`${path}.days[${dayIndex}].items must be an array`, [`${path}.days[${dayIndex}].items: array required`]);
+      return {
+        city_id: nonEmptyString(rawDay.city_id, `${path}.days[${dayIndex}].city_id`),
+        day_number: positiveInteger(rawDay.day_number, `${path}.days[${dayIndex}].day_number`),
+        items: rawDay.items.map((item, itemIndex) => normalizeDayItem(item, `${path}.days[${dayIndex}].items[${itemIndex}]`)),
+      };
+    });
+    return {
+      candidate_id: nonEmptyString(rawCandidate.candidate_id, `${path}.candidate_id`),
+      profile_revision: positiveInteger(rawCandidate.profile_revision, `${path}.profile_revision`),
+      dataset_revisions: {
+        city: nonEmptyString(rawCandidate.dataset_revisions.city, `${path}.dataset_revisions.city`),
+        attraction: nonEmptyString(rawCandidate.dataset_revisions.attraction, `${path}.dataset_revisions.attraction`),
+      },
+      route: normalizeRoute(rawCandidate.route, `${path}.route`),
+      days,
+      assumptions: stringArray(rawCandidate.assumptions, `${path}.assumptions`),
+      tradeoffs: stringArray(rawCandidate.tradeoffs, `${path}.tradeoffs`),
+      unresolved_details: stringArray(rawCandidate.unresolved_details, `${path}.unresolved_details`),
+    };
+  });
+}
+
+function hasUnsupportedClaim(text: string): boolean {
+  return /(?:₹|\$|€|£|\b(?:INR|USD|EUR|GBP)\s*\d)|\b(?:fare|ticket\s+price|opening\s+hours?|guaranteed|provider|reservation\s+required|booking\s+confirmed)\b/i.test(text);
+}
+
+function validateFreeText(text: string, path: string): void {
+  if (hasUnsupportedClaim(text)) throw new CandidateDesignResponseError(`${path} contains an unsupported factual claim`, [`${path}: unsupported provider, price, booking, or schedule claim`]);
+}
+
+function validateGenericItemText(item: CandidateDayItem, path: string): void {
+  validateFreeText(item.title, `${path}.title`);
+  validateFreeText(item.description, `${path}.description`);
+  if (!/\b(?:meal|breakfast|lunch|dinner|snack|food)\b/i.test(item.title)) throw new CandidateDesignResponseError(`${path}.title must remain a generic meal slot`, [`${path}.title: generic meal slot required`]);
+  if (!/\b(?:flexible|not selected|generic|meal slot|preserve)\b/i.test(item.description)) throw new CandidateDesignResponseError(`${path}.description must keep the meal venue unresolved`, [`${path}.description: unresolved generic meal description required`]);
+  const combinedText = `${item.title} ${item.description}`;
+  if (/\b(?:at|called|named)\s+[A-Z][\w'-]+/.test(combinedText) || /\b(?:cafe|café|restaurant|hotel)\s+[A-Z][\w'-]+/i.test(combinedText)) {
+    throw new CandidateDesignResponseError(`${path} appears to name a venue`, [`${path}: restaurant/provider names are not allowed`]);
+  }
+}
+
+function detectableSoftConflictTopics(profile: TravelerProfile, attraction: AttractionRecord): string[] {
+  const topics: string[] = [];
+  const crowdTolerance = profile.travel_style.crowd_tolerance;
+  if (crowdTolerance === "low" && (attraction.crowd_level === "High" || attraction.crowd_level === "Very_High")) {
+    topics.push("crowd exposure");
+  }
+  const walkingTolerance = profile.travel_style.walking_tolerance;
+  if (walkingTolerance === "low" && ["Difficult", "Very_Difficult"].includes(attraction.accessibility_level ?? "")) {
+    topics.push("physical access");
+  }
+  if (walkingTolerance === "low" && ["High", "Extreme"].includes(attraction.adventure_level ?? "")) {
+    topics.push("physical intensity");
+  }
+  if (profile.travel_style.comfort_preference === "comfort_first" && attraction.accessibility_level === "Very_Difficult") {
+    topics.push("comfort");
+  }
+  return topics;
+}
+
+function validateCandidate(candidate: CandidateBundle, state: RunState, index: number): void {
+  const input = state.input;
+  if (candidate.profile_revision !== input.profile_revision) throw new CandidateDesignResponseError(`candidates[${index}] has the wrong profile revision`, [`candidates[${index}].profile_revision: must match input`]);
+  if (candidate.dataset_revisions.city !== input.city_dataset_revision || candidate.dataset_revisions.attraction !== input.attraction_dataset_revision) throw new CandidateDesignResponseError(`candidates[${index}] has a dataset revision mismatch`, [`candidates[${index}].dataset_revisions: must match input`]);
+  validateRouteShape(candidate.route, `candidates[${index}].route`);
+  const routeCities = new Set(candidate.route.stops.map((stop) => stop.city_id));
+  const knownPlaceIds = new Set<string>([...state.known_cities.keys(), ...state.known_attractions.keys()]);
+  if (input.mode === "trip_route") {
+    if (input.destination_scope.type === "city") {
+      const fixedCity = input.destination_scope.resolved_city_ids[0] as string;
+      if (candidate.route.stops.length !== 1 || candidate.route.stops[0]?.city_id !== fixedCity) throw new CandidateDesignResponseError(`candidates[${index}] replaces the fixed city`, [`candidates[${index}].route: city scope must remain fixed`]);
+    }
+    const duration = input.profile.trip_context.duration_days;
+    if (duration !== null && typeof duration === "number" && Number.isInteger(duration) && duration > 0 && candidate.route.stops.reduce((sum, stop) => sum + stop.days, 0) !== duration) {
+      throw new CandidateDesignResponseError(`candidates[${index}] route days do not match trip duration`, [`candidates[${index}].route.stops.days: total must match duration_days`]);
+    }
+  } else {
+    const selectedCity = input.city_context?.city_id;
+    if (!selectedCity || candidate.route.stops.length !== 1 || candidate.route.stops[0]?.city_id !== selectedCity) throw new CandidateDesignResponseError(`candidates[${index}] changes the city-day scope`, [`candidates[${index}].route: must contain selected city only`]);
+    if (candidate.days.length === 0) throw new CandidateDesignResponseError(`candidates[${index}] has no day design`, [`candidates[${index}].days: at least one day required`]);
+  }
+  for (const [stopIndex, stop] of candidate.route.stops.entries()) {
+    if (!cityIdsForInput(input).has(stop.city_id) || (input.mode === "trip_route" && !state.known_cities.has(stop.city_id))) throw new CandidateDesignResponseError(`candidates[${index}] contains an unknown or out-of-scope city`, [`candidates[${index}].route.stops[${stopIndex}].city_id: known allowed city required`]);
+    const stopEvidenceRefs = stop.evidence_refs ?? [];
+    if (!stopEvidenceRefs.includes(stop.city_id)) throw new CandidateDesignResponseError(`candidates[${index}] is missing city evidence`, [`candidates[${index}].route.stops[${stopIndex}].evidence_refs: city_id required`]);
+    for (const ref of stopEvidenceRefs) if (!knownPlaceIds.has(ref)) throw new CandidateDesignResponseError(`candidates[${index}] contains an unknown route evidence reference`, [`candidates[${index}].route.stops[${stopIndex}].evidence_refs: unknown reference`]);
+    validateFreeText(stop.reason ?? "", `candidates[${index}].route.stops[${stopIndex}].reason`);
+  }
+  const dayNumbers = new Set<string>();
+  for (const [dayIndex, day] of candidate.days.entries()) {
+    if (!routeCities.has(day.city_id)) throw new CandidateDesignResponseError(`candidates[${index}].days[${dayIndex}] is outside the route`, [`candidates[${index}].days[${dayIndex}].city_id: route city required`]);
+    const stop = candidate.route.stops.find((candidateStop) => candidateStop.city_id === day.city_id);
+    if (!stop || day.day_number > stop.days) throw new CandidateDesignResponseError(`candidates[${index}].days[${dayIndex}] exceeds its city allocation`, [`candidates[${index}].days[${dayIndex}].day_number: allocation exceeded`]);
+    const dayKey = `${day.city_id}:${day.day_number}`;
+    if (dayNumbers.has(dayKey)) throw new CandidateDesignResponseError(`candidates[${index}] contains a duplicate day`, [`candidates[${index}].days[${dayIndex}]: duplicate day`]);
+    dayNumbers.add(dayKey);
+    for (const [itemIndex, item] of day.items.entries()) {
+      const path = `candidates[${index}].days[${dayIndex}].items[${itemIndex}]`;
+      if (item.type === "experience") {
+        if (!item.attraction_id || item.city_id !== day.city_id || !item.visit_approach) throw new CandidateDesignResponseError(`${path} is not a complete experience item`, [`${path}: attraction, city, and visit approach required`]);
+        const attraction = state.known_attractions.get(item.attraction_id);
+        if (!attraction) throw new CandidateDesignResponseError(`${path} references an unknown attraction`, [`${path}.attraction_id: retrieved attraction required`]);
+        if (attraction.city_id !== day.city_id) throw new CandidateDesignResponseError(`${path} references an out-of-scope attraction`, [`${path}.attraction_id: city ownership mismatch`]);
+        if (input.hard_constraint_guardrails.excluded_attraction_ids.includes(item.attraction_id)) throw new CandidateDesignResponseError(`${path} references an excluded attraction`, [`${path}.attraction_id: excluded attraction`]);
+        if (!item.evidence_refs.includes(item.attraction_id) || !item.evidence_refs.includes(day.city_id)) throw new CandidateDesignResponseError(`${path} is missing place evidence`, [`${path}.evidence_refs: attraction_id and city_id required`]);
+        for (const ref of item.evidence_refs) if (!knownPlaceIds.has(ref)) throw new CandidateDesignResponseError(`${path} contains an unknown evidence reference`, [`${path}.evidence_refs: unknown reference`]);
+        const duration = item.visit_approach.duration_minutes;
+        if (attraction.visit_duration_min !== undefined && duration < attraction.visit_duration_min) throw new CandidateDesignResponseError(`${path} duration is below the retrieved minimum`, [`${path}.visit_approach.duration_minutes: below attraction minimum`]);
+        if (attraction.visit_duration_max !== undefined && duration > attraction.visit_duration_max) throw new CandidateDesignResponseError(`${path} duration exceeds the retrieved maximum`, [`${path}.visit_approach.duration_minutes: above attraction maximum`]);
+        const requiredConflictTopics = detectableSoftConflictTopics(input.profile, attraction);
+        if (requiredConflictTopics.length > 0 && item.soft_conflicts.length === 0) {
+          throw new CandidateDesignResponseError(`${path} hides a detectable soft conflict`, [`${path}.soft_conflicts: expose ${requiredConflictTopics.join(", ")}`]);
+        }
+        validateFreeText(item.title, `${path}.title`);
+        validateFreeText(item.description, `${path}.description`);
+        validateFreeText(item.visit_approach.rationale, `${path}.visit_approach.rationale`);
+        for (const conflict of item.soft_conflicts) {
+          for (const ref of conflict.evidence_refs) if (!knownPlaceIds.has(ref)) throw new CandidateDesignResponseError(`${path} soft conflict has unknown evidence`, [`${path}.soft_conflicts: unknown evidence reference`]);
+          if (conflict.alternative_attraction_id !== null) {
+            const alternative = state.known_attractions.get(conflict.alternative_attraction_id);
+            if (!alternative || alternative.city_id !== day.city_id || conflict.alternative_attraction_id === item.attraction_id) throw new CandidateDesignResponseError(`${path} soft conflict has an invalid alternative`, [`${path}.soft_conflicts: alternative must be a different known attraction in the city`]);
+          }
+        }
+      } else {
+        if (item.attraction_id !== null || item.visit_approach !== null || item.city_id !== null && item.city_id !== day.city_id) throw new CandidateDesignResponseError(`${path} non-experience item contains place-specific fields`, [`${path}: meal/rest items cannot contain attraction facts`]);
+        if (item.type === "meal") validateGenericItemText(item, path);
+        else {
+          validateFreeText(item.title, `${path}.title`);
+          validateFreeText(item.description, `${path}.description`);
+        }
+      }
+    }
+  }
+}
+
+function normalizeRouteContext(route: RouteCandidate): RouteCandidate {
+  return {
+    route_id: route.route_id,
+    stops: route.stops.map((stop) => ({
+      city_id: stop.city_id,
+      city_name: stop.city_name ?? null,
+      order: stop.order,
+      days: stop.days,
+      reason: stop.reason ?? "Validated route context",
+      evidence_refs: stop.evidence_refs?.length ? stop.evidence_refs : [stop.city_id],
+    })),
+    assumptions: route.assumptions ?? [],
+    tradeoffs: route.tradeoffs ?? [],
+    unresolved_details: route.unresolved_details ?? [],
+  };
+}
+
+function buildRepairMessage(errors: string[]): string {
+  return JSON.stringify({ repair_errors: errors.slice(0, 20) });
+}
+
+export async function processCandidateDesign(input: CandidateDesignInput, options: CandidateDesignOptions): Promise<CandidateDesignResult> {
+  validateInput(input);
+  if (!options || !options.tools) throw new CandidateDesignConfigurationError("CandidateDesignOptions.tools is required");
+  const state: RunState = {
+    input,
+    options,
+    deadline: Date.now() + Math.min(input.run_budget.timeout_ms, options.timeout_ms ?? input.run_budget.timeout_ms),
+    tool_calls: 0,
+    retrieved_rows: 0,
+    known_cities: new Map(),
+    known_attractions: new Map(),
+  };
+  if (input.mode === "city_day_plan" && input.route_context) {
+    for (const stop of input.route_context.stops) state.known_cities.set(stop.city_id, { city_id: stop.city_id, city_name: stop.city_name ?? stop.city_id });
+  }
+  let preloadedCity: CityRecord | null = null;
+  if (input.mode === "trip_route" && input.destination_scope.type === "city") {
+    const fixedCity = input.destination_scope.resolved_city_ids[0] as string;
+    const result = await executeTool(state, "get_city", JSON.stringify({ city_id: fixedCity }));
+    const parsed: unknown = JSON.parse(result);
+    if (!isRecord(parsed) || !isRecord(parsed.city)) throw new CandidateDesignToolError("fixed city could not be loaded", "city_not_found");
+    preloadedCity = parsed.city as CityRecord;
+  }
+  const messages: ChatMessage[] = [
+    { role: "system", content: SYSTEM_PROMPT },
+    { role: "user", content: buildUserMessage(input, preloadedCity) },
+  ];
+  const tools = buildToolSchemas(input);
+  let candidates: CandidateBundle[] | null = null;
+  let repairAttempted = false;
+  while (candidates === null) {
+    const content = await modelToolLoop(state, messages, tools);
+    try {
+      const normalized = normalizeCandidateResponse(content);
+      const maxCandidates = input.mode === "city_day_plan" ? MAX_DAY_CANDIDATES : MAX_ROUTE_CANDIDATES;
+      if (normalized.length < 1 || normalized.length > Math.min(input.run_budget.max_candidates, maxCandidates)) {
+        throw new CandidateDesignResponseError("candidate count is outside the bounded run limit", ["candidates: count exceeds configured mode limit"]);
+      }
+      const candidateIds = new Set<string>();
+      for (const [index, candidate] of normalized.entries()) {
+        if (candidateIds.has(candidate.candidate_id)) throw new CandidateDesignResponseError("candidate IDs must be unique", [`candidates[${index}].candidate_id: duplicate`]);
+        candidateIds.add(candidate.candidate_id);
+        validateCandidate(candidate, state, index);
+      }
+      candidates = normalized;
+    } catch (error) {
+      if (!(error instanceof CandidateDesignResponseError) || repairAttempted) {
+        if (error instanceof CandidateDesignResponseError) throw error;
+        throw new CandidateDesignResponseError("candidate response validation failed");
+      }
+      repairAttempted = true;
+      messages.push({ role: "user", content: buildRepairMessage(error.validation_errors.length ? error.validation_errors : [error.message]) });
+    }
+  }
+  return {
+    mode: input.mode,
+    profile_revision: input.profile_revision,
+    dataset_revisions: { city: input.city_dataset_revision, attraction: input.attraction_dataset_revision },
+    candidates,
+    operational: { tool_calls: state.tool_calls, retrieved_rows: state.retrieved_rows },
+  };
+}
