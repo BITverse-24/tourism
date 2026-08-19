@@ -1,0 +1,40 @@
+{
+    "name": "tourism-backend",
+    "main": "dist/src/index.js",
+    "engines": {
+        "node": ">=22"
+    },
+    "scripts": {
+        "build": "tsc --project tsconfig.json",
+        "typecheck": "tsc --project tsconfig.json --noEmit",
+        "test": "npm run build && node --test dist/test/**/*.test.js",
+        "start": "node dist/src/index.js",
+        "format": "prettier . --write",
+        "check": "npm run typecheck && npm test",
+        "dev": "nodemon --watc \"src/**\" --ext \"ts\" --exec \"npx tsx src/index.ts\""
+    },
+    "dependencies": {
+        "compression": "^1.8.1",
+        "cors": "^2.8.6",
+        "dotenv": "^17.4.2",
+        "express": "^5.2.1",
+        "express-rate-limit": "^8.5.2",
+        "helmet": "^8.2.0",
+        "mongoose": "^9.6.3",
+        "socket.io": "^4.8.3",
+        "zod": "^4.4.3"
+    },
+    "devDependencies": {
+        "@types/compression": "^1.8.1",
+        "@types/cors": "^2.8.19",
+        "@types/express": "^5.0.6",
+        "@types/node": "^25.9.1",
+        "@types/supertest": "^7.2.0",
+        "nodemon": "^3.1.14",
+        "prettier": "^3.8.3",
+        "socket.io-client": "^4.8.3",
+        "supertest": "^7.2.2",
+        "tsx": "^4.23.12",
+        "typescript": "^6.0.3"
+    }
+}
