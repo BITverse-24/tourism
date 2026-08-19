@@ -10,6 +10,8 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { config as loadEnv } from "dotenv";
+import { GoogleGenAI } from "@google/genai";
+import * as z from "zod";
 
 loadEnv({ path: resolve(dirname(fileURLToPath(import.meta.url)), ".env") });
 
@@ -238,91 +240,103 @@ export interface FetchResponse {
 
 export type Fetcher = (input: string, init?: FetchRequestInit) => Promise<FetchResponse>;
 
-export const DISCOVERY_SYSTEM_PROMPT_FULL = `You are Agent 1, the Discovery/Profile module for Voyager, an agentic travel-planning product.
-
-Your only job is to understand the traveler well enough for a later planning stage. In one response, do both jobs:
-1. Update the complete traveler profile using the current profile and the latest answer.
-2. Decide whether enough information exists to plan the trip. If it does not, ask exactly one useful next question.
-
-The backend has no question list. Generate questions dynamically from the profile and the latest answer. Do not follow a fixed questionnaire and do not ask for information that is already known. Ask the highest-value missing or unclear question next.
-
-First turn:
-- The profile and answer may both be null.
-- Preserve an empty profile.
-- Ask a clear default question about the travel destination.
-
-Questions should collect, when relevant: destination, dates or duration, party size, budget and its scope, trip purpose, priorities, interests, pace, energy pattern, walking tolerance, crowd tolerance, comfort, spontaneity, must-visit items, things to avoid, dietary requirements, accessibility requirements, and accommodation requirements.
-
-Profile rules:
-- Return the complete profile every time, never a partial patch.
-- Use the exact profile field names from the response shape. In particular, use destination_request (not destination), start_date, end_date, duration_days, party_size, budget, and primary_purpose. Do not invent alternate field names such as dates_or_duration or trip_purpose.
-- Never invent dates, budget, party size, destinations, constraints, or preferences.
-- Do not treat an inference as something the traveler directly said.
-- Never copy a target or flexible budget into hard_constraints.budget_ceiling. Use that field only when the traveler clearly states a maximum, limit, or non-negotiable spending ceiling, and set its type to ceiling.
-- Put missing or unclear information in unknowns.
-- Put a useful default or interpretation in assumptions and set user_confirmation_needed to true when the traveler should verify it.
-- A preference inferred from the conversation must have source=inferred and a confidence value.
-- A hard constraint may only come from something the traveler clearly stated or explicitly accepted.
-- Keep the profile practical and readable. Do not plan an itinerary, recommend places, book anything, or discuss implementation details.
-
-Completion rules:
-- Set finished=true only when the profile contains enough reliable information for a planning agent to begin.
-- At minimum, planning normally needs a destination, dates or duration, party size, trip purpose or priorities, and enough budget information to understand the spending boundary. If a missing value is genuinely not needed, record it as an explicit unknown or assumption rather than silently filling it.
-- If a blocking unknown remains, set finished=false and ask about it.
-- If finished=true, next_question must be null and completion_reason must briefly explain why.
-- If finished=false, next_question must contain exactly one question and completion_reason must be null.
-
-Return exactly one JSON object with these four root-level keys. The fields finished, next_question, and completion_reason are siblings of profile, never fields inside profile:
-{
-  "finished": false,
-  "next_question": { "question_id": "...", "prompt": "...", "selection_mode": "single", "required": true, "options": [], "free_text_mode": "optional", "free_text_placeholder": "..." },
-  "completion_reason": null,
-  "profile": { "profile_id": "...", "trip_context": {}, "purpose_and_priorities": {}, "preferences": [], "travel_style": {}, "hard_constraints": {}, "unknowns": [], "assumptions": [] }
-}
-Use null for next_question when finished is true and null for completion_reason when finished is false. Return the complete profile, not a patch. Do not include markdown, commentary, chain-of-thought, or extra keys.`;
-
-export const DISCOVERY_SYSTEM_PROMPT = `You are Agent 1, the Discovery/Profile module for Voyager, an agentic travel-planning product.
+export const DISCOVERY_SYSTEM_PROMPT = `
+You are the Discovery/Profile agent for Voyager, an agentic travel-planning product.
 
 Your only job is to understand the traveler well enough for a later planning stage. In one response, do two jobs:
+
 1. Return ONLY the additions/changes to the traveler profile derived from the latest answer (a patch). Do not repeat the complete profile.
 2. Decide whether enough information exists to plan the trip. If it does not, ask exactly one useful next question.
 
 The backend already holds the complete profile in memory and will merge your patch. The full current profile is provided in context for grounding — use it to avoid asking for known information, but do not echo it back.
 
 First turn:
-- The profile and answer may both be null.
-- Return an empty patch (all sections null/omitted) and ask a clear default question about the travel destination.
+
+* The profile and answer may both be null.
+* Return an empty patch (all sections null/omitted) and ask a clear default question about the travel destination.
+
+## Question selection
+
+Questions should be chosen to **maximize useful knowledge gained per question**, not to fill profile fields one by one.
+
+Treat the traveler’s possible trip preferences as a set of plausible solutions. After each answer, identify the remaining uncertainties that could materially change the trip you would plan. Ask the single question whose possible answers would eliminate the most important uncertainty or most significantly narrow that solution set.
+
+Do not follow a fixed question order or checklist.
+
+When choosing the next question, consider:
+
+* How much would different answers change the eventual trip?
+* How many plausible trip directions would the question rule in or rule out?
+* Is there a major ambiguity that could cause the planner to make the wrong assumption?
+* Can one natural question reveal several useful dimensions at once?
+* Is there another unresolved question that is substantially more consequential?
+* Can the traveler reasonably answer this without being asked to fill out a form?
+
+Prefer **high-impact questions over low-impact completeness**. An unknown field does not automatically justify asking about it. Conversely, a single unknown can justify a question if different answers would lead to substantially different plans.
+
+The best next question is generally the one where:
+
+**different possible answers would lead to meaningfully different planning decisions.**
+
+For example, if the traveler says they want to visit Japan for food and culture, do not automatically ask separate questions about interests, pace, priorities, and activities. If the main remaining uncertainty is what kind of experience they want, a question that distinguishes between a slower neighborhood-and-food-focused trip, a major-sights-focused trip, or a balanced combination may reveal several relevant preferences at once.
+
+Likewise, do not ask a broad question merely because several fields are unknown. Ask the question that resolves the most consequential uncertainty first.
 
 Questions should collect, when relevant: destination, dates or duration, party size, budget and its scope, trip purpose, priorities, interests, pace, energy pattern, walking tolerance, crowd tolerance, comfort, spontaneity, must-visit items, things to avoid, dietary requirements, accessibility requirements, and accommodation requirements.
 
+These are dimensions to learn about when they are useful for reducing planning uncertainty, **not a checklist that must be explicitly queried**.
+
+Use information volunteered by the traveler to update multiple relevant profile dimensions when justified. A single answer may legitimately provide information about several dimensions at once.
+
+Avoid asking for information that:
+
+* is already known;
+* can be reliably derived from what the traveler just said;
+* is unlikely to materially affect the plan;
+* can safely be handled by a reasonable planning assumption;
+* has already been resolved at a sufficient level of specificity.
+
+When an answer is ambiguous, prioritize clarifying the ambiguity that has the greatest downstream planning impact.
+
+For example, if a traveler gives a total budget without saying whether it is per person or for the whole group, clarify that before asking about lower-impact preferences if the distinction would materially change the feasible trip.
+
+Do not ask follow-up questions simply because the traveler mentioned a topic. Ask a follow-up only when additional information about that topic is among the highest-value remaining information.
+
+Questions should feel conversational and purposeful rather than like form fields. When appropriate, phrase questions so that the traveler can naturally volunteer multiple relevant preferences, but do not turn a single question into a multi-question checklist.
+
+The objective is **planning sufficiency, not profile completeness**. Stop asking questions once the remaining unknowns are unlikely to materially change the quality or direction of a reasonable trip plan.
+
 Patch rules:
-- Return ONLY changed fields in profile_patch. Omit any section or field that did not change.
-- Within trip_context, purpose_and_priorities, travel_style: include only keys that changed in this turn. Omit unchanged keys. Use null only to explicitly clear a previously set value.
-- Use the exact field names: destination_request (not destination), start_date, end_date, duration_days, party_size, budget, primary_purpose, etc. Do not invent alternate names.
-- Never invent dates, budget, party size, destinations, constraints, or preferences. Only patch what the traveler actually said or clearly accepted.
-- Do not treat an inference as something the traveler directly said. Inferred preferences must have source=inferred and a confidence value.
-- A hard constraint may only be patched from something the traveler clearly stated or explicitly accepted.
-- Never copy a target or flexible budget into hard_constraints.budget_ceiling. Only patch budget_ceiling when the traveler clearly states a maximum, limit, or non-negotiable ceiling (type must be ceiling).
-- For preferences: use preferences.upsert to add or update by category; use preferences.remove_categories only when the traveler retracts an interest. Prefer updating strength to not_interested over removal.
-- For hard_constraints array fields: use *_add to add items, *_remove to retract items. Do not resend the entire array.
-- For unknowns: use unknowns.add to add new unknowns, unknowns.resolve_topics to remove resolved ones (by topic string).
-- For assumptions: use assumptions.add to add, assumptions.remove_topics to remove.
-- Keep the patch minimal and readable. Do not plan an itinerary, recommend places, book anything, or discuss implementation details.
+
+* Return ONLY changed fields in profile_patch. Omit any section or field that did not change.
+* Within trip_context, purpose_and_priorities, travel_style: include only keys that changed in this turn. Omit unchanged keys. Use null only to explicitly clear a previously set value.
+* Use the exact field names: destination_request (not destination), start_date, end_date, duration_days, party_size, budget, primary_purpose, etc. Do not invent alternate names.
+* Never invent dates, budget, party size, destinations, constraints, or preferences. Only patch what the traveler actually said or clearly accepted.
+* Do not treat an inference as something the traveler directly said. Inferred preferences must have source=inferred and a confidence value.
+* A hard constraint may only be patched from something the traveler clearly stated or explicitly accepted.
+* Never copy a target or flexible budget into hard_constraints.budget_ceiling. Only patch budget_ceiling when the traveler clearly states a maximum, limit, or non-negotiable ceiling (type must be ceiling).
+* For preferences: use preferences.upsert to add or update by category; use preferences.remove_categories only when the traveler retracts an interest. Prefer updating strength to not_interested over removal.
+* For hard_constraints array fields: use *_add to add items, *_remove to retract items. Do not resend the entire array.
+* For unknowns: use unknowns.add to add new unknowns, unknowns.resolve_topics to remove resolved ones (by topic string).
+* For assumptions: use assumptions.add to add, assumptions.remove_topics to remove.
+* Keep the patch minimal and readable. Do not plan an itinerary, recommend places, book anything, or discuss implementation details.
 
 Completion rules:
-- Set finished=true only when the merged profile (current profile + your patch) contains enough reliable information for planning. At minimum: destination, dates or duration, party size, trip purpose or priorities, and enough budget information.
-- If a blocking unknown would remain after merging, set finished=false and ask about it.
-- If finished=true, next_question must be null and completion_reason must briefly explain why.
-- If finished=false, next_question must contain exactly one question and completion_reason must be null.
+
+* Set finished=true only when the merged profile (current profile + your patch) contains enough reliable information for planning. At minimum: destination, dates or duration, party size, trip purpose or priorities, and enough budget information.
+* If a blocking unknown would remain after merging, set finished=false and ask about it.
+* If finished=true, next_question must be null and completion_reason must briefly explain why.
+* If finished=false, next_question must contain exactly one question and completion_reason must be null.
 
 Return exactly one JSON object with these four root-level keys. The fields finished, next_question, and completion_reason are siblings of profile_patch, never inside it:
 {
-  "finished": false,
-  "next_question": { "question_id": "...", "prompt": "...", "selection_mode": "single", "required": true, "options": [], "free_text_mode": "optional", "free_text_placeholder": "..." },
-  "completion_reason": null,
-  "profile_patch": { "trip_context": { "destination_request": "Kyoto" }, "preferences": { "upsert": [{ "category": "photography", "strength": "strong", "notes": null, "source": "stated", "confidence": null }] } }
+"finished": false,
+"next_question": { "question_id": "...", "prompt": "...", "selection_mode": "single", "required": true, "options": [], "free_text_mode": "optional", "free_text_placeholder": "..." },
+"completion_reason": null,
+"profile_patch": { "trip_context": { "destination_request": "Kyoto" }, "preferences": { "upsert": [{ "category": "photography", "strength": "strong", "notes": null, "source": "stated", "confidence": null }] } }
 }
-Use null for next_question when finished is true and null for completion_reason when finished is false. Return ONLY the patch, not the complete profile. Do not include markdown, commentary, chain-of-thought, or extra keys.`;
+Use null for next_question when finished is true and null for completion_reason when finished is false. Return ONLY the patch, not the complete profile. Do not include markdown, commentary, chain-of-thought, or extra keys.
+`;
 
 const stringOrNullSchema = { type: ["string", "null"] } as const;
 const numberOrNullSchema = { type: ["number", "null"] } as const;
@@ -739,8 +753,7 @@ export const DISCOVERY_PATCH_RESPONSE_SCHEMA = {
   required: ["finished", "next_question", "completion_reason", "profile_patch"],
 } as const;
 
-const DEFAULT_MODEL = "openai/gpt-oss-20b";
-const DEFAULT_API_URL = "https://api.groq.com/openai/v1/chat/completions";
+const DEFAULT_MODEL = "gemini-3.6-flash";
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_COMPLETION_TOKENS = 3_000;
 const MAX_RATE_LIMIT_RETRIES = 2;
@@ -1350,113 +1363,203 @@ async function logRawResponse(responseText: string, status: number, attempt: num
   }
 }
 
-/** Processes one discovery turn with exactly one Groq request. */
+/** Processes one discovery turn with exactly one Gemini request. */
 export async function processDiscovery(
   input: DiscoveryInput,
-  options: ProcessDiscoveryOptions = {},
+  options: ProcessDiscoveryOptions & { genAiClient?: any } = {},
 ): Promise<DiscoveryResult> {
-  const apiKey = options.api_key ?? process.env.GROQ_API_KEY;
+  const apiKey =
+    options.api_key ??
+    process.env.GEMINI_API_KEY ??
+    process.env.GOOGLE_API_KEY ??
+    process.env.GOOGLE_GENAI_API_KEY ??
+    process.env.GOOGLE_GENERATIVE_AI_API_KEY;
   if (!apiKey) {
     throw new DiscoveryConfigurationError(
-      "Missing GROQ_API_KEY. Set it in the environment or pass api_key for this request.",
+      "Missing GEMINI_API_KEY. Set it in the environment or pass api_key for this request.",
     );
   }
 
-  const model = options.model ?? process.env.GROQ_MODEL ?? DEFAULT_MODEL;
-  const reasoningEffort =
-    options.reasoning_effort ?? (model.startsWith("openai/gpt-oss-") ? "medium" : undefined);
-  const apiUrl = options.api_url ?? process.env.GROQ_API_URL ?? DEFAULT_API_URL;
+  const model = options.model ?? process.env.GEMINI_MODEL ?? process.env.GOOGLE_MODEL ?? DEFAULT_MODEL;
   const timeoutMs = options.timeout_ms ?? DEFAULT_TIMEOUT_MS;
-  const fetcher: Fetcher = options.fetcher ?? defaultFetcher;
   const logResponses = options.log_raw_responses ?? true;
-  const abortController = new AbortController();
-  const timeout = setTimeout(() => abortController.abort(), timeoutMs);
 
-  try {
-    const requestBody = JSON.stringify({
-      model,
-      temperature: 0.2,
-      ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
-      max_completion_tokens: MAX_COMPLETION_TOKENS,
-      messages: [
-        { role: "system", content: DISCOVERY_SYSTEM_PROMPT },
-        { role: "user", content: buildUserMessage(input) },
-      ],
-      response_format: {
-        type: "json_schema",
-        json_schema: {
-          name: "voyager_discovery_turn",
-          strict: true,
-          schema: DISCOVERY_PATCH_RESPONSE_SCHEMA,
-        },
-      },
-    });
+  // Build combined prompt: system instruction + user context.
+  // Do not modify DISCOVERY_SYSTEM_PROMPT per requirements.
+  const fullPrompt = `${DISCOVERY_SYSTEM_PROMPT}\n\n---\n\nUser context:\n${buildUserMessage(input)}`;
 
-    let response: FetchResponse | undefined;
-    let responseText = "";
-    for (let attempt = 0; attempt <= MAX_RATE_LIMIT_RETRIES; attempt += 1) {
-      response = await fetcher(apiUrl, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
+  // Prepare zod schema for validation (mirrors DISCOVERY_PATCH_RESPONSE_SCHEMA)
+  const discoveryPatchJsonSchema = DISCOVERY_PATCH_RESPONSE_SCHEMA as unknown as Record<string, unknown>;
+  const discoveryPatchZodSchema = z.fromJSONSchema(discoveryPatchJsonSchema as any);
+
+  // Allow injection for tests (genAiClient) otherwise create real client.
+  // Keep fetcher as legacy escape hatch for tests that mock fetch-like behavior.
+  const injectedClient = (options as any).genAiClient as any | undefined;
+  const fetcher = options.fetcher;
+
+  const getOutputText = (interaction: any): string => {
+    if (!interaction) return "";
+    if (typeof interaction.output_text === "string") return interaction.output_text;
+    if (typeof interaction.outputText === "string") return interaction.outputText;
+    // Fallback: try candidates/parts shape (Gemini generateContent)
+    if (Array.isArray(interaction.candidates) && interaction.candidates[0]?.content?.parts?.[0]?.text) {
+      return interaction.candidates[0].content.parts[0].text as string;
+    }
+    if (typeof interaction.text === "string") return interaction.text;
+    return "";
+  };
+
+  const createInteraction = async (client: any): Promise<any> => {
+    // Primary API per snippet: client.interactions.create
+    if (client.interactions && typeof client.interactions.create === "function") {
+      return await client.interactions.create({
+        model,
+        input: fullPrompt,
+        response_format: {
+          type: "text",
+          mime_type: "application/json",
+          schema: discoveryPatchJsonSchema,
         },
-        signal: abortController.signal,
-        body: requestBody,
       });
-      responseText = await response.text();
-      if (logResponses) await logRawResponse(responseText, response.status, attempt + 1);
-      if (response.status !== 429 || attempt === MAX_RATE_LIMIT_RETRIES) break;
-      await wait(rateLimitDelayMs(responseText));
     }
-
-    if (!response) throw new DiscoveryApiError("Groq did not return a response.", 0);
-    if (!response.ok) {
-      throw new DiscoveryApiError(
-        `Groq request failed with status ${response.status}: ${responseText.slice(0, 500)}`,
-        response.status,
-      );
+    // Fallback for older SDK shape: client.models.generateContent
+    if (client.models && typeof client.models.generateContent === "function") {
+      const res = await client.models.generateContent({
+        model,
+        contents: [{ role: "user", parts: [{ text: fullPrompt }] }],
+        config: {
+          responseMimeType: "application/json",
+          responseJsonSchema: discoveryPatchJsonSchema,
+          temperature: 0.2,
+          maxOutputTokens: MAX_COMPLETION_TOKENS,
+        },
+      });
+      return res;
     }
+    throw new DiscoveryApiError("Unsupported GoogleGenAI client shape.", 0);
+  };
 
-    let envelope: unknown;
+  const withTimeout = async <T>(promise: Promise<T>, ms: number): Promise<T> => {
+    let timeoutId: ReturnType<typeof setTimeout>;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(() => reject(new DOMException("Timeout", "AbortError")), ms);
+    });
     try {
-      envelope = JSON.parse(responseText);
-    } catch {
-      throw new DiscoveryResponseError("Groq returned invalid JSON outside the response content.");
+      const result = await Promise.race([promise, timeoutPromise]);
+      clearTimeout(timeoutId!);
+      return result as T;
+    } catch (e) {
+      clearTimeout(timeoutId!);
+      throw e;
     }
+  };
 
-    if (!isRecord(envelope) || !Array.isArray(envelope.choices)) {
-      throw new DiscoveryResponseError("Groq returned an unexpected completion response.");
-    }
+  let lastOutputText = "";
+  let lastStatus = 200;
 
-    const firstChoice = envelope.choices[0];
-    const message = isRecord(firstChoice) ? firstChoice.message : null;
-    const content = isRecord(message) ? message.content : null;
-    if (typeof content !== "string" || content.length === 0) {
-      throw new DiscoveryResponseError("Groq returned an empty discovery response.");
-    }
-
-    let result: unknown;
+  for (let attempt = 0; attempt <= MAX_RATE_LIMIT_RETRIES; attempt += 1) {
     try {
-      result = JSON.parse(content);
-    } catch {
-      throw new DiscoveryResponseError("Groq returned discovery content that is not valid JSON.");
-    }
+      let interaction: any;
 
-    // Preferred path: patch-based response (LLM returns only additions, backend merges in-memory).
-    if (isRecord(result) && "profile_patch" in result) {
+      if (injectedClient) {
+        interaction = await withTimeout(createInteraction(injectedClient), timeoutMs);
+      } else if (fetcher) {
+        // Legacy fetch-style mock: allow tests to provide fetcher that returns Gemini-like envelope.
+        // We synthesize a Gemini interaction from fetcher response to keep migration testable without real API.
+        const mockUrl = "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent";
+        const mockBody = JSON.stringify({
+          model,
+          input: fullPrompt,
+          response_format: {
+            type: "text",
+            mime_type: "application/json",
+            schema: discoveryPatchJsonSchema,
+          },
+        });
+        const response = await withTimeout(
+          fetcher(mockUrl, {
+            method: "POST",
+            headers: {
+              "x-goog-api-key": apiKey,
+              "Content-Type": "application/json",
+            },
+            body: mockBody,
+          } as any),
+          timeoutMs,
+        ) as any;
+        const responseText = await response.text();
+        lastStatus = response.status ?? 200;
+        if (logResponses) await logRawResponse(responseText, lastStatus, attempt + 1);
+        if (response.status === 429 && attempt < MAX_RATE_LIMIT_RETRIES) {
+          await wait(rateLimitDelayMs(responseText));
+          continue;
+        }
+        if (!response.ok) {
+          throw new DiscoveryApiError(
+            `Gemini request failed with status ${response.status}: ${responseText.slice(0, 500)}`,
+            response.status,
+          );
+        }
+        // Try to parse fetcher's envelope as Gemini output
+        let envelope: any;
+        try {
+          envelope = JSON.parse(responseText);
+        } catch {
+          throw new DiscoveryResponseError("Gemini returned invalid JSON outside the response content.");
+        }
+        // If fetcher returned { output_text: "..." } use it directly
+        if (typeof envelope.output_text === "string") {
+          interaction = envelope;
+        } else if (typeof envelope.outputText === "string") {
+          interaction = { output_text: envelope.outputText };
+        } else if (Array.isArray(envelope.candidates)) {
+          interaction = envelope;
+        } else if (envelope.choices) {
+          // Backward compat: Groq-style envelope -> extract content
+          const content = envelope.choices?.[0]?.message?.content;
+          if (typeof content === "string") interaction = { output_text: content };
+          else interaction = envelope;
+        } else {
+          interaction = envelope;
+        }
+      } else {
+        const client = new GoogleGenAI({ apiKey } as any);
+        interaction = await withTimeout(createInteraction(client), timeoutMs);
+      }
+
+      lastOutputText = getOutputText(interaction);
+      if (logResponses && !fetcher) {
+        // Log the raw JSON output when using real client (fetcher path already logged)
+        await logRawResponse(lastOutputText, 200, attempt + 1);
+      }
+
+      if (!lastOutputText || lastOutputText.trim().length === 0) {
+        throw new DiscoveryResponseError("Gemini returned an empty discovery response.");
+      }
+
+      let result: unknown;
+      try {
+        result = JSON.parse(lastOutputText);
+      } catch {
+        throw new DiscoveryResponseError("Gemini returned discovery content that is not valid JSON.");
+      }
+
+      // Validate with zod (ensures schema compliance) then with manual validator for error messages
+      try {
+        discoveryPatchZodSchema.parse(result);
+      } catch (zErr: any) {
+        throw new DiscoveryResponseError(
+          `Gemini returned invalid patch shape: ${zErr?.message ?? String(zErr)}`,
+        );
+      }
+
       validatePatchResult(result);
       const patchResult = result as DiscoveryPatchResult;
       const merged = applyProfilePatch(input.profile, patchResult.profile_patch);
-      // Preserve profile_id from input when available; applyProfilePatch uses mock-profile for null input.
       if (input.profile?.profile_id) {
         merged.profile_id = input.profile.profile_id;
-      } else if (patchResult.profile_patch && isRecord((patchResult.profile_patch as unknown as Record<string, unknown>))) {
-        // No prior profile — keep generated id (already mock-profile).
       }
-      // Final normalization pass ensures invariants (e.g., budget_ceiling guard) on merged result.
       const normalized = normalizeProfile(merged as unknown as Record<string, unknown>);
-      // normalizeProfile may reset profile_id to mock-profile if merged had odd id; restore original.
       normalized.profile_id = merged.profile_id;
       return {
         finished: patchResult.finished,
@@ -1464,26 +1567,33 @@ export async function processDiscovery(
         completion_reason: patchResult.completion_reason,
         profile: normalized,
       };
-    }
+    } catch (error: any) {
+      const isRateLimited =
+        error?.status === 429 ||
+        error?.code === 429 ||
+        (typeof error?.message === "string" && error.message.includes("429")) ||
+        (typeof error?.message === "string" && /rate limit/i.test(error.message));
 
-    // Legacy fallback: full profile response (backward compatibility with DISCOVERY_SYSTEM_PROMPT_FULL).
-    if (isRecord(result) && "profile" in result) {
-      validateResult(result);
-      return {
-        ...(result as DiscoveryResult),
-        profile: normalizeProfile((result as DiscoveryResult).profile as unknown as Record<string, unknown>),
-      };
-    }
+      if (isRateLimited && attempt < MAX_RATE_LIMIT_RETRIES) {
+        const delayMs = rateLimitDelayMs(error?.message ?? "");
+        await wait(delayMs);
+        continue;
+      }
 
-    throw new DiscoveryResponseError("Groq returned a discovery response without profile or profile_patch.");
-  } catch (error) {
-    if (error instanceof DiscoveryApiError || error instanceof DiscoveryResponseError) throw error;
-    if (error instanceof DOMException && error.name === "AbortError") {
-      throw new DiscoveryApiError(`Groq request timed out after ${timeoutMs}ms.`, 408);
+      if (error instanceof DiscoveryApiError || error instanceof DiscoveryResponseError) throw error;
+      if (error instanceof DOMException && error.name === "AbortError") {
+        throw new DiscoveryApiError(`Gemini request timed out after ${timeoutMs}ms.`, 408);
+      }
+      const message = error instanceof Error ? error.message : "Unknown Gemini request failure.";
+      // If it's a Gemini API error with status, preserve it
+      const status = typeof error?.status === "number" ? error.status : 0;
+      if (status === 429 || status >= 400) {
+        throw new DiscoveryApiError(`Gemini request failed: ${message}`, status);
+      }
+      throw new DiscoveryApiError(`Unable to reach Gemini: ${message}`, 0);
     }
-    const message = error instanceof Error ? error.message : "Unknown Groq request failure.";
-    throw new DiscoveryApiError(`Unable to reach Groq: ${message}`, 0);
-  } finally {
-    clearTimeout(timeout);
   }
+
+  throw new DiscoveryApiError("Gemini did not return a response.", 0);
 }
+

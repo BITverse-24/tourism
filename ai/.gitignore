@@ -3,3 +3,5 @@
 *
 !.gitignore
 !agent-1.ts
+!discovery.ts
+!package.json
