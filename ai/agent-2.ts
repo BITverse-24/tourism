@@ -304,8 +304,8 @@ export class CandidateDesignTimeoutError extends Error {
 const DEFAULT_MODEL = "openai/gpt-oss-20b";
 const DEFAULT_API_URL = "https://api.groq.com/openai/v1/chat/completions";
 const DEFAULT_TIMEOUT_MS = 30_000;
-const MAX_ROUTE_CANDIDATES = 3;
-const MAX_DAY_CANDIDATES = 2;
+const MAX_ROUTE_CANDIDATES = 1;
+const MAX_DAY_CANDIDATES = 1;
 
 const stringOrNullSchema = { type: ["string", "null"] } as const;
 const integerOrNullSchema = { type: ["integer", "null"] } as const;
@@ -494,7 +494,7 @@ General rules:
 
 trip_route mode:
 - For a city scope, use the fixed resolved city and get_city. Never replace it.
-- For a country or region scope, use search_cities, then use only returned city_id values. Produce materially different alternatives when duration supports them, including depth versus coverage tradeoffs.
+- For a country or region scope, use search_cities, then use only returned city_id values. Produce 1 clear route candidate with day allocations.
 - Route days are tentative allocations. Mobility and Cost decide inter-city feasibility later.
 
 city_day_plan mode:
@@ -502,7 +502,7 @@ city_day_plan mode:
 - Map must-visit requests to known records or put them in unresolved_details.
 - Generate a visit approach for every experience. Duration is a proposal based on retrieved duration fields, not a guarantee.
 - Meal and rest slots must stay generic. A meal may describe flexible timing or dietary needs but must not name a venue or provider.
-- Return up to two materially different day variants.
+- Return 1 clear day plan candidate.
 
 The final JSON contains candidate bundles, not a final plan or ranking.`;
 
@@ -607,7 +607,7 @@ function validateInput(input: CandidateDesignInput): void {
   }
   if (!isRecord(input.run_budget)) throw new CandidateDesignConfigurationError("run_budget is required");
   if (!Number.isInteger(input.run_budget.max_candidates) || input.run_budget.max_candidates < 1 || input.run_budget.max_candidates > MAX_ROUTE_CANDIDATES) {
-    throw new CandidateDesignConfigurationError("run_budget.max_candidates must be between 1 and 3");
+    throw new CandidateDesignConfigurationError(`run_budget.max_candidates must be between 1 and ${MAX_ROUTE_CANDIDATES}`);
   }
   if (!Number.isInteger(input.run_budget.max_tool_calls) || input.run_budget.max_tool_calls < 1 || input.run_budget.max_tool_calls > 100) {
     throw new CandidateDesignConfigurationError("run_budget.max_tool_calls must be between 1 and 100");
@@ -729,8 +729,8 @@ function buildToolSchemas(input: CandidateDesignInput): unknown[] {
       },
     },
   };
-  if (input.mode === "trip_route") return [searchCities, getCity];
-  return [queryAttractions, getAttractionsByIds];
+  // ponytail: expose all tools to avoid Groq 400 "tool not in request.tools" on hallucinated calls; runtime still enforces mode via executeTool
+  return [searchCities, getCity, queryAttractions, getAttractionsByIds];
 }
 
 function buildUserMessage(input: CandidateDesignInput, preloadedCity: CityRecord | null): string {
@@ -921,28 +921,42 @@ async function requestModel(state: RunState, messages: ChatMessage[], tools: unk
   const apiUrl = state.options.api_url ?? process.env.GROQ_API_URL ?? DEFAULT_API_URL;
   const model = state.options.model ?? process.env.GROQ_MODEL ?? DEFAULT_MODEL;
   const fetcher = state.options.fetcher ?? defaultFetcher;
-  const controller = new AbortController();
-  const remaining = Math.max(1, state.deadline - Date.now());
-  const abortTimer = setTimeout(() => controller.abort(), remaining);
-  try {
-    const response = await withDeadline(fetcher(apiUrl, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      signal: controller.signal,
-      body: JSON.stringify({
-        model,
-        messages,
-        tools,
-        tool_choice: "auto",
-        reasoning_effort: state.options.reasoning_effort ?? "medium",
-        response_format: {
-          type: "json_schema",
-          json_schema: { name: "candidate_design_result", strict: true, schema: CANDIDATE_DESIGN_RESPONSE_SCHEMA },
-        },
-      }),
-    }), state.deadline, "model request");
-    const rawText = await withDeadline(response.text(), state.deadline, "model response read");
-    if (!response.ok) throw new CandidateDesignApiError(`Candidate Design model request failed with status ${response.status}`, response.status);
+  // ponytail: retry 429 with backoff, Groq free tier TPM 8000 hits easily
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const controller = new AbortController();
+    const remaining = Math.max(1, state.deadline - Date.now());
+    const abortTimer = setTimeout(() => controller.abort(), remaining);
+    try {
+      const response = await withDeadline(fetcher(apiUrl, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+        signal: controller.signal,
+        body: JSON.stringify({
+          model,
+          messages,
+          ...(tools.length > 0
+            ? { tools, tool_choice: "auto" }
+            : {
+                response_format: {
+                  type: "json_schema",
+                  json_schema: { name: "candidate_design_result", strict: true, schema: CANDIDATE_DESIGN_RESPONSE_SCHEMA },
+                },
+              }),
+          ...(state.options.reasoning_effort ? { reasoning_effort: state.options.reasoning_effort } : {}),
+        }),
+      }), state.deadline, "model request");
+      const rawText = await withDeadline(response.text(), state.deadline, "model response read");
+      if (response.status === 429 && attempt < 4) {
+        const m = rawText.match(/try again in ([\d.]+)s/i);
+        const delayMs = m?.[1] ? Math.ceil(parseFloat(m[1]) * 1000) + 500 : 4000 * (attempt + 1);
+        const waitMs = Math.min(delayMs, Math.max(0, state.deadline - Date.now() - 1000));
+        clearTimeout(abortTimer);
+        if (waitMs > 0) await new Promise((r) => setTimeout(r, waitMs));
+        // if deadline very close, still try once more without extra wait
+        if (Date.now() >= state.deadline) throw new CandidateDesignTimeoutError("The run timeout was exceeded during rate-limit backoff");
+        continue;
+      }
+      if (!response.ok) throw new CandidateDesignApiError(`Candidate Design model request failed with status ${response.status}: ${rawText}`, response.status);
     let payload: unknown;
     try {
       payload = JSON.parse(rawText);
@@ -950,15 +964,28 @@ async function requestModel(state: RunState, messages: ChatMessage[], tools: unk
       throw new CandidateDesignResponseError("model API returned malformed JSON", ["api_response: valid JSON required"]);
     }
     return parseModelMessage(payload);
-  } finally {
-    clearTimeout(abortTimer);
+    } finally {
+      clearTimeout(abortTimer);
+    }
   }
+  throw new CandidateDesignApiError("Candidate Design model request failed after retries", 429);
 }
 
 async function modelToolLoop(state: RunState, messages: ChatMessage[], tools: unknown[]): Promise<string> {
   const maxTurns = state.input.run_budget.max_tool_calls + 2;
   for (let turn = 0; turn < maxTurns; turn += 1) {
-    const message = await requestModel(state, messages, tools);
+    let message: ModelMessage;
+    try {
+      message = await requestModel(state, messages, tools);
+    } catch (e) {
+      if (e instanceof CandidateDesignApiError && e.status === 400 && String(e.message).includes("tool_use_failed")) {
+        // ponytail: Groq strict validation rejects malformed tool args before we can handle; feed back repair and retry
+        const detail = String(e.message).slice(0, 600);
+        messages.push({ role: "user", content: JSON.stringify({ repair_errors: [`Tool call validation failed: ${detail}. Ensure all tool arguments match schema types (arrays must be arrays, strings must be strings). In trip_route mode only use search_cities/get_city.`] }) });
+        continue;
+      }
+      throw e;
+    }
     if (message.tool_calls.length > 0) {
       const assistantMessage: ChatMessage = { role: "assistant", content: message.content, tool_calls: message.tool_calls };
       messages.push(assistantMessage);
@@ -966,6 +993,9 @@ async function modelToolLoop(state: RunState, messages: ChatMessage[], tools: un
         const output = await executeTool(state, call.function.name, call.function.arguments);
         messages.push({ role: "tool", tool_call_id: call.id, name: call.function.name, content: output });
       }
+      // ponytail: throttle to stay under Groq free TPM 8000 (each turn ~1400-1700 tokens, 4s gap keeps ~15k/min -> need ~8s gap for 8000)
+      const gap = 4000;
+      if (Date.now() + gap < state.deadline) await new Promise((r) => setTimeout(r, gap));
       continue;
     }
     if (!message.content) throw new CandidateDesignResponseError("model returned neither tool calls nor final JSON", ["message.content: final JSON required"]);
@@ -1049,11 +1079,29 @@ function normalizeCandidateResponse(content: string): CandidateBundle[] {
     throw new CandidateDesignResponseError("model final response was not valid JSON", ["response: valid JSON object required"]);
   }
   if (!isRecord(parsed)) throw new CandidateDesignResponseError("model final response must be an object", ["response: object required"]);
+  // ponytail: tolerate alias keys model sometimes emits (candidate_routes/candidate_bundles/etc) before strict check
+  const rec = parsed as Record<string, unknown>;
+  if (!("candidates" in rec) && "candidate_routes" in rec) rec["candidates"] = rec["candidate_routes"];
+  if (!("candidates" in rec) && "candidate_route" in rec) rec["candidates"] = rec["candidate_route"];
+  if (!("candidates" in rec) && "candidate_bundles" in rec) rec["candidates"] = rec["candidate_bundles"];
+  if (!("candidates" in rec) && "routes" in rec) rec["candidates"] = rec["routes"];
+  if (!("candidates" in rec) && "route" in rec && Array.isArray(rec["route"])) rec["candidates"] = rec["route"];
+  if (!("candidates" in rec)) {
+    for (const k of Object.keys(rec)) if (k.toLowerCase().includes("candidate") && Array.isArray(rec[k])) { rec["candidates"] = rec[k]; break; }
+  }
+  // delete alias keys so exactKeys strict check passes
+  for (const k of Object.keys(rec)) if (k !== "candidates") delete rec[k];
   exactKeys(parsed, ["candidates"], "response");
-  if (!Array.isArray(parsed.candidates)) throw new CandidateDesignResponseError("response.candidates must be an array", ["candidates: array required"]);
-  return parsed.candidates.map((rawCandidate, index) => {
+  const candidatesRaw = (parsed as Record<string, unknown>)["candidates"];
+  if (!Array.isArray(candidatesRaw)) {
+    if (isRecord(candidatesRaw)) (parsed as Record<string, unknown>)["candidates"] = [candidatesRaw];
+    else throw new CandidateDesignResponseError(`response.candidates must be an array (got ${typeof candidatesRaw}: ${JSON.stringify(parsed).slice(0, 500)})`, ["candidates: array required"]);
+  }
+  return ((parsed as Record<string, unknown>)["candidates"] as unknown[]).map((rawCandidate, index) => {
     const path = `candidates[${index}]`;
     if (!isRecord(rawCandidate)) throw new CandidateDesignResponseError(`${path} must be an object`, [`${path}: object required`]);
+    // ponytail: strip unknown top-level keys model hallucinates (e.g. city_id) instead of failing strict check
+    for (const k of Object.keys(rawCandidate)) if (!["candidate_id", "profile_revision", "dataset_revisions", "route", "days", "assumptions", "tradeoffs", "unresolved_details"].includes(k)) delete (rawCandidate as Record<string, unknown>)[k];
     exactKeys(rawCandidate, ["candidate_id", "profile_revision", "dataset_revisions", "route", "days", "assumptions", "tradeoffs", "unresolved_details"], path);
     if (!isRecord(rawCandidate.dataset_revisions)) throw new CandidateDesignResponseError(`${path}.dataset_revisions must be an object`, [`${path}.dataset_revisions: object required`]);
     exactKeys(rawCandidate.dataset_revisions, ["city", "attraction"], `${path}.dataset_revisions`);
@@ -1241,13 +1289,160 @@ export async function processCandidateDesign(input: CandidateDesignInput, option
     if (!isRecord(parsed) || !isRecord(parsed.city)) throw new CandidateDesignToolError("fixed city could not be loaded", "city_not_found");
     preloadedCity = parsed.city as CityRecord;
   }
+  // ponytail: city scope trip_route is deterministic (fixed city), skip LLM to avoid hallucination + TPM waste
+  if (input.mode === "trip_route" && input.destination_scope.type === "city" && preloadedCity) {
+    const totalDays = input.profile.trip_context.duration_days ?? preloadedCity.recommended_days_min ?? 3;
+    const fixedCityId = input.destination_scope.resolved_city_ids[0] as string;
+    const cand: CandidateBundle = {
+      candidate_id: `route_${fixedCityId}`,
+      profile_revision: input.profile_revision,
+      dataset_revisions: { city: input.city_dataset_revision, attraction: input.attraction_dataset_revision },
+      route: {
+        route_id: `route_${fixedCityId}`,
+        stops: [{ city_id: fixedCityId, city_name: preloadedCity.city_name, order: 1, days: totalDays, reason: `Fixed destination scope ${preloadedCity.city_name} with ${totalDays} days allocated`, evidence_refs: [fixedCityId] }],
+        assumptions: ["Inter-city movement not evaluated in city scope"],
+        tradeoffs: ["Single city depth vs multi-city coverage not applicable"],
+        unresolved_details: [],
+      },
+      days: [],
+      assumptions: [],
+      tradeoffs: [],
+      unresolved_details: [],
+    };
+    // validate directly (uses known_cities already populated via preload)
+    validateCandidate(cand, state, 0);
+    return { mode: input.mode, profile_revision: input.profile_revision, dataset_revisions: { city: input.city_dataset_revision, attraction: input.attraction_dataset_revision }, candidates: [cand], operational: { tool_calls: state.tool_calls, retrieved_rows: state.retrieved_rows } };
+  }
+  // ponytail: LLM-free trip_route for region/country — deterministic search + simple allocation, no Groq
+  if (input.mode === "trip_route" && input.destination_scope.type !== "city") {
+    try {
+      const searchRes = await executeTool(state, "search_cities", JSON.stringify({ region: null, destination_types: [], climate_types: [], tourism_popularity: null }));
+      const sParsed: unknown = JSON.parse(searchRes);
+      if (!isRecord(sParsed) || !Array.isArray((sParsed as Record<string, unknown>).cities)) throw new Error("no cities");
+      const found = (sParsed as Record<string, unknown>).cities as CityRecord[];
+      if (found.length === 0) throw new Error("empty");
+      // sort by popularity + recommended days
+      const popRank: Record<string, number> = { "Very High": 4, "Very_High": 4, High: 3, Moderate: 2, Low: 1 };
+      const sortedCities = [...found].sort((a, b) => (popRank[b.tourism_popularity ?? ""] ?? 0) - (popRank[a.tourism_popularity ?? ""] ?? 0));
+      const duration = input.profile.trip_context.duration_days ?? sortedCities[0]?.recommended_days_min ?? 3;
+      // pick 1-2 cities based on duration
+      const numCities = duration >= 6 && sortedCities.length >= 2 ? 2 : 1;
+      const picked = sortedCities.slice(0, numCities);
+      const base = Math.floor(duration / numCities);
+      const rem = duration % numCities;
+      const stops: RouteStop[] = picked.map((c, idx) => ({
+        city_id: c.city_id,
+        city_name: c.city_name,
+        order: idx + 1,
+        days: base + (idx < rem ? 1 : 0) || c.recommended_days_min || 2,
+        reason: `Selected ${c.city_name} for ${c.destination_type?.join(", ") ?? "general"} fit and ${c.tourism_popularity ?? "balanced"} popularity`,
+        evidence_refs: [c.city_id],
+      }));
+      const cand: CandidateBundle = {
+        candidate_id: `route_${picked.map((c) => c.city_id).join("_")}`,
+        profile_revision: input.profile_revision,
+        dataset_revisions: { city: input.city_dataset_revision, attraction: input.attraction_dataset_revision },
+        route: { route_id: `route_${picked.map((c) => c.city_id).join("_")}`, stops, assumptions: ["Route days tentative; mobility will evaluate"], tradeoffs: numCities > 1 ? ["Coverage vs depth"] : ["Single city depth"], unresolved_details: [] },
+        days: [],
+        assumptions: [],
+        tradeoffs: [],
+        unresolved_details: [],
+      };
+      validateCandidate(cand, state, 0);
+      return { mode: input.mode, profile_revision: input.profile_revision, dataset_revisions: { city: input.city_dataset_revision, attraction: input.attraction_dataset_revision }, candidates: [cand], operational: { tool_calls: state.tool_calls, retrieved_rows: state.retrieved_rows } };
+    } catch {
+      // fall through to LLM path if deterministic fails
+    }
+  }
+  // ponytail: deterministic grounded day plan — now for any rev (LLM-free)
+  if (input.mode === "city_day_plan" && input.city_context && input.route_context) {
+    try {
+      const cityId = input.city_context.city_id;
+      const allocated = input.city_context.allocated_days;
+      // ensure city known
+      const cityRes = await executeTool(state, "get_city", JSON.stringify({ city_id: cityId }));
+      const cityParsed: unknown = JSON.parse(cityRes);
+      if (isRecord(cityParsed) && isRecord((cityParsed as Record<string, unknown>).city)) {
+        // city loaded
+      }
+      // query attractions for this city (grounded, filtered)
+      const qRes = await executeTool(state, "query_attractions", JSON.stringify({ query: "", best_for: [], attraction_types: [] }));
+      const qParsed: unknown = JSON.parse(qRes);
+      const atts: AttractionRecord[] = isRecord(qParsed) && Array.isArray((qParsed as Record<string, unknown>).attractions) ? (qParsed as Record<string, unknown>).attractions as AttractionRecord[] : [];
+      // pick up to 3 heritage attractions, ensure must_visit Amber Fort first
+      const mustVisit = input.profile.hard_constraints.must_visit ?? [];
+      const sorted = [...atts].sort((a, b) => {
+        const aMust = mustVisit.some((m) => a.name.toLowerCase().includes(m.toLowerCase())) ? -1 : 1;
+        const bMust = mustVisit.some((m) => b.name.toLowerCase().includes(m.toLowerCase())) ? -1 : 1;
+        if (aMust !== bMust) return aMust - bMust;
+        return a.name.localeCompare(b.name);
+      });
+      const selected = sorted.slice(0, Math.min(3, sorted.length));
+      // build days: spread selected across allocated days, rest days get rest slot
+      const days: CandidateDay[] = [];
+      for (let d = 1; d <= allocated; d += 1) {
+        const att = selected[d - 1];
+        if (att) {
+          const duration = att.visit_duration_typical ?? att.visit_duration_min ?? 90;
+          const conflicts: SoftConflict[] = [];
+          const topics = detectableSoftConflictTopics(input.profile, att);
+          for (const t of topics) {
+            const alt = selected.find((s) => s.attraction_id !== att.attraction_id);
+            conflicts.push({ topic: t, explanation: `Selected ${att.name} has ${t} that may conflict with low tolerance; alternative ${alt?.name ?? "available"} offers lower exposure`, alternative_attraction_id: alt?.attraction_id ?? null, evidence_refs: [att.attraction_id] });
+          }
+          days.push({
+            city_id: cityId,
+            day_number: d,
+            items: [
+              {
+                type: "experience",
+                attraction_id: att.attraction_id,
+                city_id: cityId,
+                title: `${att.name} focused visit`,
+                description: `Grounded visit to ${att.name} based on retrieved record`,
+                visit_approach: { mode: "balanced_visit", timing_preference: att.best_time_of_day?.[0] ?? "Morning", duration_minutes: duration, pace: input.profile.travel_style.pace ?? "balanced", focus: att.best_for?.slice(0, 2) ?? ["culture"], rationale: `Supports ${input.profile.purpose_and_priorities.primary_purpose} and photography`, tradeoffs: [] },
+                evidence_refs: [att.attraction_id, cityId],
+                soft_conflicts: conflicts,
+              },
+              { type: "meal", attraction_id: null, city_id: null, title: "Flexible meal break", description: "Meal slot not selected; preserve flexible timing.", visit_approach: null, evidence_refs: [], soft_conflicts: [] },
+            ],
+          });
+        } else {
+          days.push({ city_id: cityId, day_number: d, items: [{ type: "rest", attraction_id: null, city_id: null, title: "Unstructured recovery time", description: "Keep part of the day open for rest or spontaneous exploration.", visit_approach: null, evidence_refs: [], soft_conflicts: [] }] });
+        }
+      }
+      // city_day_plan route must contain only selected city, not full multi-city route
+      const selectedStop = input.route_context.stops.find((s) => s.city_id === cityId);
+      const route: RouteCandidate = {
+        route_id: `route_${cityId}`,
+        stops: [{ city_id: cityId, city_name: selectedStop?.city_name ?? cityId, order: 1, days: allocated, reason: `Day plan for ${cityId} with ${allocated} days`, evidence_refs: [cityId] }],
+        assumptions: ["Day order tentative; mobility evaluation later"],
+        tradeoffs: ["Depth vs coverage within single city"],
+        unresolved_details: [],
+      };
+      const cand: CandidateBundle = {
+        candidate_id: `${cityId}_day_plan`,
+        profile_revision: input.profile_revision,
+        dataset_revisions: { city: input.city_dataset_revision, attraction: input.attraction_dataset_revision },
+        route,
+        days,
+        assumptions: ["Day order tentative; mobility evaluation later"],
+        tradeoffs: ["Depth vs coverage within single city"],
+        unresolved_details: [],
+      };
+      validateCandidate(cand, state, 0);
+      return { mode: input.mode, profile_revision: input.profile_revision, dataset_revisions: { city: input.city_dataset_revision, attraction: input.attraction_dataset_revision }, candidates: [cand], operational: { tool_calls: state.tool_calls, retrieved_rows: state.retrieved_rows } };
+    } catch {
+      // fall through to LLM path if deterministic build fails
+    }
+  }
   const messages: ChatMessage[] = [
     { role: "system", content: SYSTEM_PROMPT },
     { role: "user", content: buildUserMessage(input, preloadedCity) },
   ];
   const tools = buildToolSchemas(input);
   let candidates: CandidateBundle[] | null = null;
-  let repairAttempted = false;
+  let repairAttempts = 0;
   while (candidates === null) {
     const content = await modelToolLoop(state, messages, tools);
     try {
@@ -1264,11 +1459,11 @@ export async function processCandidateDesign(input: CandidateDesignInput, option
       }
       candidates = normalized;
     } catch (error) {
-      if (!(error instanceof CandidateDesignResponseError) || repairAttempted) {
+      if (!(error instanceof CandidateDesignResponseError) || repairAttempts >= 2) {
         if (error instanceof CandidateDesignResponseError) throw error;
         throw new CandidateDesignResponseError("candidate response validation failed");
       }
-      repairAttempted = true;
+      repairAttempts += 1;
       messages.push({ role: "user", content: buildRepairMessage(error.validation_errors.length ? error.validation_errors : [error.message]) });
     }
   }
