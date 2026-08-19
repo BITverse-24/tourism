@@ -1,0 +1,42 @@
+/* Global reset + Voyager base */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body {
+  font-family: Inter, General Sans, ui-sans-serif, sans-serif;
+  background: var(--voyager-bone-0);
+  color: var(--voyager-ink-1);
+  -webkit-font-smoothing: antialiased;
+  line-height: 1.5;
+  min-width: 320px;
+}
+a { color: inherit; }
+button { font-family: inherit; }
+:focus-visible { outline: none; box-shadow: var(--voyager-focus-ring); outline-offset: 2px; }
+
+/* Typography helpers */
+.serif { font-family: Fraunces, Georgia, serif; }
+.mono { font-family: IBM Plex Mono, ui-monospace, monospace; }
+
+/* Animations */
+@keyframes pourIn { from { opacity:0; transform: translateY(8px);} to {opacity:1; transform:translateY(0);} }
+@keyframes fadeIn { from {opacity:0;} to {opacity:1;} }
+@keyframes rippleBreathe { 0% { transform: scale(0.9); opacity: .55;} 50% { transform: scale(1.12); opacity:.28;} 100% { transform: scale(0.9); opacity:.55; } }
+
+.pour { animation: pourIn 500ms cubic-bezier(.22,.61,.36,1) both; }
+.fade { animation: fadeIn 400ms ease both; }
+
+/* Scrollbar subtle */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-thumb { background: var(--voyager-bone-3); border-radius: 999px; }
+
+/* Canvas */
+.content-canvas {
+  width: min(1240px, calc(100vw - 64px));
+  margin: 0 auto;
+}
+@media (max-width: 1199px) { .content-canvas { width: calc(100vw - 48px); } }
+@media (max-width: 767px) { .content-canvas { width: calc(100vw - 32px); } }
+
+/* Thin line icon */
+.icon { width:20px; height:20px; stroke-width:1.5; stroke:currentColor; fill:none; stroke-linecap:round; stroke-linejoin:round; }
+.icon-sm { width:16px; height:16px; }
