@@ -222,8 +222,8 @@ All fields marked **Yes** are required. Optional fields are left empty/null when
 
 | Field | Data type | Required | Description / Generating Agent Instruction |
 |---|---|---|---|
-| `attraction_id` | `string` | Yes | Create a unique, stable identifier using `attraction_name_city_state` in lowercase with spaces replaced by underscores. Example: `amber_fort_jaipur_rajasthan`. The ID must remain stable across updates. |
 | `city_id` | `string` | Yes | The exact `city_id` from the City Knowledge Base to which this attraction belongs. Never create a new city ID here. |
+| `attraction_id` | `string` | Yes | Create a unique, stable identifier using `attraction_name_{city_id}` in lowercase with spaces replaced by underscores. Example: `amber_fort_jaipur_rajasthan`. The ID must remain stable across updates. |
 | `name` | `string` | Yes | The canonical English name of the attraction. Use the officially recognized or commonly established name. Do not append the city or state. |
 | `alternate_names` | `array[string]` | No | Other established names for the attraction, including local names, historical names, transliterations, or commonly used spelling variants. Do not include arbitrary descriptions or invented aliases. |
 | `attraction_type` | `string` | Yes | The primary category of the attraction. Must use a value from the project's controlled attraction taxonomy. Examples: `Fort`, `Temple`, `Museum`, `Beach`, `Waterfall`, `Market`, `Viewpoint`, `National_Park`. Select the category that best represents what the attraction fundamentally is. |
