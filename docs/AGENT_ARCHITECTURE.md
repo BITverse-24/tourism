@@ -33,7 +33,7 @@ This document is the detailed architecture reference for the planning workflow. 
  reasoning capability       reasoning capability      reasoning capability
         │                         │                          │
         ▼                         ▼                          ▼
- Profile Policy Tools       Experience KB/Retrieval     Evidence + decisions
+ Profile Policy Tools       Attraction KB/Retrieval    Evidence + decisions
         │                         │                          │
         └───────────────┬─────────┴──────────────┬───────────┘
                         ▼                        ▼
@@ -55,7 +55,7 @@ Only these three components are agents in the runtime:
 | Runtime agent | Responsibility | Must not do |
 |---|---|---|
 | **Discovery/Profile Agent** | Adaptive questions, answer interpretation, profile compilation, provenance, unknowns, and assumptions | Design an itinerary or silently promote an inference to a hard constraint |
-| **Candidate Design Agent** | Evidence-backed route and experience candidates in `trip_route` and `city_day_plan` modes | Make the final plan selection or invent unsupported places |
+| **Candidate Design Agent (Agent 2)** | Selects evidence-backed attractions and decides how the traveler should experience them in `trip_route` and `city_day_plan` modes | Make the final plan selection or invent unsupported attractions |
 | **Narrative/Explanation Agent** | Final plan prose, fit explanations, tradeoffs, assumptions, warnings, and unresolved details | Add new planning decisions, facts, costs, or bookings |
 
 There is no standalone Constraint Agent, Mobility Agent, Cost Agent, Local Intelligence Agent, Simulation Agent, Optimization Agent, or Replanning Agent. Those names belong to logical stages described below.
@@ -68,7 +68,7 @@ The optimizer may use a bounded adjudication prompt for a close non-material com
 |---|---|
 | **Workflow Orchestrator** | Canonical state, per-answer recovery state, confirmed Profile revision markers, ordering, validation, retries, idempotency, lifecycle events, decision checkpoints, and publication |
 | **Profile Policy Tools** | Schema validation, contradiction detection, hard/soft constraint checks, blocking-unknown checks, and derived evaluation views |
-| **Experience KB and Retrieval** | Curated experiences, geography, local facts, provenance, freshness, and confidence |
+| **Attraction KB and Retrieval** | City-linked attraction records, geography, local facts, provenance, freshness, and confidence. Attraction records are linked to the City Knowledge Base by `city_id`; visit experiences are not stored as KB records. |
 | **Mobility Engine** | Routes, durations, opening hours, transfers, overlaps, check-in/out, travel burden, and violations |
 | **Cost Engine** | Scoped estimates, budget position, cost deltas, and substitutions |
 | **Simulation Engine** | Fatigue, walking, crowd, weather, delay, closure, transfer, comfort, and risk metrics |
@@ -84,7 +84,7 @@ The ten-stage architecture is retained as a workflow map. Each stage maps to an 
 |---:|---|---|---|
 | 1 | Discovery | Discovery/Profile Agent + Policy Tools | Active |
 | 2 | Constraint & Preference | Profile Policy Tools | Active; not an agent |
-| 3 | Experience Designer | Candidate Design Agent + KB/Retrieval | Active |
+| 3 | Attraction & Experience Designer | Candidate Design Agent + Attraction KB/Retrieval | Active |
 | 4 | Mobility & Logistics | Mobility Engine | Active; deterministic |
 | 5 | Cost Optimization | Cost Engine | Active; deterministic |
 | 6 | Local Intelligence | KB/Retrieval service | Active; enrichment only |
@@ -115,9 +115,9 @@ There is no second LLM handoff whose purpose is to tell other agents what determ
 The Candidate Design Agent has two contract modes rather than becoming two agents:
 
 - `trip_route`: cities or regions, ordering, allocation, inter-city movement, and lodging-base candidates;
-- `city_day_plan`: experiences, meals, rest, timing, and local sequencing.
+- `city_day_plan`: selected attractions, Agent 2-designed visit approaches, meals, rest, timing, and local sequencing.
 
-It proposes multiple evidence-backed candidates. It does not make the final choice. This avoids duplicated ranking authority between experience selection and optimization.
+It proposes multiple evidence-backed candidates. For each candidate it may select an attraction and describe the intended visit approach—such as an early, photography-focused visit or a slower, lower-walking visit—based on the Traveler Profile. These approaches are planning outputs, not separate knowledge-base records. It does not make the final choice. This avoids duplicated ranking authority between attraction selection and optimization.
 
 ### Stages 4, 5, and 7
 
@@ -131,7 +131,7 @@ They do not directly edit a candidate or write user-facing explanations. The orc
 
 ### Stage 6
 
-Local Intelligence is a retrieval and enrichment layer. Curated knowledge is primary. External maps, places, transport, and weather facts are secondary and must carry `source`, `observed_at`, `fresh_until`, and `confidence` metadata. LLM-assisted enrichment must be validated before entering the knowledge base.
+Local Intelligence is a retrieval and enrichment layer for city and attraction facts. Curated knowledge is primary. External maps, places, transport, and weather facts are secondary and must carry `source`, `observed_at`, `fresh_until`, and `confidence` metadata. LLM-assisted enrichment must be validated before entering the City or Attraction Knowledge Base. Agent 2 may use those facts to design a visit approach, but the approach itself is not persisted as knowledge data.
 
 ### Stage 8 and ambiguity
 
@@ -155,7 +155,7 @@ Components return immutable-style artifacts. The orchestrator is the only compon
 |---|---|---|
 | `ProfileDraft` | Discovery/Profile Agent | Interpreted answers, extracted fields, inferred fields, and a proposed Profile |
 | `ValidatedTravelerProfile` | Policy tools + orchestrator | Profile satisfying schema and provenance rules, with explicit unknowns and assumptions |
-| `CandidateBundle` | Candidate Design Agent | Diverse route/day candidates with knowledge IDs, fit signals, and evidence |
+| `CandidateBundle` | Candidate Design Agent | Diverse route/day candidates with `city_id` and `attraction_id` references, Agent 2 visit approaches, fit signals, and evidence |
 | `EvaluationBundle` | Mobility, Cost, Local Intelligence, Simulation | Feasibility, cost, sourced facts, risk, comfort, and model metadata |
 | `OptimizationResult` | Optimizer | Selected candidate or a typed decision request; includes objective version and traceable scores internally |
 | `DecisionRequest` | Orchestrator/Optimizer | Stable decision ID, prompt, typed options, tradeoff summaries, and profile revision |
@@ -242,7 +242,7 @@ Team ownership follows capabilities rather than the old ten-agent table:
 | Workflow orchestration, policy, objective function, contracts, and integration | System architecture/orchestration owner |
 | Discovery, Candidate Design, Narrative reasoning, prompts, and evaluation | AI/ML and agent-intelligence owner |
 | Mobility, Cost, Simulation runtime, APIs, retries, and external adapters | Backend/infrastructure owner, with architecture support |
-| Experience KB, retrieval data, provenance, and freshness | Knowledge-base/data owner |
+| City and Attraction KB, retrieval data, provenance, and freshness | Knowledge-base/data owner |
 | Profile, plan, decision checkpoint, and lifecycle UI | Frontend owner |
 | Contract scenarios, edge cases, provider research, and acceptance testing | Research/QA owner |
 

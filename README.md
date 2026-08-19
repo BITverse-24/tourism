@@ -123,7 +123,7 @@ A future replanning flow should identify affected parts of the itinerary, find a
 
 ## 3. Destination Model
 
-The planner supports both **city-based** and **country-based** trip requests. The knowledge base is hierarchical:
+The planner supports both **city-based** and **country-based** trip requests. Destination knowledge is hierarchical, with attractions linked to their city by `city_id`:
 
 ```text
 Country
@@ -134,7 +134,7 @@ City
     ↓
 Neighborhood
     ↓
-Experience / Activity / Restaurant / Attraction
+Attraction (`city_id` → City)
 ```
 
 For a country-level request, the product first makes trip-level decisions:
@@ -155,9 +155,9 @@ Kyoto
     ↓
 Day 1
     ↓
-Experiences
+Selected attractions
     ↓
-Activities
+Agent 2 visit design
     ↓
 Daily sequence
 ```
@@ -178,8 +178,8 @@ Trip-level planning determines:
 
 City-level planning determines:
 
-- experiences and attractions;
-- restaurants and meals;
+- attractions to consider and how Agent 2 should frame each visit;
+- meals when required by the itinerary;
 - timing;
 - activity sequence;
 - walking load;
@@ -187,35 +187,23 @@ City-level planning determines:
 - crowd exposure; and
 - local transportation.
 
-## 4. Experience Knowledge Base
+## 4. City and Attraction Knowledge
 
-The MVP uses a structured **Experience Knowledge Base** rather than relying entirely on an LLM’s latent knowledge.
+The MVP uses a structured **City Knowledge Base** and **Attraction Knowledge Base** rather than relying entirely on an LLM’s latent knowledge. The attraction dataset is the only place-focused knowledge base for places to visit; it is mapped to the city dataset through `city_id`.
 
-The database contains:
+The City Knowledge Base contains destination identity and geography. The Attraction Knowledge Base contains the canonical places that Agent 2 may select. An attraction is a real-world place, not a pre-authored experience or itinerary activity.
 
-- countries, regions, cities, and neighborhoods;
-- attractions, restaurants, activities, and experiences;
-- transportation connections; and
-- metadata needed for fit, feasibility, cost, and freshness.
+Agent 2 (the Candidate Design Agent) decides which attractions fit the traveler and how each selected attraction should be experienced: timing, duration, visit framing, sequencing, pace, and nearby activity context. Those visit decisions are generated during planning and are not stored as separate experience records.
 
-The preferred atomic unit is an **experience**, not merely an attraction. For example, the knowledge base may contain:
+### Attraction record
 
-> Sunrise photography at Fushimi Inari
-
-rather than only:
-
-> Fushimi Inari Shrine
-
-The two experiences may have different timing, crowd, walking, weather, and preference attributes even though they share a physical location.
-
-### Experience record
-
-An experience record should support structured fields such as:
+An attraction record should support structured fields such as:
 
 ```json
 {
-  "id": "fushimi_inari_sunrise",
-  "name": "Sunrise Photography at Fushimi Inari",
+  "attraction_id": "attraction_fushimi_inari",
+  "city_id": "city_kyoto",
+  "name": "Fushimi Inari Shrine",
   "country": "Japan",
   "region": "Kansai",
   "city": "Kyoto",
@@ -225,7 +213,7 @@ An experience record should support structured fields such as:
     "longitude": 135.7727
   },
   "categories": ["culture", "photography", "nature"],
-  "duration_hours": 2.0,
+  "typical_visit_duration_hours": 2.0,
   "estimated_cost": 0,
   "opening_hours": {
     "open": "06:00",
@@ -239,10 +227,9 @@ An experience record should support structured fields such as:
     "nightlife": 0.00,
     "shopping": 0.00
   },
-  "experience_attributes": {
+  "attraction_attributes": {
     "authenticity": 0.75,
     "uniqueness": 0.85,
-    "regret_score": 0.90,
     "crowd_level": 0.20,
     "walking_intensity": 0.80,
     "comfort": 0.55
@@ -253,11 +240,15 @@ An experience record should support structured fields such as:
     "cloudy": 0.9,
     "rain": 0.2
   },
-  "accessibility": 0.40
+  "accessibility": 0.40,
+  "source": "curated",
+  "observed_at": "2026-08-19T00:00:00Z",
+  "fresh_until": "2026-11-19T00:00:00Z",
+  "confidence": 0.90
 }
 ```
 
-The exact knowledge-base schema is a separate data contract and should be refined during implementation.
+The exact City and Attraction Knowledge Base schemas are separate data contracts and should be refined during implementation. The important boundary is that the attraction record is keyed by `attraction_id`, linked to exactly one `city_id`, and contains facts about the place; Agent 2 owns the generated visit experience.
 
 ## 5. Knowledge Base Layers
 
@@ -278,11 +269,15 @@ Japan
       └── Osaka
 ```
 
-### Experiences
+### Cities
 
-Contains attractions, activities, restaurants, cultural experiences, scenic locations, photography locations, nightlife, shopping, nature, hidden gems, and local experiences.
+Contains canonical city records, geography, region and country relationships, and the `city_id` values used by attraction records.
 
-Each item should expose structured attributes that support traveler-fit scoring and planning constraints.
+### Attractions
+
+Contains canonical attractions linked to a city with `city_id`. Records expose facts that support traveler-fit scoring and planning constraints, such as categories, location, typical duration, access, opening hours, cost, weather suitability, crowd level, walking intensity, and provenance.
+
+The knowledge base does not contain separate records for “sunrise photography at Fushimi Inari,” “a relaxed visit to Fushimi Inari,” or other experience variants. Agent 2 creates those visit approaches from the attraction facts and Traveler Profile.
 
 ### Connections
 
@@ -315,7 +310,7 @@ Tokyo → Kyoto
 
 ## 6. Data Sources
 
-The Experience Knowledge Base may be constructed from:
+The City and Attraction Knowledge Bases may be constructed from:
 
 - public datasets;
 - maps and places APIs;
@@ -326,7 +321,7 @@ The Experience Knowledge Base may be constructed from:
 - curated information; and
 - LLM-assisted data enrichment.
 
-LLMs may help convert unstructured information into standardized records, but important structured attributes must be validated rather than regenerated arbitrarily for every traveler.
+LLMs may help convert unstructured information into standardized city or attraction records, but important structured attributes must be validated rather than regenerated arbitrarily for every traveler. LLMs may generate visit approaches during planning, but those approaches are not added to the knowledge base.
 
 Curated knowledge is primary for the MVP. External maps, places, weather, and transport APIs are secondary data facts and should carry `source`, `observed_at`, `fresh_until`, and `confidence`. Stale data is acceptable only when hard feasibility remains verifiable.
 
@@ -337,7 +332,7 @@ The MVP does not need worldwide coverage. A limited number of well-covered desti
 The product experience has four user-visible steps:
 
 1. **Understand the traveler** — capture trip context, priorities, preferences, constraints, and unknowns.
-2. **Shape the trip** — form a personalized route and daily experience plan from the Traveler Profile and destination knowledge.
+2. **Shape the trip** — select attractions and form a personalized route and daily visit plan from the Traveler Profile and city-linked attraction knowledge. Agent 2 decides how the traveler should experience each selected attraction.
 3. **Test and improve the plan** — evaluate feasibility, cost, fatigue, comfort, risk, and preference fit, then expose important tradeoffs.
 4. **Explain the result** — present a complete Final Trip Plan with daily activities, movement, costs, fit explanations, assumptions, warnings, and unresolved details.
 

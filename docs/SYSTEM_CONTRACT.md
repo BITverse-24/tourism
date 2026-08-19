@@ -71,7 +71,7 @@ The WebSocket contract contains workflow and transport state around the core con
 1. **Core input and output** — Traveler Profile and Final Trip Plan.
 2. **Feasibility and simulation** — schedule, mobility, fatigue, weather, and risk.
 3. **Optimization and replanning** — alternatives, tradeoffs, changed conditions, and repair plans.
-4. **Knowledge data** — geography, experiences, accommodations, and transportation connections.
+4. **Knowledge data** — city-linked attraction records, geography, accommodations, and transportation connections. The Attraction Knowledge Base is mapped to the City Knowledge Base through `city_id`; Agent 2 generates the visit experience during planning.
 5. **Workflow and integration** — agent interfaces, orchestration, persistence, events, and APIs. The initial WebSocket behavior is defined by [WebSocket Core API](WEBSOCKET_CONTRACT.md); persistence, authentication, and deployment remain deferred.
 
 Later phases must consume and extend the core contracts without redefining their user-facing meaning.

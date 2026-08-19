@@ -163,7 +163,7 @@ Unknown fields must be ignored for forward compatibility. Unknown message types 
       {
         "option_id": "balanced",
         "label": "Balanced",
-        "description": "A mix of planned experiences and flexible time."
+        "description": "A mix of planned attraction visits and flexible time."
       },
       {
         "option_id": "fast",
@@ -487,7 +487,7 @@ Payload:
   "stage": "experience_selection",
   "status": "completed",
   "progress": 100,
-  "summary": "Selected experiences aligned with the confirmed profile."
+  "summary": "Selected attractions and visit approaches aligned with the confirmed profile."
 }
 ```
 
@@ -520,7 +520,7 @@ Payload:
 {
   "phase": "optimization",
   "status": "running",
-  "message": "Balancing walking load, cost, and experience fit.",
+  "message": "Balancing walking load, cost, and attraction fit.",
   "progress": 65
 }
 ```
@@ -543,12 +543,12 @@ Payload:
     {
       "option_id": "option_a",
       "label": "Prioritize comfort",
-      "tradeoff": "Fewer experiences and less movement."
+      "tradeoff": "Fewer attraction visits and less movement."
     },
     {
       "option_id": "option_b",
       "label": "Prioritize coverage",
-      "tradeoff": "More experiences and a higher movement burden."
+      "tradeoff": "More attraction visits and a higher movement burden."
     }
   ]
 }
