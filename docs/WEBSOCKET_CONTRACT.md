@@ -28,6 +28,8 @@ Draft plan snapshots
 Final Trip Plan snapshot
 ```
 
+Agent 3 is an internal Narrative/Explanation capability. It is invoked by the in-process Planning Controller after Agent 2 and the available evaluation services have produced one selected result. Agent 3 is not exposed as a WebSocket command or as a public message type.
+
 The protocol is transport-facing. The [Traveler Profile](TRAVELER_PROFILE_SCHEMA.md) and [Final Trip Plan](FINAL_TRIP_PLAN_SCHEMA.md) remain the authoritative definitions of those payloads. This document defines how they are delivered and how workflow commands are exchanged.
 
 ## Scope and principles
@@ -38,6 +40,7 @@ The protocol is transport-facing. The [Traveler Profile](TRAVELER_PROFILE_SCHEMA
 - Profile and plan resources are delivered as complete snapshots, not client-applied patches.
 - Client commands are acknowledged immediately; longer work is reported through later events.
 - Agent events expose stable lifecycle information and safe summaries, not hidden reasoning, raw patches, candidate rankings, or provider payloads.
+- The `narrative_explanation` lifecycle key describes an internal rendering capability, not a separate deployment or client-invokable agent.
 - Authentication, persistence, event replay, booking, payments, and user accounts are outside this MVP contract.
 - Continuous replanning is reserved for a later phase and is not part of the initial planning workflow.
 
@@ -249,7 +252,7 @@ Payload:
 }
 ```
 
-The command is rejected if the supplied revision is not the latest ready Profile, if blocking unknowns remain, or if the workflow is not in `profile_review`. On success, the server records `confirmed_profile_revision` and starts planning; it does not create a duplicate checkpoint.
+The command is rejected if the supplied revision is not the latest ready Profile, if blocking unknowns remain, or if the workflow is not in `profile_review`. On success, the server records `confirmed_profile_revision` and starts planning through the in-process Planning Controller; it does not create a duplicate checkpoint. The Controller invokes Agent 3 only after Agent 2 and the available evaluation services have produced one selected result.
 
 ### `profile.request_changes`
 
@@ -510,6 +513,8 @@ Some lifecycle keys are tool-backed stages rather than LLM agents. In particular
 
 The `summary` must be safe for a traveler to read. It must not contain chain-of-thought, hidden prompts, raw provider responses, internal scores, or unreviewed personal data.
 
+The `narrative_explanation` lifecycle event does not expose Agent 3 input or output artifacts. The Agent 3 draft is internal until the Planning Controller has validated the complete Final Trip Plan and compared its controller-owned structural fields with the selected planning result.
+
 ### `planning.status`
 
 Reports the user-facing planning phase independently of individual agent lifecycle events.
@@ -589,6 +594,8 @@ Allowed states are `draft` and `final`.
 - A `draft` is an explicitly incomplete or still-changing planning result and must be labeled as such in the UI.
 - A `final` plan must satisfy the [Final Trip Plan](FINAL_TRIP_PLAN_SCHEMA.md) contract and its invariants.
 - The server sends full snapshots; the frontend replaces the prior snapshot for that revision rather than applying a patch.
+- A final snapshot is published only after the Planning Controller validates the Agent 3 draft and confirms that protected route, allocation, place, ordering, timing, movement, cost, accommodation-status, and profile-reference fields are unchanged.
+- If Agent 3 remains invalid after one bounded repair attempt, the server emits a safe `planning.status` message with `status: "failed"` and does not publish a final snapshot.
 - During replanning, the existing final plan remains authoritative until the replacement emits `state: "final"`.
 
 ### `workflow.completed`
@@ -668,8 +675,10 @@ This hackathon contract has no negotiation handshake. Additive fields should rem
 - A client cannot directly mutate a Traveler Profile or Final Trip Plan.
 - A Profile is never considered confirmed unless the matching `profile_revision` was explicitly confirmed.
 - Planning does not begin before profile confirmation.
+- Agent 3 is invoked only after upstream candidate selection and evaluation; it does not select among candidates or resolve `decision_required`.
 - A decision response is accepted only for the current decision ID and one of its typed options.
 - A draft plan is never presented as the final plan.
+- Agent 3 output is never published without schema validation and protected-field comparison.
 - A final plan must obey the Final Trip Plan invariants, including visible assumptions, warnings, unresolved details, and profile traceability.
 - Unknown information remains explicit; the backend must not silently fabricate missing dates, budget, party size, or constraints.
 - Internal agent state is not a public payload.
@@ -683,7 +692,7 @@ This hackathon contract has no negotiation handshake. Additive fields should rem
 3. A multi-select answer is rejected when it violates the question's selection rules.
 4. A text-only answer is accepted only when the question's `free_text_mode` permits it.
 5. When the Discovery Agent decides discovery is complete, the server emits a ready Profile snapshot and `profile.ready`; it does not start planning automatically.
-6. `profile.confirm` with the current revision starts planning and produces status, safe agent lifecycle events, labeled draft snapshots, and one final plan snapshot.
+6. `profile.confirm` with the current revision starts planning through the in-process Planning Controller and produces status, safe lifecycle events, labeled draft snapshots when available, and one final plan snapshot only after the Agent 3 draft passes schema and protected-field validation.
 7. A profile change request returns to targeted discovery and does not accept direct field patches.
 8. A duplicate command ID receives the original result without repeating the workflow side effect.
 9. An answer for a previous question receives `question_not_current` plus the current question recovery state.
@@ -693,3 +702,4 @@ This hackathon contract has no negotiation handshake. Additive fields should rem
 13. A typed weather, delay, budget, duration, fatigue, party, or preference change request is reserved for the future replanning phase and is rejected by the initial workflow.
 14. A material optimizer tradeoff emits `decision.request` and moves the workflow to `decision_required` instead of silently selecting a plan.
 15. A valid `decision.respond` resumes planning and eventually produces one final plan snapshot; a stale or duplicate response has no additional side effect.
+16. If Agent 3 fails validation after one bounded repair attempt, the server emits a safe `planning.status` message with `status: "failed"` and does not publish a final plan snapshot.

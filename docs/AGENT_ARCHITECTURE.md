@@ -1,335 +1,671 @@
-# Three-Agent, Ten-Stage Travel Planner Architecture
+# Three-Agent Travel Planner — MVP Architecture
 
-**Status:** Architecture decision for the initial planning workflow  
-**Decision date:** 2026-08-17  
-**Scope:** Initial planning only; continuous replanning is deferred
+**Status:** Active MVP architecture decision
+**Decision date:** 2026-08-20
+**Scope:** Discovery, traveler-guided itinerary planning, and final plan narration
+**Deferred:** Automatic optimization, continuous replanning, booking, payments, authentication, and durable event history
 
-## Purpose
+## 1. What this system is
 
-The product has **three actual reasoning agents** and **ten logical workflow stages**.
+The MVP has three reasoning agents:
 
-The three agents handle language-heavy work. Deterministic engines, retrieval services, and the Workflow Orchestrator handle the remaining stages. The ten stage names remain for lifecycle compatibility and product communication; they do not imply ten agents, ten models, or ten deployments.
+1. **Agent 1 — Discovery/Profile Agent** understands the traveler and produces a validated Traveler Profile.
+2. **Agent 2 — Candidate Design Agent** designs one itinerary and asks the traveler to resolve meaningful tradeoffs through a control-flow tool when necessary.
+3. **Agent 3 — Narrative/Explanation Agent** turns the traveler-approved itinerary into the user-facing Final Trip Plan.
 
-This document is the detailed architecture reference for the planning workflow. The [Traveler Profile](TRAVELER_PROFILE_SCHEMA.md), [Final Trip Plan](FINAL_TRIP_PLAN_SCHEMA.md), and [WebSocket Core API](WEBSOCKET_CONTRACT.md) remain the authoritative user-facing data and transport contracts.
+The traveler, not an optimizer, resolves important tradeoffs in the MVP.
 
-## Design principles
+The system deliberately does not generate several competing itineraries and rank them automatically. Agent 2 may make ordinary planning decisions, but whenever a decision materially changes the trip, it can pause and ask the traveler through `ask_user_decision`.
 
-1. **Reason where interpretation is required.** Natural-language understanding, adaptive questioning, candidate ideation, and user-facing writing may use reasoning models.
-2. **Calculate where correctness is required.** Policy validation, feasibility, cost calculations, simulation, and objective scoring are deterministic and versioned.
-3. **One owner for canonical state.** Only the Workflow Orchestrator advances workflow state and publishes Profile or Plan snapshots.
-4. **Evidence before prose.** Candidate and plan decisions must reference knowledge records, provider facts, profile values, or explicit assumptions.
-5. **Hard constraints are never silently relaxed.** If no admissible plan exists, the system reports the conflict or asks for a typed decision.
-6. **Stages are not agents.** A lifecycle key identifies a workflow stage, not an implementation boundary or deployment promise.
-
-## Runtime topology
+The central MVP flow is:
 
 ```text
-                         Workflow Orchestrator
-       state, ordering, validation, retries, idempotency, publication
-                                  │
-        ┌─────────────────────────┼──────────────────────────┐
-        ▼                         ▼                          ▼
- Discovery/Profile          Candidate Design          Narrative/Explanation
- reasoning capability       reasoning capability      reasoning capability
-        │                         │                          │
-        ▼                         ▼                          ▼
- Profile Policy Tools       Attraction KB/Retrieval    Evidence + decisions
-        │                         │                          │
-        └───────────────┬─────────┴──────────────┬───────────┘
-                        ▼                        ▼
-                 Mobility Engine          Cost Engine
-                        │                        │
-                        └────────────┬───────────┘
-                                     ▼
-                              Simulation Engine
-                                     ▼
-                              Objective Optimizer
-```
-
-The three reasoning agents may call only an allowlisted catalog of typed, read-only tools. Tool calls may retrieve facts or calculate results, but may not mutate canonical Profile, Plan, or workflow state. The orchestrator commits returned artifacts.
-
-## Actual runtime agents
-
-Only these three components are agents in the runtime:
-
-| Runtime agent | Responsibility | Must not do |
-|---|---|---|
-| **Discovery/Profile Agent** | Adaptive questions, answer interpretation, profile compilation, provenance, unknowns, and assumptions | Design an itinerary or silently promote an inference to a hard constraint |
-| **Candidate Design Agent (Agent 2)** | Selects evidence-backed attractions and decides how the traveler should experience them in `trip_route` and `city_day_plan` modes | Make the final plan selection or invent unsupported attractions |
-| **Narrative/Explanation Agent** | Final plan prose, fit explanations, tradeoffs, assumptions, warnings, and unresolved details | Add new planning decisions, facts, costs, or bookings |
-
-There is no standalone Constraint Agent, Mobility Agent, Cost Agent, Local Intelligence Agent, Simulation Agent, Optimization Agent, or Replanning Agent. Those names belong to logical stages described below.
-
-The optimizer may use a bounded adjudication prompt for a close non-material comparison, but that is a mode of the planning workflow—not a fourth independent agent. Material ambiguity always produces a typed traveler decision.
-
-## Deterministic and service components
-
-| Component | Responsibility |
-|---|---|
-| **Workflow Orchestrator** | Canonical state, per-answer recovery state, confirmed Profile revision markers, ordering, validation, retries, idempotency, lifecycle events, decision checkpoints, and publication |
-| **Profile Policy Tools** | Schema validation, contradiction detection, hard/soft constraint checks, blocking-unknown checks, and derived evaluation views |
-| **Attraction KB and Retrieval** | City-linked attraction records, geography, local facts, provenance, freshness, and confidence. Attraction records are linked to the City Knowledge Base by `city_id`; visit experiences are not stored as KB records. |
-| **Mobility Engine** | Routes, durations, opening hours, transfers, overlaps, check-in/out, travel burden, and violations |
-| **Cost Engine** | Scoped estimates, budget position, cost deltas, and substitutions |
-| **Simulation Engine** | Fatigue, walking, crowd, weather, delay, closure, transfer, comfort, and risk metrics |
-| **Objective Optimizer** | Candidate admissibility, versioned scoring, tie detection, and final selection |
-
-None of these components directly mutates the canonical Profile or Plan.
-
-## Ten logical workflow stages
-
-The ten-stage architecture is retained as a workflow map. Each stage maps to an actual agent, deterministic component, service, or future controller.
-
-| Stage | Logical name | Execution owner | Initial status |
-|---:|---|---|---|
-| 1 | Discovery | Discovery/Profile Agent + Policy Tools | Active |
-| 2 | Constraint & Preference | Profile Policy Tools | Active; not an agent |
-| 3 | Attraction & Experience Designer | Candidate Design Agent + Attraction KB/Retrieval | Active |
-| 4 | Mobility & Logistics | Mobility Engine | Active; deterministic |
-| 5 | Cost Optimization | Cost Engine | Active; deterministic |
-| 6 | Local Intelligence | KB/Retrieval service | Active; enrichment only |
-| 7 | Simulation & Risk | Simulation Engine | Active; deterministic |
-| 8 | Optimization | Objective Optimizer | Active; deterministic with bounded adjudication mode |
-| 9 | Narrative & Explanation | Narrative/Explanation Agent | Active |
-| 10 | Continuous Replanning | Future workflow controller | Deferred |
-
-### Stage 1 and Stage 2 boundary
-
-The Discovery/Profile Agent owns the natural-language part of discovery and profile compilation. It may produce an interpretation such as “the traveler prefers less exhausting days,” but that interpretation remains sourced and confidence-tagged.
-
-The policy tools then validate the resulting Profile and derive planning views. Only user-stated or explicitly accepted requirements may enter the hard-constraint set. Contradictions and blocking unknowns remain visible instead of being resolved silently.
-
-The resulting boundary is:
-
-```text
-Answer
-  → Discovery interpretation
-  → Policy validation and derived views
-  → Versioned Traveler Profile
-```
-
-There is no second LLM handoff whose purpose is to tell other agents what deterministic code could do.
-
-### Stage 3 boundary
-
-The Candidate Design Agent has two contract modes rather than becoming two agents:
-
-- `trip_route`: cities or regions, ordering, allocation, inter-city movement, and lodging-base candidates;
-- `city_day_plan`: selected attractions, Agent 2-designed visit approaches, meals, rest, timing, and local sequencing.
-
-It proposes multiple evidence-backed candidates. For each candidate it may select an attraction and describe the intended visit approach—such as an early, photography-focused visit or a slower, lower-walking visit—based on the Traveler Profile. These approaches are planning outputs, not separate knowledge-base records. It does not make the final choice. This avoids duplicated ranking authority between attraction selection and optimization.
-
-#### Agent 2 runtime contract
-
-Agent 2 is one reasoning agent with two explicit modes. The modes are separate contracts and bounded phases of one run; they are not additional agents and they do not create a second ranking authority.
-
-```text
+Traveler answers
+      ↓
+Agent 1: Discovery/Profile
+      ↓
 Validated Traveler Profile
-        │
-        ├── city-level request ──► fixed resolved city
-        │
-        └── country/region request ──► city retrieval
-                                      │
-                                      ▼
-                              trip_route mode
-                         route candidates + allocations
-                                      │
-                                      ▼
-                       city_day_plan mode, per route/city
-                    attraction retrieval + visit approaches
-                                      │
-                                      ▼
-                              CandidateBundle set
-                                      │
-                                      ▼
-                 Mobility → Cost → Simulation → Optimizer
-                                      │
-                                      ▼
-                              Final plan or decision
+      ↓
+Traveler confirms Profile
+      ↓
+Agent 2: Candidate Design
+      │
+      ├── ordinary planning decisions → continue
+      │
+      └── material tradeoff → ask_user_decision tool
+                                      ↓
+                                Decision Required UI
+                                      ↓
+                                traveler response
+                                      ↓
+                                resume Agent 2
+      ↓
+One traveler-guided itinerary
+      ↓
+Agent 3: Narrative/Explanation
+      ↓
+Validated Final Trip Plan
 ```
 
-Agent 2 receives the confirmed `Traveler Profile`, its profile revision, the resolved destination scope, the current City and Attraction dataset revisions, and the policy-derived hard-constraint guardrails. It does not receive hidden workflow state, database credentials, raw file paths, arbitrary provider payloads, or previous candidates from unrelated sessions.
+The [Traveler Profile](TRAVELER_PROFILE_SCHEMA.md), [Final Trip Plan](FINAL_TRIP_PLAN_SCHEMA.md), and [WebSocket Core API](WEBSOCKET_CONTRACT.md) remain the authoritative public contracts. This document explains how the three reasoning components use those contracts.
 
-Agent 2 is responsible for:
+## 2. MVP decisions
 
-- resolving a destination request to known cities through tools;
-- proposing city routes and tentative day allocations;
-- retrieving and selecting city-linked attractions;
-- sequencing attractions into day-level candidate designs;
-- deciding how the traveler should experience each selected attraction;
-- preserving meaningful soft preference tradeoffs in its alternatives;
-- grounding every place reference in a dataset record; and
-- returning assumptions, evidence, tradeoffs, and unresolved details.
+### 2.1 No automatic optimizer
 
-Agent 2 is not responsible for:
+The MVP does not include an Objective Optimizer and does not claim to rank alternative plans.
 
-- inventing a city, attraction, restaurant, or provider fact;
-- deciding authoritative travel times, transfers, prices, opening-hour feasibility, or weather feasibility;
-- silently relaxing a confirmed hard constraint;
-- publishing the final plan;
-- writing to the City Knowledge Base or Attraction Knowledge Base; or
-- exposing raw SQL, hidden reasoning, internal scores, or database details to the traveler.
+There is no MVP flow like this:
 
-#### Agent 2 input contract
+```text
+Candidate A + Candidate B + Candidate C → score → winner
+```
 
-The orchestrator must pass a complete, immutable planning input for one run:
+Instead, the MVP uses this flow:
 
-| Input | Required meaning |
+```text
+Agent 2 proposes a plan
+      ↓
+Agent 2 detects a meaningful tradeoff
+      ↓
+Traveler chooses what matters more
+      ↓
+Agent 2 revises the plan
+```
+
+The traveler is the final authority for explicit tradeoffs such as comfort versus coverage, cost versus accommodation quality, or fewer cities versus broader coverage.
+
+### 2.2 One plan, not a candidate set
+
+Agent 2 produces one working itinerary at a time. That itinerary is an internal `CandidateBundle` until it has passed basic validation and the traveler has answered all pending decisions.
+
+The word *candidate* means “the current proposed itinerary,” not “one item in an automatically ranked collection.”
+
+The MVP may later support several proposals, but adding multiple candidates must not silently reintroduce ranking logic. Any future automatic comparison requires a separate architecture decision.
+
+### 2.3 Human decisions are control flow
+
+Agent 2 does not directly communicate with the frontend. It calls a backend-owned control-flow tool named `ask_user_decision`.
+
+The tool call causes the Planning Controller to:
+
+1. validate the requested decision;
+2. pause Agent 2;
+3. store the pending continuation context;
+4. move the workflow to `decision_required`;
+5. emit the existing `decision.request` WebSocket event; and
+6. resume Agent 2 after the traveler sends `decision.respond`.
+
+`decision_required` is therefore a transport and workflow state, not an ordinary final result generated by Agent 2.
+
+### 2.4 Basic validation still exists
+
+Removing ranking does not mean accepting arbitrary model output.
+
+The MVP still validates:
+
+- Profile and dataset revision consistency;
+- known city and attraction identifiers;
+- city/attraction scope;
+- confirmed hard constraints;
+- required fields and allowed enum values;
+- day and item structure;
+- duplicate or contradictory items;
+- unsupported restaurants, bookings, provider facts, or prices; and
+- Agent 3’s preservation of Agent 2’s structural decisions.
+
+If the MVP lacks reliable data for travel time, cost, weather, or opening hours, the plan must mark the information as estimated, unknown, or unresolved. Missing evaluation data must never silently become a perfect score.
+
+## 3. Runtime topology
+
+The MVP is implemented as one backend process with an in-process Planning Controller. The Controller is not a fourth agent and is not a reasoning component.
+
+```text
+                         Planning Controller
+               state, ordering, pause/resume, validation,
+                 decision events, and publication authority
+                                  │
+             ┌────────────────────┼────────────────────┐
+             ▼                    ▼                    ▼
+       Agent 1                Agent 2                Agent 3
+   Discovery/Profile      Candidate Design      Narrative/Explanation
+             │                    │                    │
+             ▼                    ▼                    ▼
+       Profile Policy       City/Attraction       Evidence + selected
+           Tools               Retrieval             itinerary input
+                                  │
+                                  ▼
+                       Optional evaluation services
+                  mobility, cost, weather, and risk facts
+```
+
+The Planning Controller owns canonical workflow state. Agents return immutable-style artifacts or control-flow requests; they do not publish Profile or Plan snapshots directly.
+
+### 3.1 Planning Controller responsibilities
+
+The Planning Controller is a thin coordination layer for the MVP. It is responsible for:
+
+- accepting WebSocket commands;
+- maintaining session and run state;
+- maintaining discovery recovery state;
+- invoking Agent 1, Agent 2, and Agent 3;
+- pausing and resuming Agent 2 around a pending decision;
+- generating canonical `decision_id` values;
+- validating profile revisions and stale commands;
+- applying basic structural and hard-constraint validation;
+- preserving Agent 2’s protected itinerary fields during Agent 3 narration;
+- emitting lifecycle, planning status, decision, Profile, and Plan events; and
+- publishing only validated Profile and Plan snapshots.
+
+The Controller does not:
+
+- generate itinerary prose itself;
+- choose between competing plans using a score;
+- invent data that an agent or dataset did not provide;
+- expose hidden model reasoning; or
+- become a fourth planning authority.
+
+## 4. Shared concepts and ownership
+
+### 4.1 Traveler Profile
+
+The Traveler Profile is the canonical description of the traveler. It contains stated preferences, inferred preferences with provenance, travel style, hard constraints, unknowns, and assumptions.
+
+Agent 1 proposes and updates the Profile. Policy tools and the Planning Controller validate it. Agent 2 and Agent 3 consume the confirmed revision.
+
+No later agent may silently rewrite a confirmed Profile. If the traveler changes their mind, the system must collect that change through an explicit discovery or decision flow.
+
+### 4.2 CandidateBundle
+
+`CandidateBundle` is the internal itinerary artifact produced by Agent 2. It is not the public Final Trip Plan.
+
+It contains enough structure for the Controller to validate and for Agent 3 to narrate:
+
+- candidate identifier;
+- Profile revision;
+- dataset revisions;
+- destination route;
+- city allocations;
+- ordered day designs;
+- attraction IDs and city IDs;
+- visit approaches;
+- meal, rest, and movement slots;
+- assumptions;
+- tradeoffs;
+- warnings; and
+- unresolved details.
+
+The bundle must use stable identifiers for places. Display names alone are insufficient for validation.
+
+### 4.3 FinalTripPlanDraft
+
+`FinalTripPlanDraft` is Agent 3’s complete user-facing plan-shaped output before final validation.
+
+Agent 3 may write or improve:
+
+- title and summary;
+- experience descriptions;
+- item reasons;
+- fit explanation;
+- tradeoff explanations;
+- assumptions;
+- warnings; and
+- unresolved details.
+
+The Controller protects structural decisions inherited from Agent 2:
+
+- Profile reference;
+- route and allocations;
+- selected places;
+- accommodation identity and status;
+- day numbers, dates, places, and ordering;
+- item types, timings, movement, flexibility, and costs; and
+- cost scope, currency, totals, categories, and budget position.
+
+Agent 3 must not turn the draft into a new itinerary.
+
+## 5. Agent 1 — Discovery/Profile Agent
+
+### 5.1 Purpose
+
+Agent 1 conducts adaptive discovery. Its job is to understand enough about the traveler for planning to begin safely.
+
+Agent 1 is a profile compiler, not a planner.
+
+It translates natural-language answers into a complete Traveler Profile while preserving the difference between:
+
+- what the traveler explicitly said;
+- what the system inferred;
+- what remains unknown; and
+- what the system is temporarily assuming.
+
+### 5.2 Agent 1 owns
+
+Agent 1 owns the language-heavy parts of discovery:
+
+- interpreting the traveler’s latest answer;
+- updating the complete Profile draft;
+- selecting the next highest-value question;
+- identifying contradictions or ambiguities for policy validation;
+- recording provenance and confidence for inferred preferences;
+- recording assumptions and whether confirmation is needed; and
+- deciding whether the Profile is sufficiently complete for review.
+
+### 5.3 Agent 1 must not
+
+Agent 1 must not:
+
+- design an itinerary;
+- recommend attractions or cities as a planning decision;
+- invent dates, budget, party size, destinations, or constraints;
+- promote an inference to a hard constraint without explicit acceptance;
+- hide missing information;
+- directly mutate canonical session state; or
+- start planning before Profile confirmation.
+
+### 5.4 Agent 1 input
+
+For each discovery turn, the Controller passes:
+
+| Input | Meaning |
 |---|---|
-| `profile` | The confirmed Traveler Profile, including destination request, duration/dates, preferences, travel style, hard constraints, unknowns, and assumptions. |
-| `profile_revision` | The exact Profile revision that Agent 2 is planning against. |
-| `destination_scope` | `city`, `region`, or `country`, plus any resolved `city_id` values already confirmed by policy tools. |
-| `city_dataset_revision` | Revision of the City Knowledge Base available to retrieval. |
-| `attraction_dataset_revision` | Revision of the Attraction Knowledge Base available to retrieval. |
-| `hard_constraint_guardrails` | Only deterministic filters that policy tools can prove from dataset fields, such as excluded attraction IDs or allowed city IDs. |
-| `run_budget` | Maximum route candidates, day variants, tool calls, rows, and wall-clock time for this Agent 2 run. |
+| `profile` | The latest complete Profile draft, or an empty Profile on the first turn. |
+| `answer` | The traveler’s answer to the current server-issued question. |
+| `question` | The complete question schema that was active when the answer was submitted. |
+| `profile_revision` | The current draft revision used for recovery and stale-answer protection. |
+| `session_context` | Minimal session metadata required to continue discovery; no unrelated workflow state. |
 
-The two dataset revisions may be different. A `CandidateBundle` records both and must never be assembled from a later revision after retrieval has started. If either revision changes during a run, the orchestrator invalidates the partial bundle and restarts the affected phase.
+The frontend does not invent the next question. Agent 1 returns it through the Controller, which publishes it as `discovery.question`.
 
-#### Mode 1: `trip_route`
+### 5.5 Agent 1 middle state
 
-`trip_route` is the city-selection and allocation phase.
+Agent 1’s task state is an evolving `ProfileDraft` plus one active question.
 
-For a city-level request:
+The middle state contains:
 
-1. Use the policy-resolved `city_id` as the required city.
-2. Load the complete city record with `get_city`.
-3. Do not replace the city because another city appears more popular or has more attractions.
-4. Produce route candidates only when the requested duration can be represented or the unresolved conflict is explicitly returned.
+```text
+current Profile draft
+      ↓
+latest normalized answer
+      ↓
+stated / inferred / defaulted values
+      ↓
+unknowns and assumptions
+      ↓
+contradictions or missing material fields
+      ↓
+next question or discovery completion
+```
 
-For a country- or region-level request:
+The Controller writes recovery state atomically after an answer is accepted. Recovery state includes:
 
-1. Query candidate cities with `search_cities` using the destination scope and profile-relevant city facts.
-2. Use only returned `city_id` values; display names are not sufficient identifiers.
-3. Consider `recommended_days_min`, `recommended_days_max`, destination type, climate, tourism popularity, and the traveler’s stated priorities.
-4. Propose up to three ordered city routes, including one-city and multi-city alternatives when the duration supports them.
-5. Allocate tentative days within each city’s recommended bounds where possible.
-6. Record the tradeoff between depth in fewer cities and coverage across more cities.
+- the latest complete Profile draft;
+- Profile revision;
+- the active question;
+- discovery workflow state; and
+- the last accepted command identifier.
 
-The route result is a proposal, not a feasibility decision. Mobility and Cost later determine whether inter-city movement, lodging changes, and budget are workable. Agent 2 must not manufacture route distances, durations, fares, or transfer claims from city coordinates.
+The system must be able to reconnect and continue from this state without replaying every previous event.
 
-Minimum route artifact:
+### 5.6 Agent 1 output
+
+Agent 1 returns a complete result, never a patch:
 
 ```json
 {
-  "route_id": "route_a",
-  "stops": [
-    {
-      "city_id": "jaipur_rajasthan",
-      "city_name": "Jaipur",
-      "order": 1,
-      "days": 3,
-      "reason": "Matches the culture and photography priorities."
-    }
-  ],
-  "assumptions": [],
-  "tradeoffs": ["One city preserves depth and reduces hotel changes."]
+  "profile": {
+    "profile_id": "profile_01J...",
+    "trip_context": {},
+    "purpose_and_priorities": {},
+    "preferences": [],
+    "travel_style": {},
+    "hard_constraints": {},
+    "unknowns": [],
+    "assumptions": []
+  },
+  "finished": false,
+  "next_question": {
+    "question_id": "q_pace",
+    "prompt": "What pace would make this trip feel best?",
+    "selection_mode": "single",
+    "required": true,
+    "options": [],
+    "free_text_mode": "optional",
+    "free_text_placeholder": "Add a nuance if useful"
+  },
+  "completion_reason": null
 }
 ```
 
-#### Mode 2: `city_day_plan`
+When `finished` is `true`, `next_question` is `null`. When `finished` is `false`, exactly one next question is returned.
 
-`city_day_plan` begins only after a route candidate has been created. It is executed independently for each route and selected city so the attraction retrieval scope remains explicit.
+### 5.7 Discovery completion
 
-For each route stop, Agent 2 must:
+Agent 1 does not confirm the Profile. It only says that the Profile is ready for review.
 
-1. Query attractions with that stop’s `city_id` as a mandatory scope.
-2. Apply deterministic hard-constraint guardrails supplied by policy tools.
-3. Keep all structurally valid soft-conflict candidates visible, including high-crowd attractions for a low-crowd traveler or difficult attractions for a low-walking traveler.
-4. Ensure must-visit requests are either mapped to known attraction records or recorded as unresolved.
-5. Select combinations that fit the city allocation and the traveler’s stated preferences.
-6. Sequence the selected attractions into day candidates.
-7. Generate a visit approach for every attraction rather than treating the attraction record itself as a pre-authored experience.
-8. Add rest and meal slots when useful. Meal slots may express timing or dietary needs, but must not name or describe an unsupported restaurant.
-9. Return up to two materially different day-design variants for that route/city.
+The Controller then:
 
-A visit approach may contain:
+1. validates the Profile schema;
+2. checks contradictions and blocking unknowns;
+3. publishes a complete `profile.snapshot`;
+4. publishes `profile.ready`; and
+5. waits for `profile.confirm`.
 
-| Field | Meaning |
+Planning cannot begin merely because Agent 1 returned `finished: true`.
+
+## 6. Agent 2 — Candidate Design Agent
+
+### 6.1 Purpose
+
+Agent 2 turns a confirmed Traveler Profile into one practical itinerary. It makes the creative planning decisions required to get from a destination request to a sequence of cities, attractions, rest periods, meals, and movement.
+
+Agent 2 is also the point where material tradeoffs are surfaced to the traveler.
+
+The MVP does not ask Agent 2 to produce several alternatives or assign a universal score. It designs one plan, asks when necessary, and revises the plan after the traveler answers.
+
+### 6.2 Agent 2 owns
+
+Agent 2 owns:
+
+- interpreting the confirmed trip purpose and preferences for itinerary design;
+- resolving a destination request to known cities through retrieval tools;
+- selecting evidence-backed cities and attractions;
+- allocating days across the route;
+- sequencing attractions into day-level plans;
+- designing the intended visit approach for each selected attraction;
+- adding useful rest, meal, and movement slots;
+- identifying meaningful comfort, coverage, cost, or preference tradeoffs;
+- requesting a typed traveler decision through `ask_user_decision`; and
+- revising the candidate after a traveler decision.
+
+### 6.3 Agent 2 must not
+
+Agent 2 must not:
+
+- invent cities, attractions, restaurants, prices, opening hours, or provider facts;
+- silently relax a confirmed hard constraint;
+- claim authoritative travel times, feasibility, or cost without supporting data;
+- directly send WebSocket messages;
+- directly mutate Profile, Plan, or workflow state;
+- call Agent 3;
+- publish a final Plan snapshot; or
+- pretend that a single candidate has been automatically optimized.
+
+### 6.4 Agent 2 input
+
+The Controller passes an immutable planning input for the current Agent 2 run:
+
+| Input | Meaning |
 |---|---|
-| `mode` | Generated framing such as `photography_focused_visit`, `slow_cultural_visit`, or `balanced_attraction_visit`. |
-| `timing_preference` | A suggested time category derived from attraction facts, not a guaranteed opening schedule. |
-| `duration_minutes` | A proposal based on the attraction’s duration fields; Mobility may revise it. |
-| `pace` | The profile-compatible pace for the visit. |
-| `focus` | Profile priorities the visit is intended to serve. |
-| `rationale` | Traveler-safe explanation grounded in profile values and attraction evidence. |
-| `tradeoffs` | What the visit gains and gives up, when material. |
+| `profile` | The confirmed Traveler Profile. |
+| `profile_revision` | The exact confirmed Profile revision. |
+| `destination_scope` | The requested city, region, or country and any policy-resolved city IDs. |
+| `city_dataset_revision` | City data revision available to retrieval. |
+| `attraction_dataset_revision` | Attraction data revision available to retrieval. |
+| `hard_constraint_guardrails` | Deterministic exclusions and scope restrictions that can be proven from available fields. |
+| `run_budget` | Maximum retrieval pages, tool calls, wall-clock time, and decision rounds. |
+| `resume_context` | Present only after a decision response; contains the paused candidate and the selected option. |
 
-The visit approach is generated planning output. It is not written back as an “experience” record and does not change the Attraction Knowledge Base.
+Agent 2 does not receive hidden workflow state, arbitrary database payloads, raw file paths, or unrelated previous candidates.
 
-#### Retrieval tool catalog
+### 6.5 Agent 2 middle state
 
-Agent 2 has access only to these read-only tools:
+Agent 2’s task is a bounded planning loop:
 
-| Tool | Mode | Required arguments | Result |
-|---|---|---|---|
-| `search_cities` | `trip_route` | Destination scope, optional region/type filters, page size, dataset revision | City records with stable `city_id`, planning metadata, provenance, and a cursor. |
-| `get_city` | `trip_route` | One `city_id`, dataset revision | One authoritative city record or a typed not-found error. |
-| `query_attractions` | `city_day_plan` | Parameterized query, mandatory selected `city_id` scope, hard guardrails, page size, cursor, dataset revision | Attraction records from the allowlisted view, query ID, revision, and next cursor. |
-| `get_attractions_by_ids` | Both | Attraction IDs, selected city IDs, dataset revision | Exact hydrated records or a typed unknown/out-of-scope error. |
+```text
+confirmed Profile
+      ↓
+destination scope
+      ↓
+city or route resolution
+      ↓
+day allocation
+      ↓
+attraction retrieval
+      ↓
+visit approach and daily sequencing
+      ↓
+tradeoff detection
+      ├── no material tradeoff → candidate ready
+      └── material tradeoff → ask_user_decision
+                                  ↓
+                              pause and wait
+                                  ↓
+                           apply traveler choice
+                                  ↓
+                           revise candidate
+```
 
-Tool results must include the dataset revision and stable evidence identifiers. Tool results must not include database credentials, filesystem paths, unbounded raw payloads, or hidden provider responses.
+The working state may contain:
 
-#### Restricted attraction SQL contract
+- resolved city IDs;
+- selected attraction IDs;
+- current route and day allocation;
+- current day designs;
+- profile facts used for decisions;
+- evidence references;
+- assumptions;
+- tradeoffs already accepted by the traveler;
+- unresolved details; and
+- one pending decision request.
 
-The attraction dataset may be indexed in SQLite for efficient structured querying, but Agent 2 does not receive a database connection. `query_attractions` is a constrained tool over an allowlisted `attraction_query_view`.
+This state is internal. It is not exposed as hidden reasoning or raw model context.
 
-The submitted query must:
+### 6.6 Agent 2 planning phases
 
-- be one parameterized `SELECT` statement;
-- read only from `attraction_query_view`;
-- select `city_id` so the service can verify scope;
-- use bound parameters rather than embedded string literals;
-- omit `LIMIT` and `OFFSET`, because the service owns pagination; and
-- stay within the tool’s approved columns and query shape.
+#### Phase A — Resolve destination
 
-The retrieval service must reject:
+For a city-level request:
 
-- writes, DDL, pragmas, attachments, extensions, or multiple statements;
-- comments and query concatenation;
-- joins, unions, subqueries, arbitrary tables, or filesystem access;
-- queries without a selected-city scope;
-- rows outside the route’s selected `city_id` set;
-- stale or mismatched dataset revisions; and
-- results exceeding row, byte, execution-time, or page limits.
+1. use the policy-resolved `city_id`;
+2. load the authoritative city record;
+3. do not replace it because another city appears more popular; and
+4. continue with city-day design.
 
-The service adds the selected-city restriction outside the model query and applies explicit hard exclusions before returning rows. It may use neutral ordering or query relevance for context management, but it must not silently remove a soft preference conflict. If the model query is invalid, the tool returns a structured error; the orchestrator permits one bounded repair attempt and never falls back to raw CSV access.
+For a region- or country-level request:
 
-#### Hard constraints and soft conflicts
+1. retrieve known cities within the requested scope;
+2. use stable `city_id` values rather than display names;
+3. consider duration, destination facts, and stated priorities;
+4. choose a practical route proposal; and
+5. record any meaningful coverage-versus-depth tradeoff.
 
-Policy tools, not the LLM, determine which hard constraints can be mechanically enforced from available fields.
+The route is a proposal until the basic validation pass confirms that every city is known and in scope.
 
-Confirmed hard constraints that can be proven from the data are applied as retrieval guardrails and checked again during candidate validation. Examples include:
+#### Phase B — Allocate time
 
-- an attraction ID explicitly excluded by the traveler;
-- a city not permitted by the confirmed destination scope; and
-- an attraction whose `city_id` is outside the route being planned.
+Agent 2 assigns days to the selected city or cities. The allocation must respect the confirmed duration and should use city metadata such as recommended duration where available.
 
-Soft or ambiguous conflicts remain visible to Agent 2 with conflict metadata. Examples include:
+Agent 2 may propose a reasonable allocation, but must not manufacture inter-city travel duration, fare, or transfer feasibility.
 
-- low crowd tolerance versus a must-see attraction with `Very_High` crowd level;
-- comfort-first travel versus a difficult attraction;
-- local authenticity versus a major tourist attraction; and
-- photography priority versus poor weather suitability.
+If the duration cannot support the requested coverage, Agent 2 should use `ask_user_decision` with options such as:
 
-Agent 2 may choose a soft conflict, but must explain the tradeoff and provide an alternative when practical. It may not reinterpret a confirmed hard constraint as a preference. If a verified hard constraint leaves no grounded candidate, the workflow enters `decision_required` with typed options such as choosing another city, changing dates, or reviewing the constraint.
+- fewer cities with more depth;
+- more cities with shorter stays; or
+- changing the trip duration.
 
-#### CandidateBundle contract
+#### Phase C — Design city days
 
-Agent 2 returns multiple candidate bundles. A bundle is an internal artifact for deterministic evaluation, not the public Final Trip Plan.
+For each city:
+
+1. query attractions with the selected `city_id` as a mandatory scope;
+2. apply deterministic hard-constraint guardrails;
+3. keep soft conflicts visible rather than silently filtering them;
+4. map must-visit requests to known attraction IDs or mark them unresolved;
+5. choose a combination that fits the city allocation;
+6. sequence visits into day designs;
+7. create a visit approach for each attraction;
+8. add rest and meal slots where useful; and
+9. identify any material tradeoff that requires the traveler.
+
+A visit approach is generated planning output. It may describe pace, focus, timing preference, duration proposal, rationale, and tradeoffs. It is not written back to the Attraction Knowledge Base.
+
+### 6.7 Agent 2 retrieval tools
+
+Agent 2 may use only typed, bounded, read-only retrieval tools plus the control-flow decision tool:
+
+| Tool | Purpose |
+|---|---|
+| `search_cities` | Find known cities within a destination scope. |
+| `get_city` | Load one authoritative city record. |
+| `query_attractions` | Retrieve attractions within an explicitly selected city scope. |
+| `get_attractions_by_ids` | Hydrate exact known attraction records. |
+| `ask_user_decision` | Pause Agent 2 and request a typed traveler choice. |
+
+Agent 2 must not receive a database connection or arbitrary SQL access. Retrieval services enforce city scope, dataset revision, row limits, byte limits, and execution limits outside the model.
+
+### 6.8 Hard constraints and soft conflicts
+
+Hard constraints are requirements the traveler explicitly stated or accepted. They cannot be silently downgraded to preferences.
+
+Examples:
+
+- an attraction explicitly excluded by the traveler;
+- an accessibility requirement;
+- a dietary requirement;
+- a maximum hotel-change requirement; or
+- a city outside the confirmed destination scope.
+
+Soft conflicts are preferences that may be traded off with other preferences:
+
+- low crowd tolerance versus a famous crowded attraction;
+- comfort-first travel versus broader coverage;
+- photography priority versus poor weather suitability; or
+- lower cost versus better accommodation.
+
+Agent 2 may resolve ordinary soft conflicts itself. It must call `ask_user_decision` when the choice materially changes the traveler’s experience or when the system cannot responsibly infer the priority.
+
+If a hard constraint makes the current plan impossible, Agent 2 must either:
+
+1. ask the traveler to choose among explicit constraint-changing options; or
+2. return an unresolved conflict for the Controller to surface.
+
+It must never quietly produce a plan that violates the hard constraint.
+
+## 7. `ask_user_decision` control-flow tool
+
+### 7.1 Why this is a tool
+
+The decision request is part of Agent 2’s work, but the user interaction belongs to the backend and frontend. A tool gives Agent 2 a natural way to say:
+
+> “I cannot responsibly continue without knowing which of these two priorities matters more.”
+
+The tool does not return an immediate answer. It pauses the current Agent 2 run.
+
+### 7.2 Tool input
+
+The model supplies:
 
 ```json
 {
-  "candidate_id": "route_a_variant_1",
+  "reason": "material_tradeoff",
+  "prompt": "Would you rather keep the pace gentle or see more attractions?",
+  "options": [
+    {
+      "option_id": "comfort",
+      "label": "Prioritize comfort",
+      "tradeoff": "Fewer visits, less walking, and more recovery time."
+    },
+    {
+      "option_id": "coverage",
+      "label": "Prioritize coverage",
+      "tradeoff": "More visits, but longer days and more movement."
+    }
+  ]
+}
+```
+
+Allowed reasons for the MVP are:
+
+- `material_tradeoff`;
+- `hard_constraint_conflict`; and
+- `missing_preference`.
+
+The tool accepts two or three options only. Each option must have a stable local `option_id`, a traveler-safe label, and a plain-language tradeoff description.
+
+The backend generates the canonical `decision_id`, attaches the current `profile_revision`, and records the current `run_id` and model tool-call identifier internally.
+
+### 7.3 Backend behavior on tool call
+
+The tool implementation must:
+
+1. reject malformed or excessive options;
+2. reject a second active decision;
+3. validate that the request is grounded in the current planning state;
+4. create a canonical decision record;
+5. checkpoint the paused Agent 2 continuation context;
+6. transition workflow state to `decision_required`;
+7. emit `decision.request`; and
+8. stop the current Agent 2 model invocation.
+
+The backend must not hold an HTTP or model request open while waiting for the traveler. It must resume the model later with a tool result.
+
+### 7.4 Decision response and Agent 2 resume
+
+The frontend submits the existing command:
+
+```json
+{
+  "decision_id": "decision_01J...",
+  "option_id": "comfort"
+}
+```
+
+The Controller validates:
+
+- the workflow is currently `decision_required`;
+- the decision ID is current;
+- the option belongs to the decision;
+- the Profile revision is not stale; and
+- the command has not already been applied.
+
+After acceptance, the Controller resumes Agent 2 with a structured tool result:
+
+```json
+{
+  "decision_id": "decision_01J...",
+  "selected_option_id": "comfort",
+  "instruction": "Revise the itinerary to prioritize comfort over coverage."
+}
+```
+
+Agent 2 then revises the working CandidateBundle. The traveler’s choice becomes part of the candidate’s accepted tradeoffs and must be available to Agent 3 for explanation.
+
+### 7.5 Decision limits
+
+The MVP enforces:
+
+- one active decision at a time;
+- two or three options per decision;
+- a bounded number of decision rounds per run;
+- no arbitrary Profile or Plan patches from the frontend; and
+- no “recommended” option unless the server explicitly supplies traveler-safe recommendation copy.
+
+If the maximum decision rounds are reached, the Controller stops safely and surfaces unresolved details rather than entering an infinite loop.
+
+## 8. Agent 2 output contract
+
+Agent 2 returns a complete internal `CandidateBundle` after all active decisions have been resolved.
+
+Illustrative shape:
+
+```json
+{
+  "candidate_id": "candidate_01J...",
   "profile_revision": 7,
   "dataset_revisions": {
     "city": "city-rev-12",
     "attraction": "attraction-rev-8"
   },
   "route": {
-    "route_id": "route_a",
     "stops": [
-      {"city_id": "city_jaipur", "order": 1, "days": 3}
+      {
+        "city_id": "city_jaipur",
+        "city_name": "Jaipur",
+        "order": 1,
+        "days": 3,
+        "reason": "Supports the traveler’s culture and photography priorities."
+      }
     ]
   },
   "days": [
@@ -339,201 +675,292 @@ Agent 2 returns multiple candidate bundles. A bundle is an internal artifact for
       "items": [
         {
           "type": "experience",
-          "attraction_id": "amber_fort_jaipur_rajasthan",
+          "attraction_id": "amber_fort",
           "city_id": "city_jaipur",
           "visit_approach": {
             "mode": "slow_cultural_visit",
-            "timing_preference": "Morning",
+            "timing_preference": "morning",
             "duration_minutes": 150,
             "pace": "balanced",
             "focus": ["culture", "photography"],
-            "rationale": "..."
+            "rationale": "A slower visit supports the traveler’s stated pace."
           },
-          "evidence_refs": ["amber_fort_jaipur_rajasthan", "city_jaipur"]
+          "evidence_refs": ["amber_fort", "city_jaipur"]
         },
         {
-          "type": "meal",
-          "title": "Meal break",
-          "description": "Restaurant not selected; preserve flexible meal time."
+          "type": "rest",
+          "title": "Breakfast and recovery",
+          "description": "Keep the late morning open for rest."
         }
       ]
     }
   ],
   "assumptions": [],
-  "tradeoffs": [],
+  "tradeoffs": [
+    "Fewer attractions were included to preserve a slower pace."
+  ],
+  "warnings": [],
   "unresolved_details": []
 }
 ```
 
-Candidate validation must verify:
+The bundle is ready for Agent 3 only after the Controller confirms:
 
-- every route city exists and is unique;
+- every route city is known and unique;
 - every attraction exists and belongs to the day’s city;
-- every day belongs to the route and falls within its allocation;
-- every evidence reference resolves to a current dataset record;
-- hard exclusions are not present;
-- the Profile revision and both dataset revisions are current; and
-- meal slots contain no fabricated restaurant identity or provider fact.
+- every day belongs to the route and allocation;
+- all hard exclusions are respected;
+- all evidence references resolve to the active dataset revisions;
+- the Profile revision is still current; and
+- no unsupported restaurant or provider fact has been introduced.
 
-The bundle may contain internal qualitative fit signals and tradeoff explanations, but it must not be treated as the final ranking. The Objective Optimizer receives the bundle plus deterministic Mobility, Cost, and Simulation results.
+There is no `score`, `rank`, `winner`, or `optimizer_result` in the MVP CandidateBundle.
 
-#### Ranking and authority model
+## 9. Agent 3 — Narrative/Explanation Agent
 
-There are three distinct ranking operations:
+### 9.1 Purpose
 
-1. **Retrieval ordering:** context management only. It may use stable ID ordering or transparent query relevance. It is not a traveler-fit score.
-2. **Agent 2 selection:** qualitative composition. Agent 2 chooses a route, attraction combination, sequence, and visit approach. Its alternatives should preserve meaningful differences rather than merely reorder the same places.
-3. **Objective optimization:** final plan ranking. The optimizer scores complete candidate bundles using versioned deterministic inputs such as hard-constraint satisfaction, feasibility, cost, fatigue, walking burden, crowd exposure, weather risk, and profile fit.
+Agent 3 is the final writing and explanation layer. It does not plan a second time.
 
-No universal attraction ranking or user-specific recommendation is stored in the knowledge files. No candidate is final merely because Agent 2 listed it first.
+Its job is to make the traveler-guided CandidateBundle understandable, useful, honest, and connected to the Traveler Profile.
 
-#### Orchestrator sequence
+Agent 3 is a renderer of already-made decisions.
 
-The initial planning run follows this sequence:
+### 9.2 Agent 3 owns
 
-1. Confirm the Profile revision and freeze the two dataset revisions.
-2. Derive deterministic hard-constraint guardrails with Profile Policy Tools.
-3. Enter `experience_designer` with internal subphase `trip_route`.
-4. Resolve or retrieve cities and generate up to three route candidates.
-5. Validate route IDs, city scope, day bounds, and profile revision.
-6. For each route, enter internal subphase `city_day_plan`.
-7. Query attractions per `city_id`, apply hard guardrails, and attach soft-conflict metadata.
-8. Generate up to two city-day variants per route/city.
-9. Validate each `CandidateBundle`; reject and repair invalid bundles once.
-10. Send valid bundles to Mobility, Cost, and Simulation.
-11. Run the deterministic Objective Optimizer.
-12. Publish `decision_required` for a material unresolved tradeoff or impossible verified constraint; otherwise pass the selected bundle to Narrative.
-13. Narrative renders the selected structured result into the Final Trip Plan; it cannot add new attractions, costs, or planning decisions.
+Agent 3 owns:
 
-Agent 2 may not skip from retrieval directly to publication. It may not call Mobility, Cost, Simulation, or the Optimizer as if they were LLM tools; the orchestrator invokes those deterministic services after candidate validation.
+- plan title;
+- summary;
+- traveler-safe descriptions of itinerary items;
+- profile-based reasons;
+- fit explanation;
+- explanation of accepted tradeoffs;
+- assumptions;
+- warnings;
+- unresolved details; and
+- clear language around estimates and uncertainty.
 
-#### Bounds, retries, and failure states
+### 9.3 Agent 3 must not
 
-Default bounds for the initial implementation are:
+Agent 3 must not:
 
-| Bound | Default |
-|---|---:|
-| Route candidates | 3 |
-| City-day variants per route/city | 2 |
-| Attraction rows per retrieval page | 50 |
-| SQL repair attempts | 1 |
-| Dataset revision per bundle | 1 city revision + 1 attraction revision |
+- add or remove attractions;
+- change the route or city allocation;
+- change day ordering;
+- change authoritative timing or movement values;
+- change costs or budget scope;
+- invent restaurants, bookings, transport facts, or availability;
+- override a traveler decision;
+- silently resolve an unresolved detail; or
+- expose internal evidence IDs, prompts, scores, or workflow state.
 
-The orchestrator additionally configures a total tool-call budget and wall-clock budget per run. Repeated query failures, excessive pages, or a stalled reasoning call fail the Agent 2 stage rather than opening an unbounded loop.
+If the input is insufficient to support a sentence, Agent 3 must omit the unsupported claim and add a precise unresolved detail or warning.
 
-Failure behavior is explicit:
+### 9.4 Agent 3 input
 
-| Failure | Workflow behavior |
+The Controller passes an immutable `NarrativeInput`:
+
+| Input | Meaning |
 |---|---|
-| Destination does not resolve to a known city | `decision_required` asking the traveler to clarify or choose a known city. |
-| Route contains unknown, duplicate, or out-of-scope `city_id` | Reject the route candidate and request one bounded Agent 2 repair. |
-| Attraction query contains invalid SQL | Return structured tool error, allow one repair, then fail the stage if still invalid. |
-| Attraction is orphaned or outside selected city scope | Reject the record/candidate; never repair by joining on display name. |
-| Dataset revision changes mid-run | Invalidate partial candidates and restart against one revision pair. |
-| No attraction remains after verified hard filters | `decision_required`; never silently relax the hard constraint. |
-| Only soft conflicts remain | Preserve candidates, expose conflict metadata, and let Agent 2 produce alternatives. |
-| Candidate references unsupported facts | Reject the candidate or mark the detail unresolved; Narrative cannot fill it in. |
-| No restaurant dataset exists | Emit meal slots only; do not invent restaurant names or availability. |
+| `profile` | The full validated Traveler Profile used for planning. |
+| `candidate` | The final Agent 2 CandidateBundle after traveler decisions. |
+| `evidence` | Approved city, attraction, profile, and provider facts used by the candidate. |
+| `available_evaluations` | Any mobility, cost, weather, or risk information available for this MVP run. |
+| `accepted_decisions` | Traveler decisions that changed the candidate. |
+| `assumptions` | Explicit assumptions that affect interpretation or execution. |
+| `tradeoffs` | Accepted tradeoffs that should be explained to the traveler. |
+| `warnings` | Known limitations, freshness concerns, and risks. |
+| `unresolved_details` | Details still requiring confirmation. |
+| `profile_revision` | Exact Profile revision used by Agent 2. |
+| `dataset_revisions` | Dataset revisions used to produce the candidate and evidence. |
 
-#### Lifecycle and observability
+### 9.5 Agent 3 middle state
 
-The public lifecycle key remains `experience_designer` for compatibility. Internal progress may use these safe subphase summaries:
-
-- `Resolving destination cities`
-- `Comparing route possibilities`
-- `Finding attractions in {city}`
-- `Designing visits around your priorities`
-- `Preparing alternatives for evaluation`
-
-Lifecycle events must not expose SQL, file paths, raw retrieval rows, hidden prompts, chain-of-thought, private profile details, or internal scores.
-
-The orchestrator should record structured operational telemetry for each Agent 2 run:
-
-- `run_id`, `profile_revision`, and dataset revisions;
-- mode and subphase;
-- tool name, query ID, duration, row count, page count, and rejection reason;
-- candidate count and candidate validation failures;
-- hard-constraint conflicts and decision-required reason;
-- grounding rate and out-of-scope reference count;
-- total tool calls, token/latency budget use, and stage duration.
-
-Telemetry must be sufficient to diagnose retrieval and grounding failures without storing raw model reasoning or unnecessary personal data.
-
-### Stages 4, 5, and 7
-
-These capabilities return measurements and structured alternatives:
-
-- Mobility returns feasibility, travel segments, burden, and violations.
-- Cost returns amount, currency, scope, budget position, and substitution options.
-- Simulation returns model-versioned metrics, risk flags, and reproducibility information.
-
-They do not directly edit a candidate or write user-facing explanations. The orchestrator and optimizer decide how those measurements affect workflow state.
-
-### Stage 6
-
-Local Intelligence is a retrieval and enrichment layer for city and attraction facts. Curated knowledge is primary. External maps, places, transport, and weather facts are secondary and must carry `source`, `observed_at`, `fresh_until`, and `confidence` metadata. LLM-assisted enrichment must be validated before entering the City or Attraction Knowledge Base. Agent 2 may use those facts to design a visit approach, but the approach itself is not persisted as knowledge data.
-
-### Stage 8 and ambiguity
-
-The optimizer uses a versioned deterministic objective function. An LLM may provide bounded qualitative adjudication only when candidates are close and the difference is not material.
-
-When close candidates represent a material tradeoff—such as comfort versus coverage or cost versus a must-have experience—the optimizer returns `decision_required` instead of silently choosing. The traveler selects among typed options. The LLM cannot change costs, durations, feasibility, hard constraints, or source facts.
-
-### Stage 9
-
-Narrative receives the selected candidate, evaluation artifacts, profile references, evidence, assumptions, and tradeoffs. It produces a Final Trip Plan that passes the existing plan invariants. It is a renderer of structured decisions, not a hidden second optimizer.
-
-### Stage 10
-
-Continuous replanning is deferred from the initial implementation and architecture contract. A future replanner should identify affected components and reuse the same candidate, mobility, cost, simulation, optimization, and narrative pipeline. It should not introduce a separate planning authority.
-
-## Canonical artifacts
-
-Components return immutable-style artifacts. The orchestrator is the only component that commits them to workflow state.
-
-| Artifact | Producer | Required meaning |
-|---|---|---|
-| `ProfileDraft` | Discovery/Profile Agent | Interpreted answers, extracted fields, inferred fields, and a proposed Profile |
-| `ValidatedTravelerProfile` | Policy tools + orchestrator | Profile satisfying schema and provenance rules, with explicit unknowns and assumptions |
-| `CandidateBundle` | Candidate Design Agent | Diverse route/day candidates with `city_id` and `attraction_id` references, Agent 2 visit approaches, fit signals, and evidence |
-| `EvaluationBundle` | Mobility, Cost, Local Intelligence, Simulation | Feasibility, cost, sourced facts, risk, comfort, and model metadata |
-| `OptimizationResult` | Optimizer | Selected candidate or a typed decision request; includes objective version and traceable scores internally |
-| `DecisionRequest` | Orchestrator/Optimizer | Stable decision ID, prompt, typed options, tradeoff summaries, and profile revision |
-| `FinalTripPlanDraft` | Narrative/Explanation Agent | User-facing plan payload before final schema and invariant validation |
-
-Internal artifacts may contain candidate rankings, model scores, provider payload normalization, and decision traces. These are not added to the public Traveler Profile or Final Trip Plan schemas.
-
-## Workflow state and planning flow
+Agent 3’s internal task is a constrained rendering pass:
 
 ```text
-discovery
-  → profile_review
-  → planning
-  → decision_required ──┐
-  │                      │ typed decision response
-  └──────────────────────┘
-  → plan_ready
+read selected CandidateBundle
+      ↓
+map candidate decisions to profile priorities
+      ↓
+check evidence available for each factual statement
+      ↓
+write traveler-safe descriptions and explanations
+      ↓
+preserve protected structural fields
+      ↓
+surface assumptions, warnings, and unresolved details
+      ↓
+return complete FinalTripPlanDraft
 ```
 
-The normal planning sequence is:
+Agent 3 may internally organize prose, but it must not use that process to create a new route, ranking, score, or recommendation.
 
-1. Discovery compiles a Profile draft.
-2. Policy tools validate the Profile and expose contradictions or blocking unknowns.
-3. The traveler confirms the Profile revision.
-4. Candidate Design proposes route-level or city-level candidates.
-5. Mobility, Cost, Local Intelligence, and Simulation evaluate the candidates.
-6. Optimization selects an admissible candidate or returns `decision_required`.
-7. A typed traveler response resumes planning when needed.
-8. Narrative renders the selected structured result.
-9. The orchestrator validates and publishes one Final Trip Plan snapshot.
+### 9.6 Agent 3 output
 
-The orchestrator also owns per-answer recovery state, confirmed Profile revision markers, command idempotency, stale revision checks, retry behavior, lifecycle events, and rejection of partial work. No component may publish a final snapshot directly.
+Agent 3 returns a complete `FinalTripPlanDraft` matching the public [Final Trip Plan](FINAL_TRIP_PLAN_SCHEMA.md) shape.
 
-Every accepted discovery answer creates recovery state containing the latest Profile draft, Profile revision, active question, and discovery state. The answer is acknowledged only after that state is written. A reconnect resumes from the latest recovery state; it does not replay prior events. Profile confirmation records `confirmed_profile_revision` as the planning baseline, while the resulting Plan stores or immutably references the exact Profile revision/snapshot it used. No second checkpoint or duplicate Profile store is required.
+The Controller then:
 
-## Lifecycle compatibility
+1. validates the draft against the public schema;
+2. compares protected fields against Agent 2’s CandidateBundle;
+3. verifies that the Profile reference and revision match;
+4. verifies that assumptions, warnings, and unresolved details remain visible;
+5. permits one bounded repair attempt for invalid output; and
+6. publishes `plan.snapshot` only after successful validation.
 
-The public lifecycle keys remain:
+An invalid repaired draft never becomes a final Plan snapshot.
+
+## 10. Supporting services
+
+Supporting services improve correctness but are not reasoning agents.
+
+### Profile Policy Tools
+
+Profile Policy Tools validate schema and provenance. They determine whether a value is stated, inferred, assumed, unknown, or a confirmed hard constraint.
+
+They may produce:
+
+- schema validation results;
+- contradiction reports;
+- blocking unknowns;
+- hard-constraint guardrails; and
+- derived planning views.
+
+They do not ask the traveler questions directly and do not design the itinerary.
+
+### City and Attraction Retrieval
+
+Retrieval provides grounded records:
+
+- stable IDs;
+- city relationships;
+- geography;
+- attraction facts;
+- planning metadata;
+- provenance;
+- freshness; and
+- confidence.
+
+Retrieval ordering is context management only. It is not a traveler-fit ranking.
+
+### Optional evaluation services
+
+Mobility, Cost, weather, and risk services may provide facts where available:
+
+- approximate durations;
+- travel segments;
+- cost estimates and scope;
+- opening-hour or closure information;
+- fatigue or walking indicators; and
+- weather or risk warnings.
+
+In the MVP, these services do not rank plans. If a service is unfinished, its missing result must remain explicitly unknown or estimated.
+
+## 11. End-to-end workflow
+
+### Phase 1 — Discovery
+
+```text
+session.start
+      ↓
+discovery.question
+      ↓
+discovery.answer
+      ↓
+Agent 1 updates Profile draft
+      ↓
+profile.snapshot
+      ↓
+next discovery.question or profile.ready
+```
+
+Every accepted answer updates recovery state before acknowledgement. The frontend renders server-issued question schemas and does not decide when discovery is complete.
+
+### Phase 2 — Profile review
+
+The traveler reviews the complete Profile snapshot.
+
+- `profile.confirm` starts planning;
+- `profile.request_changes` returns to targeted discovery; and
+- planning cannot begin with a stale Profile revision or blocking unknowns.
+
+### Phase 3 — Agent 2 planning
+
+The Controller invokes Agent 2 with the confirmed Profile and dataset revisions.
+
+Agent 2 resolves the destination, designs days, retrieves attractions, and produces a CandidateBundle.
+
+If Agent 2 calls `ask_user_decision`, the Controller pauses the run and emits:
+
+```text
+planning.status: decision_required
+decision.request
+```
+
+The frontend displays the Decision Required screen. After `decision.respond`, the Controller resumes Agent 2 with the selected option.
+
+This loop repeats only within the configured decision limit.
+
+### Phase 4 — Basic validation
+
+The Controller checks that the final Agent 2 candidate is structurally valid and grounded.
+
+There is no automatic candidate ranking at this phase.
+
+### Phase 5 — Agent 3 narration
+
+The Controller passes the validated candidate, Profile, evidence, accepted decisions, and available evaluation facts to Agent 3.
+
+Agent 3 returns the complete FinalTripPlanDraft. It may describe the tradeoffs the traveler chose, but it may not create new ones.
+
+### Phase 6 — Publication
+
+The Controller validates the Agent 3 draft and publishes:
+
+```text
+plan.snapshot(state: final)
+workflow.completed(outcome: final_plan_available)
+```
+
+If the draft is invalid after one repair attempt, the Controller emits a safe failed planning status and does not publish a final plan.
+
+## 12. Workflow states
+
+| State | Meaning | Valid next actions |
+|---|---|---|
+| `discovery` | Agent 1 is collecting adaptive answers. | `discovery.answer`, `run.cancel`, `session.close` |
+| `profile_review` | A complete Profile is ready for traveler review. | `profile.confirm`, `profile.request_changes`, `run.cancel`, `session.close` |
+| `planning` | Agent 2 is designing or revising the itinerary, or Agent 3 is narrating it. | `run.cancel`, `session.close` |
+| `decision_required` | Agent 2 has paused on a typed traveler decision. | `decision.respond`, `run.cancel`, `session.close` |
+| `plan_ready` | A validated Final Trip Plan is available. | `session.close` |
+| `cancelled` | The active run was cancelled. | `session.start`, `session.close` |
+| `expired` | Session memory is unavailable after backend restart. | Start a new session |
+
+The MVP does not use an `optimization` stage as an automatic ranking phase. The lifecycle key may be retained temporarily for client compatibility, but it must not imply that an optimizer ran.
+
+## 13. Failure behavior
+
+| Failure | MVP behavior |
+|---|---|
+| Profile has blocking unknowns | Remain in `profile_review`; do not start Agent 2. |
+| Destination is unknown | Agent 2 may call `ask_user_decision` to clarify or choose a known destination. |
+| Attraction is unknown or out of city scope | Reject the item and ask Agent 2 to repair or mark it unresolved. |
+| Hard constraint conflicts with the current plan | Ask the traveler to choose an explicit resolution or surface the conflict; never relax silently. |
+| Agent 2 produces unsupported facts | Reject the affected candidate or mark the detail unresolved. |
+| Agent 2 requests too many decisions | Stop safely and surface unresolved details. |
+| Decision response is stale | Reject it without resuming Agent 2. |
+| Decision response is duplicated | Return the original result without applying it twice. |
+| Dataset revision changes | Invalidate the working candidate and restart the affected planning phase. |
+| Evaluation service is unavailable | Continue with an explicit unknown or warning when safe; do not fabricate a result. |
+| Agent 3 changes protected fields | Reject and request one bounded repair. |
+| Agent 3 remains invalid | Emit planning failure; do not publish a final Plan. |
+| Backend restarts | Emit `session.expired`; do not fabricate recovery state. |
+
+## 14. Public lifecycle compatibility
+
+The frontend may continue to display the existing logical lifecycle keys:
 
 ```text
 discovery
@@ -548,70 +975,64 @@ narrative_explanation
 continuous_replanning
 ```
 
-These keys are logical workflow stages. Tool-backed stages may emit lifecycle events even when no LLM is running. `continuous_replanning` remains reserved for the future phase and is not emitted during initial planning.
+These keys are presentation and workflow compatibility labels. They are not promises that ten agents or an optimizer exist.
 
-Lifecycle summaries must be safe user-facing text. They must not expose chain-of-thought, hidden prompts, raw provider responses, internal rankings, or unreviewed personal data.
+For the MVP:
 
-## Decision checkpoint transport
+- `experience_designer` represents Agent 2;
+- `narrative_explanation` represents Agent 3;
+- `optimization` must not claim automatic ranking occurred;
+- `continuous_replanning` remains deferred; and
+- decision requests are represented through `decision.request`, regardless of whether the request originated from Agent 2’s tool call or a future deterministic service.
 
-The WebSocket workflow adds a `decision_required` state between `planning` and `plan_ready`.
+Lifecycle summaries must be safe traveler-facing text. They must not expose prompts, tool payloads, database details, hidden reasoning, internal scores, or raw provider responses.
 
-The server emits a typed `decision.request` containing:
+## 15. Artifacts and authority
 
-- stable `decision_id`;
-- current `profile_revision`;
-- plain-language prompt;
-- one or more `option_id` values;
-- labels and tradeoff summaries;
-- reason such as `material_tradeoff` or `no_admissible_candidate`.
+| Artifact | Producer | Authority |
+|---|---|---|
+| `ProfileDraft` | Agent 1 | Proposed traveler understanding; not yet confirmed |
+| `ValidatedTravelerProfile` | Policy Tools + Controller | Canonical planning input after confirmation |
+| `CandidateBundle` | Agent 2 | Current itinerary proposal; not yet public |
+| `DecisionRequest` | Agent 2 control-flow tool + Controller | Typed traveler choice required to continue |
+| `DecisionResponse` | Traveler through WebSocket | Explicit input used to revise Agent 2’s candidate |
+| `FinalTripPlanDraft` | Agent 3 | User-facing plan-shaped output before validation |
+| `FinalTripPlan` | Controller | Canonical published plan snapshot |
 
-The client responds with `decision.respond` containing:
+Only the Controller commits artifacts to workflow state. No agent may publish a Profile or Plan snapshot directly.
 
-- `decision_id`;
-- selected `option_id`;
-- normal command ID for idempotency.
+## 16. What is deliberately deferred
 
-Responses are rejected when the decision ID, option ID, or Profile revision is stale. Clients cannot submit arbitrary JSON patches to the Profile or Plan.
+The following are not part of this MVP architecture:
 
-## Ownership model
+- automatic generation of multiple competing plans;
+- objective scoring and plan ranking;
+- optimizer weight tuning;
+- automatic selection of a winner without traveler input;
+- continuous replanning;
+- bookings and reservations;
+- payments;
+- authenticated accounts;
+- durable event replay;
+- durable session persistence;
+- worldwide destination coverage; and
+- provider-specific production integrations.
 
-Team ownership follows capabilities rather than the old ten-agent table:
+The future optimizer may be inserted between Agent 2 and Agent 3, but it must consume the same validated CandidateBundle boundary and must not change the responsibilities of Agent 3.
 
-| Capability area | Primary responsibility |
-|---|---|
-| Workflow orchestration, policy, objective function, contracts, and integration | System architecture/orchestration owner |
-| Discovery, Candidate Design, Narrative reasoning, prompts, and evaluation | AI/ML and agent-intelligence owner |
-| Mobility, Cost, Simulation runtime, APIs, retries, and external adapters | Backend/infrastructure owner, with architecture support |
-| City and Attraction KB, retrieval data, provenance, and freshness | Knowledge-base/data owner |
-| Profile, plan, decision checkpoint, and lifecycle UI | Frontend owner |
-| Contract scenarios, edge cases, provider research, and acceptance testing | Research/QA owner |
+## 17. MVP definition of done
 
-Individual names remain governed by the team ownership document; this architecture defines the capability boundaries those owners implement.
+The architecture is correctly implemented when:
 
-## Acceptance criteria
-
-- A Profile with an inferred preference retains its source and confidence.
-- An inferred preference cannot become a hard constraint without explicit acceptance.
-- Contradictions and blocking unknowns prevent silent planning completion.
-- Mobility, cost, and simulation produce structured, reproducible evaluations.
-- Infeasible candidates never win optimization.
-- Material close tradeoffs produce `decision_required` and typed options.
-- Agent 2 emits only known `city_id` and `attraction_id` references.
-- Attraction retrieval cannot escape its selected-city scope or read/write outside the allowlisted view.
-- Soft attraction conflicts remain available to Agent 2; verified hard constraints remain enforced through final validation.
-- Candidate bundles do not mix city and attraction dataset revisions.
-- Meal slots contain no fabricated restaurant facts when no restaurant dataset is available.
-- A stale or duplicate decision response cannot mutate the workflow twice.
-- Narrative output is grounded in selected decisions and passes Final Trip Plan invariants.
-- Ten logical lifecycle keys remain compatible without implying ten deployments.
-- No initial-planning flow invokes continuous replanning.
-
-## Deferred decisions and scope
-
-The following remain outside this architecture decision:
-
-- continuous replanning behavior and change-impact contracts;
-- persistence, authentication, deployment, and durable event history;
-- provider-specific adapters and rate-limit policy;
-- final objective-weight tuning and evaluation datasets;
-- booking, payments, accounts, and worldwide destination coverage.
+- Agent 1 produces a complete, provenance-aware Profile;
+- the traveler explicitly confirms the Profile revision;
+- Agent 2 produces one grounded CandidateBundle;
+- Agent 2 can pause through `ask_user_decision` without directly communicating with the frontend;
+- the backend emits `decision.request` and resumes Agent 2 after `decision.respond`;
+- accepted traveler decisions are reflected in the revised CandidateBundle;
+- no optimizer or automatic ranking is required to complete the flow;
+- Agent 3 receives only the final traveler-guided candidate and approved evidence;
+- Agent 3 cannot alter protected itinerary structure;
+- unsupported facts remain warnings or unresolved details;
+- only the Controller publishes the final Plan snapshot; and
+- the final Plan remains compliant with the Profile and Final Trip Plan contracts.
