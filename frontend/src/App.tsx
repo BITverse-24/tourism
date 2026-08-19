@@ -25,7 +25,6 @@ function AppShell(){
   const returnFocusRef = useRef<HTMLElement>(null) as React.RefObject<HTMLElement>
   const showRail = isConsultation
 
-  // Mock adapters for new polished screens
   const mockQuestion = mockQuestions[0] ?? null
   const mockProfile = {
     revision: 7,
@@ -75,15 +74,10 @@ function AppShell(){
     <>
       {!isArrival && !isConsultation && <Header/>}
       {isConsultation && (
-        <header style={{position:'fixed', top:0, left:0, right:0, height:72, display:'flex', alignItems:'center', padding:'0 32px', zIndex:10}}>
-          <span className="serif" style={{color:'var(--voyager-light-ink)', letterSpacing:'0.14em', fontWeight:500}}>VOYAGER</span>
-          <span style={{marginLeft:12, fontSize:11, letterSpacing:'0.16em', textTransform:'uppercase', color:'rgba(242,235,221,0.6)'}}>Consultation</span>
+        <header style={{position:'fixed', top:0, left:0, right:0, height:64, display:'flex', alignItems:'center', padding:'0 5vw', zIndex:10, background:'transparent', borderBottom:'1px solid rgba(242,235,221,0.06)'}}>
+          <span className="serif" style={{color:'rgba(242,235,221,0.92)', letterSpacing:'0.12em', fontWeight:400, fontSize:13}}>VOYAGER</span>
+          <span style={{marginLeft:10, fontSize:10, letterSpacing:'0.14em', textTransform:'uppercase', color:'rgba(242,235,221,0.42)', fontWeight:400}}>Consultation</span>
         </header>
-      )}
-      {isArrival && (
-        <div style={{position:'fixed', top:16, right:16, zIndex:20, display:'flex', gap:8, flexWrap:'wrap'}}>
-          <a href="/discovery" style={{fontSize:11, color:'rgba(255,255,255,0.8)', background:'rgba(0,0,0,0.22)', padding:'6px 10px', borderRadius:999, textDecoration:'none'}}>Jump to screens →</a>
-        </div>
       )}
       <Routes>
         <Route path="/" element={<Arrival/>} />
@@ -98,11 +92,11 @@ function AppShell(){
       </Routes>
       {showRail && <LifecycleRail expanded={true}/>}
       {!isArrival && !isConsultation && (
-        <footer style={{borderTop:'1px solid var(--voyager-bone-2)', padding:'24px 32px', display:'flex', justifyContent:'space-between', fontSize:11, color:'var(--voyager-ink-3)', letterSpacing:'0.08em', textTransform:'uppercase'}}>
-          <span>Voyager — Quiet Luxury, Liquid Intelligence</span>
-          <span style={{display:'flex', gap:12}}>
-            <a href="/tradeoff" style={{color:'inherit'}}>Tradeoff Brief</a>
-            <a href="/replanning" style={{color:'inherit'}}>Replanning</a>
+        <footer style={{borderTop:'1px solid rgba(225,214,197,0.38)', padding:'20px 5vw', display:'flex', justifyContent:'space-between', alignItems:'center', gap:16, flexWrap:'wrap', fontSize:10, color:'rgba(125,135,138,0.72)', letterSpacing:'0.07em', textTransform:'uppercase', background:'transparent'}}>
+          <span style={{fontWeight:400, letterSpacing:'0.06em'}}>Voyager — Quiet Luxury, Liquid Intelligence</span>
+          <span style={{display:'flex', gap:16}}>
+            <a href="/tradeoff" style={{color:'inherit', textDecoration:'none', opacity:0.9}}>Tradeoff Brief</a>
+            <a href="/replanning" style={{color:'inherit', textDecoration:'none', opacity:0.9}}>Replanning</a>
           </span>
         </footer>
       )}

@@ -15,13 +15,13 @@ export default function Header(){
   const loc = useLocation()
   const label = labels[loc.pathname] ?? 'Voyager'
   return (
-    <header style={{height:72, position:'sticky', top:0, zIndex:40, display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0 32px', background:'rgba(247,242,233,0.82)', backdropFilter:'blur(10px)', borderBottom:'1px solid var(--voyager-bone-2)'}}>
+    <header style={{height:64, position:'sticky', top:0, zIndex:40, display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0 5vw', background:'rgba(247,242,233,0.66)', backdropFilter:'blur(8px)', WebkitBackdropFilter:'blur(8px)', borderBottom:'1px solid rgba(225,214,197,0.42)', boxSizing:'border-box'}}>
       <Link to="/" style={{textDecoration:'none', display:'flex', alignItems:'center', gap:10}}>
-        <span className="serif" style={{fontSize:22, letterSpacing:0.14+'em', fontWeight:500, color:'var(--voyager-ink-1)'}}>VOYAGER</span>
-        <span style={{width:1,height:18, background:'var(--voyager-bone-2)'}}/>
-        <span style={{fontSize:11, letterSpacing:'0.16em', textTransform:'uppercase', color:'var(--voyager-ink-3)', fontWeight:500}}>{label}</span>
+        <span className="serif" style={{fontSize:17, letterSpacing:'0.12em', fontWeight:400, color:'var(--voyager-ink-1)'}}>VOYAGER</span>
+        <span style={{width:1,height:16, background:'rgba(225,214,197,0.7)'}}/>
+        <span style={{fontSize:10, letterSpacing:'0.14em', textTransform:'uppercase', color:'rgba(125,135,138,0.78)', fontWeight:400}}>{label}</span>
       </Link>
-      <nav style={{display:'flex', gap:6}}>
+      <nav style={{display:'flex', gap:4, alignItems:'center'}}>
         {[
           ['/','Arrival'],
           ['/discovery','Discovery'],
@@ -31,7 +31,7 @@ export default function Header(){
           ['/trip-overview','Overview'],
           ['/day-canvas','Days'],
         ].map(([p,l])=>(
-          <Link key={p} to={p} style={{fontSize:11, letterSpacing:'0.1em', textTransform:'uppercase', textDecoration:'none', padding:'6px 8px', borderRadius:6, background: loc.pathname===p ? 'var(--voyager-bone-1)' : 'transparent', color: loc.pathname===p ? 'var(--voyager-ink-1)' : 'var(--voyager-ink-3)'}}>{l}</Link>
+          <Link key={p} to={p} style={{fontSize:10, letterSpacing:'0.09em', textTransform:'uppercase', textDecoration:'none', padding:'5px 8px', borderRadius:6, background: loc.pathname===p ? 'rgba(238,230,216,0.85)' : 'transparent', color: loc.pathname===p ? 'var(--voyager-ink-1)' : 'rgba(86,99,106,0.72)', fontWeight: loc.pathname===p ? 500 : 400, border: loc.pathname===p ? '1px solid rgba(225,214,197,0.5)' : '1px solid transparent'}}>{l}</Link>
         ))}
       </nav>
     </header>

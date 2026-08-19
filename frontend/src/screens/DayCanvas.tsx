@@ -46,9 +46,7 @@ export interface PlanSnapshot {
 
 export interface DayCanvasProps {
   plan: PlanSnapshot;
-  /** whether workflow.completed has been observed (required with state:final to remove draft badge) */
   workflowCompleted?: boolean;
-  /** called when a card is activated for detail */
   onSelectItem?: (dayIndex: number, itemIndex: number, item: ItineraryItem) => void;
 }
 
@@ -61,9 +59,11 @@ function formatTimeLabel(item: ItineraryItem): string {
   if (e) return `Until ${e}`;
   return "Flexible";
 }
-
 function hasTime(item: ItineraryItem): boolean {
   return Boolean(item.start_time || item.end_time);
+}
+function padDay(n: number): string {
+  return String(n).padStart(2, "0");
 }
 
 // ---------- Component ----------
@@ -73,27 +73,21 @@ export default function DayCanvas({ plan, workflowCompleted = false, onSelectIte
   const dayRefs = useRef<Record<number, HTMLElement | null>>({});
   const isDraft = displayPlan.state === "draft" || (displayPlan.state === "final" && !workflowCompleted);
 
-  // Snapshot replacement guard: only when revision is newer
   const prevRevisionRef = useRef<number>(plan.revision);
   const prevPlanRef = useRef<PlanSnapshot>(plan);
   useEffect(() => {
     if (plan.revision > prevRevisionRef.current) {
-      // preserve scroll anchor by day number + item title when draft newer
       const prevAnchorDay = activeDay;
       const prevAnchorTitle = prevPlanRef.current.days.find((d) => d.day === prevAnchorDay)?.items[0]?.title;
       setDisplayPlan(plan);
       prevRevisionRef.current = plan.revision;
       prevPlanRef.current = plan;
-      // attempt to preserve anchor
       requestAnimationFrame(() => {
         const targetDay = plan.days.find((d) => d.day === prevAnchorDay) ? prevAnchorDay : plan.days[0]?.day;
         const targetEl = targetDay != null ? dayRefs.current[targetDay] : null;
         if (targetEl) {
-          // try item title anchor
           if (prevAnchorTitle) {
-            const itemEl = plan.days
-              .find((d) => d.day === targetDay)
-              ?.items.find((it) => it.title === prevAnchorTitle);
+            const itemEl = plan.days.find((d) => d.day === targetDay)?.items.find((it) => it.title === prevAnchorTitle);
             if (itemEl) {
               targetEl.scrollIntoView({ behavior: "smooth", block: "start" });
               return;
@@ -103,13 +97,11 @@ export default function DayCanvas({ plan, workflowCompleted = false, onSelectIte
         }
       });
     } else if (plan.revision === prevRevisionRef.current) {
-      // same revision: allow finalization transition
       setDisplayPlan(plan);
       prevPlanRef.current = plan;
     }
   }, [plan, activeDay]);
 
-  // Intersection observer for active day highlight (calm settle via css transition)
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
@@ -135,37 +127,24 @@ export default function DayCanvas({ plan, workflowCompleted = false, onSelectIte
   return (
     <>
       <style>{`
-        :root {
-          --voyager-bone-0: #F7F2E9;
-          --voyager-bone-1: #EEE6D8;
-          --voyager-bone-2: #E1D6C5;
-          --voyager-bone-3: #C9BBA5;
-          --voyager-ink-0: #1B252C;
-          --voyager-ink-1: #263239;
-          --voyager-ink-2: #56636A;
-          --voyager-ink-3: #7D878A;
-          --voyager-brass-1: #B38A55;
-          --voyager-brass-2: #D8C19A;
-          --voyager-shadow-card: 0 1px 2px rgba(38,41,37,.08), 0 12px 28px rgba(38,41,37,.08);
-          --voyager-shadow-float: 0 2px 5px rgba(38,41,37,.10), 0 20px 44px rgba(38,41,37,.12);
-          --voyager-radius-md: 12px;
-        }
         .day-canvas {
-          max-width: 1240px;
+          width: 92vw;
+          max-width: 1400px;
           margin: 0 auto;
           padding: 48px 0 96px 0;
           display: grid;
-          grid-template-columns: 260px 1fr;
+          grid-template-columns: 220px 1fr;
           gap: 64px;
           background: var(--voyager-bone-0);
           color: var(--voyager-ink-1);
         }
+        /* sticky vertical timeline */
         .day-canvas__index {
           position: sticky;
           top: 104px;
           align-self: start;
-          border-right: 1px solid var(--voyager-bone-2);
           padding-right: 24px;
+          border-right: 1px solid var(--voyager-bone-2);
         }
         .day-canvas__index ul {
           list-style: none;
@@ -173,243 +152,300 @@ export default function DayCanvas({ plan, workflowCompleted = false, onSelectIte
           padding: 0;
           display: flex;
           flex-direction: column;
-          gap: 16px;
+          gap: 10px;
         }
         .day-canvas__index a {
           font-family: General Sans, Inter, ui-sans-serif, sans-serif;
-          font-size: 13px;
-          line-height: 18px;
-          font-weight: 500;
-          letter-spacing: .12em;
+          font-size: 11px;
+          line-height: 16px;
+          font-weight: 600;
+          letter-spacing: .14em;
           text-transform: uppercase;
           color: var(--voyager-ink-3);
           text-decoration: none;
           display: block;
-          padding: 8px 0;
-          transition: color 300ms ease, font-weight 300ms ease;
+          padding: 6px 0;
+          transition: color 260ms ease;
         }
         .day-canvas__index a[aria-current="true"] {
-          color: var(--voyager-brass-1);
-          font-weight: 700;
+          color: var(--voyager-ink-1);
         }
-        .day-canvas__feed {
-          min-width: 0;
-        }
+        .day-canvas__index a:hover { color: var(--voyager-ink-2); }
+        .day-canvas__feed { min-width: 0; }
+
+        /* day header */
         .day-article {
           scroll-margin-top: 104px;
           margin-bottom: 96px;
+          padding-bottom: 8px;
         }
         .day-article:last-child { margin-bottom: 0; }
-        .day-header {
-          font-family: Fraunces, Georgia, serif;
-          font-size: 22px;
-          line-height: 30px;
-          font-weight: 500;
-          color: var(--voyager-ink-1);
-          margin: 0 0 12px 0;
+        .day-label {
+          font-family: General Sans, Inter, sans-serif;
+          font-size: 11px;
+          line-height: 16px;
+          font-weight: 600;
+          letter-spacing: .18em;
+          text-transform: uppercase;
+          color: var(--voyager-ink-3);
+          margin: 0 0 10px 0;
         }
-        .day-theme {
+        .day-subtitle {
+          font-family: Fraunces, Georgia, serif;
+          font-size: 28px;
+          line-height: 34px;
+          font-weight: 400;
+          font-style: italic;
+          color: var(--voyager-ink-1);
+          margin: 0 0 20px 0;
+        }
+        .day-intention {
           font-family: Fraunces, Georgia, serif;
           font-style: italic;
-          font-size: 16px;
-          line-height: 25px;
+          font-size: 17px;
+          line-height: 26px;
           color: var(--voyager-ink-2);
-          max-width: 56ch;
-          margin: 0 0 12px 0;
-        }
-        .day-notes {
-          font-family: General Sans, Inter, sans-serif;
-          font-size: 16px;
-          line-height: 25px;
-          color: var(--voyager-ink-3);
-          margin: 0 0 32px 0;
           max-width: 60ch;
+          margin: 0 0 36px 0;
+          padding-left: 16px;
+          border-left: 2px solid var(--voyager-bone-2);
         }
-        .item-row {
+        .day-rule {
+          height: 1px;
+          background: var(--voyager-bone-2);
+          border: none;
+          margin: 0 0 8px 0;
+        }
+        .day-rule--top {
+          margin: 0 0 32px 0;
+        }
+
+        /* editorial activity blocks */
+        .activity-row {
           display: grid;
           grid-template-columns: 96px 1fr;
-          gap: 16px;
-          margin-bottom: 24px;
+          gap: 20px;
+          padding: 32px 0 28px 0;
+          border-top: 1px solid var(--voyager-bone-2);
         }
-        .item-row:last-child { margin-bottom: 0; }
-        .item-time {
-          font-family: General Sans, Inter, sans-serif;
-          font-size: 13px;
-          line-height: 18px;
-          font-weight: 500;
-          letter-spacing: .04em;
-          color: var(--voyager-ink-3);
-          padding-top: 18px;
-          text-align: left;
+        .activity-row:first-of-type {
+          border-top: 1px solid var(--voyager-bone-2);
         }
-        .item-time time { color: inherit; }
-        .card {
-          position: relative;
-          background: var(--voyager-bone-1);
-          border: 1px solid var(--voyager-bone-2);
-          border-radius: var(--voyager-radius-md);
-          box-shadow: var(--voyager-shadow-card);
-          padding: 24px;
-          overflow: visible;
-        }
-        .card--draft {
-          border: 1px dashed var(--voyager-brass-1);
-        }
-        .card__badge {
-          position: absolute;
-          top: -10px;
-          right: -8px;
-          background: var(--voyager-bone-1);
-          border: 1px solid var(--voyager-brass-1);
-          border-radius: 999px;
-          padding: 4px 10px;
+        .activity-time {
           font-family: General Sans, Inter, sans-serif;
           font-size: 12px;
-          line-height: 17px;
+          line-height: 18px;
           font-weight: 500;
-          color: var(--voyager-ink-2);
-          white-space: nowrap;
+          letter-spacing: .06em;
+          color: var(--voyager-ink-3);
+          padding-top: 4px;
+          text-transform: uppercase;
         }
-        .card__title {
+        .activity-time time { color: inherit; font-variant-numeric: tabular-nums; }
+        .activity-main { min-width: 0; }
+        .activity-title {
           font-family: Fraunces, Georgia, serif;
-          font-size: 18px;
+          font-size: 19px;
           line-height: 26px;
           font-weight: 500;
           color: var(--voyager-ink-1);
-          margin: 0 0 6px 0;
-        }
-        .card__meta {
-          font-family: General Sans, Inter, sans-serif;
-          font-size: 13px;
-          line-height: 18px;
-          color: var(--voyager-ink-3);
           margin: 0 0 8px 0;
-          text-transform: uppercase;
-          letter-spacing: .08em;
         }
-        .card__meta span + span::before { content: " · "; }
-        .card__desc {
+        .activity-desc {
           font-family: General Sans, Inter, sans-serif;
-          font-size: 16px;
-          line-height: 25px;
+          font-size: 15px;
+          line-height: 24px;
           color: var(--voyager-ink-1);
-          margin: 0 0 8px 0;
+          margin: 0 0 12px 0;
+          max-width: 60ch;
         }
-        .card__reason {
+        .activity-meta {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          margin: 0 0 14px 0;
+        }
+        .activity-tag {
           font-family: General Sans, Inter, sans-serif;
-          font-size: 14px;
-          line-height: 20px;
-          color: var(--voyager-ink-2);
+          font-size: 10px;
+          line-height: 14px;
+          font-weight: 600;
+          letter-spacing: .14em;
+          text-transform: uppercase;
+          color: var(--voyager-ink-3);
+          background: var(--voyager-bone-1);
+          border: 1px solid var(--voyager-bone-2);
+          border-radius: 999px;
+          padding: 4px 8px;
+        }
+        .activity-reason {
+          margin: 0 0 10px 0;
+          padding: 12px 16px;
+          background: transparent;
+          border-left: 2px solid var(--voyager-brass-2);
+          max-width: 60ch;
+        }
+        .activity-reason__label {
+          font-family: General Sans, Inter, sans-serif;
+          font-size: 10px;
+          line-height: 14px;
+          font-weight: 600;
+          letter-spacing: .14em;
+          text-transform: uppercase;
+          color: var(--voyager-ink-3);
           margin: 0 0 6px 0;
         }
-        .card__cost {
+        .activity-reason__text {
+          font-family: Fraunces, Georgia, serif;
+          font-style: italic;
+          font-size: 14px;
+          line-height: 22px;
+          color: var(--voyager-ink-2);
+          margin: 0;
+        }
+        .activity-cost {
           font-family: IBM Plex Mono, ui-monospace, monospace;
+          font-size: 12px;
+          line-height: 16px;
+          color: var(--voyager-ink-3);
+          margin: 0;
+        }
+        .activity-clickable {
+          cursor: pointer;
+          border-radius: 6px;
+          transition: background 160ms ease;
+        }
+        .activity-clickable:hover { background: rgba(238,230,216,.45); }
+        .activity-clickable:focus-visible {
+          outline: none;
+          box-shadow: 0 0 0 3px rgba(216,193,154,.42);
+        }
+
+        /* rest block editorial - lighter */
+        .rest-row .activity-title { color: var(--voyager-ink-2); font-style: italic; }
+        .rest-row .activity-desc { color: var(--voyager-ink-2); }
+
+        /* transport connector delicate */
+        .transport-connector {
+          display: grid;
+          grid-template-columns: 96px 1fr;
+          gap: 20px;
+          padding: 14px 0 14px 0;
+        }
+        .transport-connector__line {
+          position: relative;
+          display: flex;
+          justify-content: center;
+          padding-top: 2px;
+        }
+        .transport-connector__line::before {
+          content: "";
+          position: absolute;
+          top: -14px;
+          bottom: -14px;
+          left: 50%;
+          width: 1px;
+          background: var(--voyager-bone-2);
+        }
+        .transport-connector__dot {
+          width: 7px;
+          height: 7px;
+          border-radius: 999px;
+          background: var(--voyager-bone-0);
+          border: 1px solid var(--voyager-ink-3);
+          position: relative;
+          z-index: 1;
+        }
+        .transport-connector__text {
+          font-family: General Sans, Inter, sans-serif;
           font-size: 12px;
           line-height: 18px;
           color: var(--voyager-ink-3);
-          margin: 0;
+          letter-spacing: .04em;
         }
-        .card__image {
-          width: 100%;
-          aspect-ratio: 4 / 3;
-          object-fit: cover;
-          border-radius: 8px;
-          display: block;
-          margin-bottom: 12px;
-          background: var(--voyager-bone-2);
+
+        /* day note at end */
+        .day-note {
+          margin-top: 32px;
+          padding: 20px 0 0 0;
+          border-top: 1px solid var(--voyager-bone-2);
+          max-width: 68ch;
         }
-        .card__image--meal { aspect-ratio: 4 / 5; }
-        .card__image--skeleton {
-          background: var(--voyager-bone-2);
-        }
-        .card--clickable { cursor: pointer; }
-        .card--clickable:focus-visible {
-          outline: none;
-          box-shadow: var(--voyager-shadow-card), 0 0 0 3px rgba(216,193,154,.72);
-        }
-        .movement-connector {
-          margin-left: 0;
-          padding: 12px 16px 12px 20px;
-          border-left: 2px solid var(--voyager-bone-2);
-          margin-top: 12px;
-          display: flex;
-          gap: 8px;
-          align-items: center;
+        .day-note__label {
+          font-family: General Sans, Inter, sans-serif;
+          font-size: 10px;
+          line-height: 14px;
+          font-weight: 600;
+          letter-spacing: .16em;
+          text-transform: uppercase;
           color: var(--voyager-ink-3);
-          font-family: General Sans, Inter, sans-serif;
-          font-size: 13px;
-          line-height: 18px;
+          margin: 0 0 8px 0;
         }
-        .movement-connector svg { flex-shrink: 0; }
-        .rest-block {
-          background: var(--voyager-bone-1);
-          border: 1px solid var(--voyager-bone-2);
-          border-radius: var(--voyager-radius-md);
-          padding: 32px 24px;
-          min-height: 96px;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          text-align: center;
-          gap: 6px;
-        }
-        .rest-block__title {
+        .day-note__text {
           font-family: General Sans, Inter, sans-serif;
-          font-size: 16px;
-          line-height: 25px;
+          font-size: 14px;
+          line-height: 22px;
           color: var(--voyager-ink-2);
           margin: 0;
         }
-        .rest-block__desc {
+
+        /* draft subtle */
+        .draft-indicator {
           font-family: General Sans, Inter, sans-serif;
-          font-size: 14px;
-          line-height: 20px;
-          color: var(--voyager-ink-3);
-          margin: 0;
+          font-size: 11px;
+          letter-spacing: .12em;
+          text-transform: uppercase;
+          color: var(--voyager-brass-1);
+          border: 1px dashed var(--voyager-brass-1);
+          border-radius: 999px;
+          padding: 4px 10px;
+          display: inline-flex;
+          margin-bottom: 16px;
         }
-        /* floating pill */
+
+        /* summary pills */
         .summary-pill {
           position: fixed;
           left: 50%;
           bottom: 24px;
           transform: translateX(-50%);
-          height: 56px;
-          padding: 16px 24px;
-          background: rgba(238,230,216,.88);
+          height: 44px;
+          padding: 0 20px;
+          background: rgba(238,230,216,.92);
           backdrop-filter: blur(8px);
           border: 1px solid var(--voyager-bone-2);
           border-radius: 999px;
-          box-shadow: var(--voyager-shadow-float);
+          box-shadow: 0 2px 12px rgba(38,41,37,.08);
           display: flex;
           align-items: center;
-          gap: 24px;
+          gap: 16px;
           z-index: 10;
           white-space: nowrap;
         }
         .summary-pill__item {
           font-family: General Sans, Inter, sans-serif;
-          font-size: 13px;
-          line-height: 18px;
+          font-size: 12px;
+          line-height: 16px;
           color: var(--voyager-ink-2);
         }
-        .summary-pill__sep { width: 1px; height: 20px; background: var(--voyager-bone-2); }
+        .summary-pill__sep { width: 1px; height: 16px; background: var(--voyager-bone-2); }
         .summary-static {
           display: none;
-          background: var(--voyager-bone-1);
           border: 1px solid var(--voyager-bone-2);
-          border-radius: var(--voyager-radius-md);
-          padding: 16px 24px;
-          margin-bottom: 32px;
+          border-radius: 12px;
+          padding: 14px 16px;
+          margin-bottom: 28px;
           flex-wrap: wrap;
-          gap: 16px 24px;
+          gap: 12px 20px;
+          background: var(--voyager-bone-1);
         }
+
         @media (max-width: 1024px) {
           .day-canvas {
             grid-template-columns: 1fr;
             gap: 32px;
-            padding-left: 16px;
-            padding-right: 16px;
+            padding-left: 0;
+            padding-right: 0;
           }
           .day-canvas__index {
             position: static;
@@ -425,21 +461,23 @@ export default function DayCanvas({ plan, workflowCompleted = false, onSelectIte
           }
         }
         @media (max-width: 768px) {
-          .item-row { grid-template-columns: 72px 1fr; }
+          .activity-row {
+            grid-template-columns: 72px 1fr;
+            gap: 14px;
+            padding: 24px 0 20px 0;
+          }
+          .transport-connector { grid-template-columns: 72px 1fr; gap: 14px; }
           .summary-pill { display: none; }
           .summary-static { display: flex; }
-        }
-        @media (max-width: 320px) {
-          .card { padding: 16px; }
+          .day-subtitle { font-size: 22px; line-height: 28px; }
         }
       `}</style>
 
       <main className="day-canvas">
-        {/* Index - semantic navigation list of anchors */}
         <nav className="day-canvas__index" aria-label="Days">
           <ul>
             {sortedDays.map((d) => {
-              const label = d.theme ? `Day ${d.day} · ${d.place}` : `Day ${d.day} · ${d.place}`;
+              const label = `Day ${padDay(d.day)} — ${d.place.toUpperCase()}`;
               return (
                 <li key={d.day}>
                   <a
@@ -459,13 +497,11 @@ export default function DayCanvas({ plan, workflowCompleted = false, onSelectIte
           </ul>
         </nav>
 
-        {/* Timeline feed */}
         <div className="day-canvas__feed" role="feed" aria-label="Day by day itinerary">
-          {/* static summary below 768 */}
           <section className="summary-static" aria-label="Trip summary">
             <span className="summary-pill__item">{displayPlan.traveler_profile_reference ?? "Profile"}</span>
             <span className="summary-pill__item">
-              {(displayPlan.city_allocations ?? []).map((c) => `${c.place} ${c.days ?? ""}`).join(" · ") || displayPlan.days.map((d) => d.place).join(" → ")}
+              {(displayPlan.city_allocations ?? []).map((c) => `${c.place}`).join(" → ") || displayPlan.days.map((d) => d.place).join(" → ")}
             </span>
             <span className="summary-pill__item">{displayPlan.cost_summary?.budget_position ?? ""}</span>
           </section>
@@ -480,142 +516,151 @@ export default function DayCanvas({ plan, workflowCompleted = false, onSelectIte
               className="day-article"
               aria-labelledby={`day-heading-${day.day}`}
             >
-              <h2 id={`day-heading-${day.day}`} className="day-header">
-                Day {day.day} · {day.place}
+              <p className="day-label" id={`day-heading-${day.day}`}>
+                Day {padDay(day.day)} — {day.place.toUpperCase()}
                 {day.date ? ` · ${day.date}` : ""}
-              </h2>
-              {day.theme ? <p className="day-theme">{day.theme}</p> : null}
-              {day.daily_notes ? <p className="day-notes">{day.daily_notes}</p> : null}
+              </p>
+              {day.theme ? <h2 className="day-subtitle">{day.theme}</h2> : null}
+              {isDraft ? <span className="draft-indicator">Draft — not yet confirmed</span> : null}
+              {day.daily_notes ? <p className="day-intention">{day.daily_notes}</p> : null}
+              <hr className="day-rule day-rule--top" />
 
               {day.items.map((item, idx) => {
                 const isRest = item.type === "rest";
                 const isMovement = item.type === "movement";
-                const isCard = item.type === "experience" || item.type === "meal";
-                // movement is rendered as connector after previous item; if standalone movement item, render connector alone
+
                 if (isMovement) {
+                  const text =
+                    [item.movement?.duration, item.movement?.mode].filter(Boolean).join(" · ") ||
+                    item.title ||
+                    "Transfer";
+                  const cost = item.movement?.estimated_cost ? ` · ${item.movement.estimated_cost}` : "";
                   return (
-                    <div key={idx} className="item-row">
-                      <div className="item-time" aria-hidden="true" />
-                      <div className="movement-connector" role="note" aria-label="Movement">
-                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                          <path d="M8 2v12M3 7l5-5 5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
-                        <span>
-                          {[item.movement?.mode, item.movement?.duration].filter(Boolean).join(" · ")}
-                          {item.movement?.estimated_cost ? ` · ${item.movement.estimated_cost}` : ""}
-                          {!item.movement?.mode && !item.movement?.duration ? item.title : ""}
-                        </span>
+                    <div key={idx} className="transport-connector" role="note" aria-label="Movement">
+                      <div className="transport-connector__line" aria-hidden="true">
+                        <span className="transport-connector__dot" />
+                      </div>
+                      <div className="transport-connector__text">
+                        {text}
+                        {cost}
                       </div>
                     </div>
                   );
                 }
+
                 if (isRest) {
+                  const clickable = Boolean(onSelectItem);
+                  const Tag = clickable ? "button" : "div";
+                  const tagProps = clickable
+                    ? {
+                        onClick: () => onSelectItem?.(dayIdx, idx, item),
+                        "aria-label": `${item.title}, rest`,
+                        type: "button" as const,
+                        style: { textAlign: "left" as const, width: "100%", font: "inherit", background: "transparent", border: "none", padding: 0 },
+                      }
+                    : {};
                   return (
-                    <article key={idx} className="item-row" aria-label={`Rest: ${item.title}`}>
-                      <div className="item-time">
-                        {hasTime(item) ? (
-                          <time dateTime={item.start_time ?? undefined}>{formatTimeLabel(item)}</time>
-                        ) : (
-                          <span>Flexible</span>
-                        )}
+                    <div key={idx} className={`activity-row rest-row ${clickable ? "activity-clickable" : ""}`} style={clickable ? { cursor: "pointer" } : undefined}>
+                      <div className="activity-time">
+                        {hasTime(item) ? <time dateTime={item.start_time ?? undefined}>{formatTimeLabel(item)}</time> : <span>Flexible</span>}
                       </div>
-                      <div className="rest-block">
-                        <p className="rest-block__title">{item.title}</p>
-                        <p className="rest-block__desc">{item.description}</p>
-                        {item.flexibility ? <span className="card__meta">{item.flexibility}</span> : null}
-                      </div>
-                    </article>
-                  );
-                }
-                // experience / meal card
-                const clickable = Boolean(onSelectItem);
-                const showDraftBadge = isDraft;
-                const CardTag = clickable ? "button" : "div";
-                return (
-                  <article key={idx} className="item-row">
-                    <div className="item-time">
-                      {hasTime(item) ? (
-                        <time dateTime={item.start_time ?? undefined}>{formatTimeLabel(item)}</time>
-                      ) : item.end_time ? (
-                        <span>Until {item.end_time}</span>
-                      ) : (
-                        <span>Flexible</span>
-                      )}
-                    </div>
-                    <div style={{ display: "flex", flexDirection: "column" }}>
-                      {/* card */}
                       {React.createElement(
-                        CardTag as any,
-                        {
-                          className: `card ${showDraftBadge ? "card--draft" : ""} ${clickable ? "card--clickable" : ""}`,
-                          ...(clickable
-                            ? {
-                                onClick: () => onSelectItem?.(dayIdx, idx, item),
-                                "aria-label": `${item.title}, ${item.type}`,
-                                type: "button" as const,
-                                style: {
-                                  textAlign: "left" as const,
-                                  width: "100%",
-                                  font: "inherit",
-                                },
-                              }
-                            : {}),
-                        },
+                        Tag as any,
+                        { className: "activity-main", ...(tagProps as any) },
                         <>
-                          {showDraftBadge ? (
-                            <span className="card__badge">Draft — not yet confirmed</span>
+                          <h3 className="activity-title">{item.title}</h3>
+                          <p className="activity-desc">{item.description}</p>
+                          {item.flexibility ? (
+                            <div className="activity-meta">
+                              <span className="activity-tag">{item.flexibility}</span>
+                            </div>
                           ) : null}
-                          {item.imageUrl ? (
-                            <img
-                              className={`card__image ${item.type === "meal" ? "card__image--meal" : ""}`}
-                              src={item.imageUrl}
-                              alt=""
-                              loading="lazy"
-                              style={{ transition: "opacity 250ms ease" }}
-                              onError={(e) => {
-                                (e.currentTarget as HTMLImageElement).style.display = "none";
-                              }}
-                            />
-                          ) : (
-                            <div
-                              className={`card__image card__image--skeleton ${item.type === "meal" ? "card__image--meal" : ""}`}
-                              aria-hidden="true"
-                            />
-                          )}
-                          <h3 className="card__title">{item.title}</h3>
-                          {(item.location || item.flexibility) && (
-                            <p className="card__meta">
-                              {item.location ? <span>{item.location}</span> : null}
-                              {item.flexibility ? <span>{item.flexibility}</span> : null}
-                            </p>
-                          )}
-                          <p className="card__desc">{item.description}</p>
-                          {item.reason ? <p className="card__reason">{item.reason}</p> : null}
-                          {item.estimated_cost ? <p className="card__cost">{item.estimated_cost}</p> : null}
                         </>
                       )}
-                      {item.movement && (item.movement.mode || item.movement.duration || item.movement.estimated_cost) ? (
-                        <div className="movement-connector" role="note" aria-label={`Movement: ${item.movement.mode ?? ""}`}>
-                          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                            <path d="M2 8h12M8 2v12" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-                            <circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1.2" />
-                          </svg>
-                          <span>
-                            {[item.movement.mode, item.movement.duration].filter(Boolean).join(" · ")}
+                    </div>
+                  );
+                }
+
+                // experience / meal
+                const clickable = Boolean(onSelectItem);
+                const Tag = clickable ? "button" : "div";
+                const tagProps = clickable
+                  ? {
+                      onClick: () => onSelectItem?.(dayIdx, idx, item),
+                      "aria-label": `${item.title}, ${item.type}`,
+                      type: "button" as const,
+                      style: { textAlign: "left" as const, width: "100%", font: "inherit", background: "transparent", border: "none", padding: 0, display: "block" },
+                    }
+                  : {};
+                const tags: string[] = [];
+                if (item.flexibility) tags.push(item.flexibility);
+                if (item.location) tags.push(item.location);
+
+                return (
+                  <div
+                    key={idx}
+                    className={`activity-row ${clickable ? "activity-clickable" : ""}`}
+                    style={clickable ? { cursor: "pointer" } : undefined}
+                  >
+                    <div className="activity-time">
+                      {hasTime(item) ? <time dateTime={item.start_time ?? undefined}>{formatTimeLabel(item)}</time> : <span>Flexible</span>}
+                    </div>
+                    {React.createElement(
+                      Tag as any,
+                      { className: "activity-main", ...(tagProps as any) },
+                      <>
+                        <h3 className="activity-title">{item.title}</h3>
+                        {tags.length > 0 ? (
+                          <div className="activity-meta">
+                            {tags.map((t) => (
+                              <span key={t} className="activity-tag">
+                                {t}
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
+                        <p className="activity-desc">{item.description}</p>
+                        {item.reason ? (
+                          <div className="activity-reason">
+                            <p className="activity-reason__label">Why this fits you</p>
+                            <p className="activity-reason__text">{item.reason}</p>
+                          </div>
+                        ) : null}
+                        {item.estimated_cost ? <p className="activity-cost">{item.estimated_cost}</p> : null}
+                      </>
+                    )}
+                    {item.movement && (item.movement.mode || item.movement.duration || item.movement.estimated_cost) ? (
+                      <div style={{ gridColumn: "2", marginTop: 16 }}>
+                        <div className="transport-connector" style={{ padding: "8px 0 0 0" }} aria-label="Movement connector">
+                          <div className="transport-connector__line" aria-hidden="true" style={{ display: "none" }} />
+                          <span className="transport-connector__text" style={{ fontSize: 11, letterSpacing: ".06em" }}>
+                            {[item.movement.duration, item.movement.mode].filter(Boolean).join(" · ")}
                             {item.movement.estimated_cost ? ` · ${item.movement.estimated_cost}` : ""}
                           </span>
                         </div>
-                      ) : null}
-                    </div>
-                  </article>
+                      </div>
+                    ) : null}
+                  </div>
                 );
               })}
+
+              {/* DAY NOTE at end */}
+              {day.daily_notes ? (
+                <div className="day-note">
+                  <p className="day-note__label">Day note</p>
+                  <p className="day-note__text">{day.daily_notes}</p>
+                </div>
+              ) : (
+                <div className="day-note" style={{ opacity: 0.85 }}>
+                  <p className="day-note__label">Day note</p>
+                  <p className="day-note__text">Keep this day unhurried — allow time between moments.</p>
+                </div>
+              )}
             </article>
           ))}
         </div>
       </main>
 
-      {/* floating pill - fixed above 768 */}
       <div className="summary-pill" role="status" aria-label="Trip summary">
         <span className="summary-pill__item">{displayPlan.traveler_profile_reference ?? "Trip"}</span>
         <span className="summary-pill__sep" aria-hidden="true" />

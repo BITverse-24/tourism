@@ -36,11 +36,9 @@ export default function ProfileReview() {
   const [notice, setNotice] = useState('')
   const navigate = useNavigate()
 
-  // Simulate profile snapshot and readiness / revision gating
   const baseProfile: Profile = useBlocking ? { ...mockProfileBlocking, profile_revision: 7 } : { ...mockProfile, profile_revision: 7 }
   const p: Profile = baseProfile
   const hasBlocking = p.unknowns.some((u) => u.impact === 'blocking')
-  // readiness is derived from snapshot; blocking unknown disables confirm regardless
   const isReady = !hasBlocking
 
   const requestChangesBtnRef = useRef<HTMLButtonElement>(null)
@@ -55,12 +53,10 @@ export default function ProfileReview() {
     }
   }, [editorOpen])
 
-  // Derive available topics from unknowns + material topics (spec: from current profile's unknown/material topics)
   const availableTopics = (() => {
     const set = new Set<string>()
     p.unknowns.forEach((u) => set.add(u.topic))
     p.assumptions.forEach((a) => set.add(a.topic))
-    // also include common travel topics as fallback if profile has few unknowns
     if (set.size < 3) {
       ;['Budget scope', 'Walking tolerance', 'Dates', 'Party size', 'Pace', 'Food preferences'].forEach((t) => set.add(t))
     }
@@ -69,21 +65,17 @@ export default function ProfileReview() {
 
   const doConfirm = () => {
     if (hasBlocking || busy) return
-    // stale / not-ready handling: simulate plain-language notice
     if (!isReady) {
       setNotice('The profile is not ready to confirm — please address the open questions above.')
       return
     }
     setBusy(true)
     setNotice('')
-    // procedure: draft — send latest profile_revision with fresh correlation
     const correlationId = `corr_${Date.now().toString(36)}`
     const revision = p.profile_revision ?? 7
-    // In real WS: { type: 'profile.confirm', payload: { profile_revision: revision }, command_id: correlationId }
     void correlationId
     void revision
     setTimeout(() => {
-      // Simulate server acceptance vs stale revision edge
       const stale = false
       if (stale) {
         setBusy(false)
@@ -100,11 +92,9 @@ export default function ProfileReview() {
     setNotice('')
     const correlationId = `corr_${Date.now().toString(36)}`
     void correlationId
-    // payload: { topics, free_text: note }
     setTimeout(() => {
       setBusy(false)
       setEditorOpen(false)
-      // spec: wait for next discovery.question before leaving this screen — navigate to discovery as draft procedure
       navigate('/discovery')
     }, 500)
   }
@@ -113,11 +103,6 @@ export default function ProfileReview() {
     setTopics((s) => (s.includes(t) ? s.filter((x) => x !== t) : [...s, t]))
   }
 
-  // Helpers to determine if groups are non-empty
-  const hasTripContext = true // always has at least destination_request + party_size
-  const hasPurpose = Boolean(p.purpose_and_priorities.primary_purpose || p.purpose_and_priorities.priorities.length)
-  const hasPreferences = p.preferences.length > 0
-  const hasTravelStyle = Boolean(p.travel_style)
   const hard = p.hard_constraints
   const hasHardConstraints =
     hard.must_visit.length > 0 ||
@@ -130,31 +115,18 @@ export default function ProfileReview() {
     Boolean(hard.budget_ceiling)
   const hasUnknowns = p.unknowns.length > 0
   const hasAssumptions = p.assumptions.length > 0
+  const hasPreferences = p.preferences.length > 0
+  const hasTravelStyle = Boolean(p.travel_style)
 
-  const Row = ({ label, value, hint }: { label: string; value: string; hint?: string }) => {
-    if (!value) return null
-    return (
-      <div className="pr-row">
-        <div className="pr-caption">{label}</div>
-        <div className="pr-value">
-          {value}
-          {hint ? <span className="pr-hint"> · {hint}</span> : null}
-        </div>
-      </div>
-    )
-  }
-
-  // Build destination value
   const destinationValue = p.trip_context.resolved_destination
-    ? `${p.trip_context.destination_request} · resolved: ${p.trip_context.resolved_destination}`
+    ? `${p.trip_context.destination_request} · ${p.trip_context.resolved_destination}`
     : p.trip_context.destination_request
 
-  // Dates or duration
   let datesValue = ''
   if (p.trip_context.start_date || p.trip_context.end_date) {
     const s = p.trip_context.start_date ? formatDate(p.trip_context.start_date) : '—'
     const e = p.trip_context.end_date ? formatDate(p.trip_context.end_date) : '—'
-    if (p.trip_context.start_date && p.trip_context.end_date) datesValue = `${s} → ${e}`
+    if (p.trip_context.start_date && p.trip_context.end_date) datesValue = `${s} — ${e}`
     else if (p.trip_context.start_date) datesValue = s
     else datesValue = e
   } else if (p.trip_context.duration_days) {
@@ -163,201 +135,226 @@ export default function ProfileReview() {
 
   return (
     <main className="profile-review">
-      <h1 className="serif pr-headline">Here&apos;s what we&apos;ve understood.</h1>
+      <div className="pr-eyebrow mono pour" style={{ animationDelay: '0ms' }}>
+        Your dossier &nbsp;·&nbsp; review before we plan
+      </div>
+      <h1 className="serif pr-headline pour" style={{ animationDelay: '40ms' }}>
+        Here&rsquo;s what we&rsquo;ve understood.
+      </h1>
+      <p className="pr-lede pour" style={{ animationDelay: '80ms' }}>
+        A concise summary of your journey, preferences and constraints — as your concierge holds it. Please confirm, or tell us what to adjust.
+      </p>
 
-      <div className="pr-body">
-        {/* Trip context */}
-        {hasTripContext && (
-          <section className="pr-group pour" style={{ animationDelay: '60ms' }} aria-label="Trip context">
-            <Row label="Destination" value={destinationValue} />
-            {datesValue ? <Row label="Dates" value={datesValue} /> : null}
-            {p.trip_context.date_flexibility ? <Row label="Flexibility" value={p.trip_context.date_flexibility} /> : null}
-            <Row
-              label="Party"
-              value={`${p.trip_context.party_size} ${p.trip_context.party_size === 1 ? 'traveler' : 'travelers'}`}
-              hint={p.trip_context.party_notes}
-            />
-            {p.trip_context.budget ? <Row label="Budget" value={formatBudget(p.trip_context.budget)} /> : null}
-          </section>
-        )}
+      <div className="pr-dossier">
+        {/* 01 JOURNEY */}
+        <section className="pr-section pour" style={{ animationDelay: '120ms' }} aria-label="Journey">
+          <div className="pr-section-head">
+            <span className="mono pr-num">01</span>
+            <span className="pr-section-label">Journey</span>
+            <span className="pr-section-line" aria-hidden="true" />
+          </div>
 
-        {/* Purpose and priorities */}
-        {hasPurpose && (
-          <section className="pr-group pour" style={{ animationDelay: '120ms' }} aria-label="Purpose and priorities">
-            <div className="pr-section-label">Purpose &amp; priorities</div>
-            <div className="pr-row">
-              <div className="pr-caption">Purpose</div>
-              <div className="pr-value">
-                {p.purpose_and_priorities.primary_purpose}
-                {p.purpose_and_priorities.secondary_purposes && p.purpose_and_priorities.secondary_purposes.length > 0
-                  ? ` · ${p.purpose_and_priorities.secondary_purposes.join(' · ')}`
-                  : null}
-              </div>
+          <div className="pr-journey-grid">
+            <div className="pr-feature pr-feature--wide">
+              <div className="pr-caption">Destination</div>
+              <div className="serif pr-feature-value pr-feature-value--hero">{destinationValue}</div>
             </div>
-            {p.purpose_and_priorities.priorities.length > 0 && (
-              <div className="pr-row">
-                <div className="pr-caption">Priorities</div>
-                <div className="pr-value">{p.purpose_and_priorities.priorities.join(' · ')}</div>
+            {datesValue ? (
+              <div className="pr-feature">
+                <div className="pr-caption">Dates</div>
+                <div className="serif pr-feature-value">{datesValue}</div>
+                {p.trip_context.date_flexibility ? (
+                  <div className="pr-feature-sub">{p.trip_context.date_flexibility}</div>
+                ) : null}
               </div>
-            )}
-            {p.purpose_and_priorities.success_definition && (
-              <div className="pr-row">
-                <div className="pr-caption">Success</div>
-                <div className="pr-value pr-success">{p.purpose_and_priorities.success_definition}</div>
+            ) : null}
+            <div className="pr-feature">
+              <div className="pr-caption">Budget</div>
+              <div className="serif pr-feature-value">{p.trip_context.budget ? formatBudget(p.trip_context.budget) : '—'}</div>
+            </div>
+            <div className="pr-feature">
+              <div className="pr-caption">Party</div>
+              <div className="serif pr-feature-value">
+                {p.trip_context.party_size} {p.trip_context.party_size === 1 ? 'traveler' : 'travelers'}
               </div>
-            )}
-          </section>
-        )}
+              {p.trip_context.party_notes ? <div className="pr-feature-sub">{p.trip_context.party_notes}</div> : null}
+            </div>
+          </div>
 
-        {/* Preferences */}
-        {hasPreferences && (
-          <section className="pr-group pour" style={{ animationDelay: '180ms' }} aria-label="Preferences by category">
-            <div className="pr-section-label">Preferences</div>
-            <div className="pr-stack">
+          {(p.purpose_and_priorities.primary_purpose || p.purpose_and_priorities.priorities.length > 0 || p.purpose_and_priorities.success_definition) && (
+            <div className="pr-purpose">
+              {p.purpose_and_priorities.primary_purpose ? (
+                <div className="pr-purpose-row">
+                  <div className="pr-caption">Purpose</div>
+                  <div className="serif pr-purpose-value">
+                    {p.purpose_and_priorities.primary_purpose}
+                    {p.purpose_and_priorities.secondary_purposes && p.purpose_and_priorities.secondary_purposes.length > 0
+                      ? ` · ${p.purpose_and_priorities.secondary_purposes.join(' · ')}`
+                      : null}
+                  </div>
+                </div>
+              ) : null}
+              {p.purpose_and_priorities.priorities.length > 0 ? (
+                <div className="pr-purpose-row">
+                  <div className="pr-caption">Priorities</div>
+                  <div className="serif pr-purpose-value">{p.purpose_and_priorities.priorities.join(' · ')}</div>
+                </div>
+              ) : null}
+              {p.purpose_and_priorities.success_definition ? (
+                <div className="pr-success-note">“{p.purpose_and_priorities.success_definition}”</div>
+              ) : null}
+            </div>
+          )}
+        </section>
+
+        {/* 02 PREFERENCES */}
+        <section className="pr-section pour" style={{ animationDelay: '180ms' }} aria-label="Preferences">
+          <div className="pr-section-head">
+            <span className="mono pr-num">02</span>
+            <span className="pr-section-label">Preferences</span>
+            <span className="pr-section-line" aria-hidden="true" />
+          </div>
+
+          {hasPreferences ? (
+            <div className="pr-pref-list">
               {p.preferences.map((pr, i) => {
                 const strength = formatStrength(pr.strength)
-                const source = pr.source
-                const showConfidence = (source === 'inferred' || source === 'defaulted') && pr.confidence
-                const confidencePart = showConfidence ? ` (${pr.confidence})` : ''
-                const notesPart = pr.notes ? ` — ${pr.notes}` : ''
+                const showConfidence = (pr.source === 'inferred' || pr.source === 'defaulted') && pr.confidence
                 return (
-                  <div key={i} className="pr-row pr-pref-row">
-                    <div className="pr-caption">{pr.category}</div>
-                    <div className="pr-value">
-                      {strength} · {source}
-                      {confidencePart}
-                      {notesPart}
+                  <div key={i} className="pr-pref-item">
+                    <div className="pr-pref-head">
+                      <span className="pr-pref-cat">{pr.category}</span>
+                      <span className="mono pr-pref-meta">
+                        {strength} · {pr.source}
+                        {showConfidence ? ` · ${pr.confidence}` : ''}
+                      </span>
                     </div>
+                    {pr.notes ? <div className="pr-pref-notes">{pr.notes}</div> : null}
                   </div>
                 )
               })}
             </div>
-          </section>
-        )}
+          ) : null}
 
-        {/* Travel style */}
-        {hasTravelStyle && (
-          <section className="pr-group pour" style={{ animationDelay: '240ms' }} aria-label="Travel style">
-            <div className="pr-section-label">Travel style</div>
-            <div className="pr-row">
-              <div className="pr-caption">Pace</div>
-              <div className="pr-value">{p.travel_style.pace}</div>
-            </div>
-            <div className="pr-row">
-              <div className="pr-caption">Walking</div>
-              <div className="pr-value">{p.travel_style.walking_tolerance}</div>
-            </div>
-            <div className="pr-row">
-              <div className="pr-caption">Crowd</div>
-              <div className="pr-value">{p.travel_style.crowd_tolerance}</div>
-            </div>
-            {p.travel_style.energy_pattern && (
-              <div className="pr-row">
-                <div className="pr-caption">Energy</div>
-                <div className="pr-value">{p.travel_style.energy_pattern}</div>
+          {hasTravelStyle ? (
+            <div className="pr-style">
+              <div className="pr-caption" style={{ marginBottom: 10 }}>
+                Travel style
               </div>
-            )}
-            {p.travel_style.comfort_preference && (
-              <div className="pr-row">
-                <div className="pr-caption">Comfort</div>
-                <div className="pr-value">{p.travel_style.comfort_preference}</div>
+              <div className="pr-style-grid">
+                <span className="pr-style-pill">
+                  <em className="pr-style-k">Pace</em> {p.travel_style.pace}
+                </span>
+                <span className="pr-style-pill">
+                  <em className="pr-style-k">Walking</em> {p.travel_style.walking_tolerance}
+                </span>
+                <span className="pr-style-pill">
+                  <em className="pr-style-k">Crowd</em> {p.travel_style.crowd_tolerance}
+                </span>
+                {p.travel_style.energy_pattern ? (
+                  <span className="pr-style-pill">
+                    <em className="pr-style-k">Energy</em> {p.travel_style.energy_pattern}
+                  </span>
+                ) : null}
+                {p.travel_style.comfort_preference ? (
+                  <span className="pr-style-pill">
+                    <em className="pr-style-k">Comfort</em> {p.travel_style.comfort_preference}
+                  </span>
+                ) : null}
+                {p.travel_style.spontaneity ? (
+                  <span className="pr-style-pill">
+                    <em className="pr-style-k">Spontaneity</em> {p.travel_style.spontaneity}
+                  </span>
+                ) : null}
               </div>
-            )}
-            {p.travel_style.spontaneity && (
-              <div className="pr-row">
-                <div className="pr-caption">Spontaneity</div>
-                <div className="pr-value">{p.travel_style.spontaneity}</div>
-              </div>
-            )}
-          </section>
-        )}
+            </div>
+          ) : null}
+        </section>
 
-        {/* Hard constraints — only when non-empty, no placeholder */}
-        {hasHardConstraints && (
-          <section className="pr-group pour" style={{ animationDelay: '300ms' }} aria-label="Hard constraints">
-            <div className="pr-section-label">Hard constraints</div>
-            {hard.must_visit.length > 0 && (
-              <div className="pr-row">
-                <div className="pr-caption">Must visit</div>
-                <div className="pr-value">{hard.must_visit.join(', ')}</div>
-              </div>
-            )}
-            {hard.avoid.length > 0 && (
-              <div className="pr-row">
-                <div className="pr-caption">Avoid</div>
-                <div className="pr-value">{hard.avoid.join(', ')}</div>
-              </div>
-            )}
-            {hard.dietary_requirements.length > 0 && (
-              <div className="pr-row">
-                <div className="pr-caption">Dietary</div>
-                <div className="pr-value">{hard.dietary_requirements.join(', ')}</div>
-              </div>
-            )}
-            {hard.accessibility_requirements.length > 0 && (
-              <div className="pr-row">
-                <div className="pr-caption">Accessibility</div>
-                <div className="pr-value">{hard.accessibility_requirements.join(', ')}</div>
-              </div>
-            )}
-            {hard.accommodation_requirements.length > 0 && (
-              <div className="pr-row">
-                <div className="pr-caption">Lodging</div>
-                <div className="pr-value">{hard.accommodation_requirements.join(', ')}</div>
-              </div>
-            )}
-            {hard.maximum_daily_travel && (
-              <div className="pr-row">
-                <div className="pr-caption">Travel limit</div>
-                <div className="pr-value">{hard.maximum_daily_travel}</div>
-              </div>
-            )}
-            {typeof hard.maximum_hotel_changes === 'number' && (
-              <div className="pr-row">
-                <div className="pr-caption">Hotel changes</div>
-                <div className="pr-value">At most {hard.maximum_hotel_changes}</div>
-              </div>
-            )}
-            {hard.budget_ceiling && (
-              <div className="pr-row">
-                <div className="pr-caption">Budget ceiling</div>
-                <div className="pr-value">{hard.budget_ceiling}</div>
-              </div>
-            )}
+        {/* 03 CONSTRAINTS */}
+        {hasHardConstraints ? (
+          <section className="pr-section pour" style={{ animationDelay: '240ms' }} aria-label="Constraints">
+            <div className="pr-section-head">
+              <span className="mono pr-num">03</span>
+              <span className="pr-section-label">Constraints</span>
+              <span className="pr-section-line" aria-hidden="true" />
+            </div>
+            <div className="pr-constraint-grid">
+              {hard.must_visit.length > 0 ? (
+                <div className="pr-constraint">
+                  <div className="pr-caption">Must visit</div>
+                  <div className="pr-constraint-value">{hard.must_visit.join(', ')}</div>
+                </div>
+              ) : null}
+              {hard.avoid.length > 0 ? (
+                <div className="pr-constraint">
+                  <div className="pr-caption">Avoid</div>
+                  <div className="pr-constraint-value">{hard.avoid.join(', ')}</div>
+                </div>
+              ) : null}
+              {hard.dietary_requirements.length > 0 ? (
+                <div className="pr-constraint">
+                  <div className="pr-caption">Dietary</div>
+                  <div className="pr-constraint-value">{hard.dietary_requirements.join(', ')}</div>
+                </div>
+              ) : null}
+              {hard.accessibility_requirements.length > 0 ? (
+                <div className="pr-constraint">
+                  <div className="pr-caption">Accessibility</div>
+                  <div className="pr-constraint-value">{hard.accessibility_requirements.join(', ')}</div>
+                </div>
+              ) : null}
+              {hard.accommodation_requirements.length > 0 ? (
+                <div className="pr-constraint">
+                  <div className="pr-caption">Lodging</div>
+                  <div className="pr-constraint-value">{hard.accommodation_requirements.join(', ')}</div>
+                </div>
+              ) : null}
+              {hard.maximum_daily_travel ? (
+                <div className="pr-constraint">
+                  <div className="pr-caption">Daily travel</div>
+                  <div className="pr-constraint-value">{hard.maximum_daily_travel}</div>
+                </div>
+              ) : null}
+              {typeof hard.maximum_hotel_changes === 'number' ? (
+                <div className="pr-constraint">
+                  <div className="pr-caption">Hotel changes</div>
+                  <div className="pr-constraint-value">At most {hard.maximum_hotel_changes}</div>
+                </div>
+              ) : null}
+              {hard.budget_ceiling ? (
+                <div className="pr-constraint">
+                  <div className="pr-caption">Budget ceiling</div>
+                  <div className="pr-constraint-value">{hard.budget_ceiling}</div>
+                </div>
+              ) : null}
+            </div>
           </section>
-        )}
+        ) : null}
 
-        {/* Unknowns — brass left accent, italic, impact tag */}
-        {hasUnknowns && (
-          <section className="pr-group pour" style={{ animationDelay: '360ms' }} aria-label="Unknowns">
-            <div className="pr-section-label">Unknowns</div>
-            <div className="pr-unknowns">
-              {p.unknowns.map((u, i) => {
-                const isBlocking = u.impact === 'blocking'
-                return (
-                  <div key={i} className={`pr-unknown ${isBlocking ? 'pr-unknown--blocking' : ''}`}>
-                    <div className="pr-unknown-desc">{u.description}</div>
-                    <div className="pr-unknown-meta">
-                      {u.topic} · {u.impact}
-                    </div>
+        {/* Concierge notes — unknowns + assumptions as elegant hairline notes */}
+        {(hasUnknowns || hasAssumptions) && (
+          <section className="pr-notes pour" style={{ animationDelay: '300ms' }} aria-label="Concierge notes">
+            <div className="pr-notes-head">
+              <span className="mono pr-notes-kicker">Concierge notes</span>
+              <span className="pr-notes-rule" aria-hidden="true" />
+            </div>
+            <p className="pr-notes-intro">A few points we&rsquo;re holding lightly — please confirm or clarify at your leisure.</p>
+            <div className="pr-notes-list">
+              {p.unknowns.map((u, i) => (
+                <div key={`u-${i}`} className={`pr-note ${u.impact === 'blocking' ? 'pr-note--blocking' : ''}`}>
+                  <div className="pr-note-text">— {u.description}</div>
+                  <div className="mono pr-note-meta">
+                    {u.topic} · {u.impact}
                   </div>
-                )
-              })}
-            </div>
-          </section>
-        )}
-
-        {/* Assumptions — dashed brass outline */}
-        {hasAssumptions && (
-          <section className="pr-group pour" style={{ animationDelay: '420ms' }} aria-label="Assumptions">
-            <div className="pr-section-label">Assumptions</div>
-            <div className="pr-assumptions">
+                </div>
+              ))}
               {p.assumptions.map((a, i) => (
-                <div key={i} className="pr-assumption">
-                  <div className="pr-assumption-value">{a.value}</div>
-                  <div className="pr-assumption-meta">
-                    {a.reason}
-                    {a.user_confirmation_needed ? ' · confirmation needed' : ''}
+                <div key={`a-${i}`} className="pr-note pr-note--assumption">
+                  <div className="pr-note-text">— {a.value}</div>
+                  <div className="mono pr-note-meta">
+                    {a.topic} · {a.reason}
+                    {a.user_confirmation_needed ? ' · confirmation requested' : ''}
                   </div>
                 </div>
               ))}
@@ -366,16 +363,16 @@ export default function ProfileReview() {
         )}
       </div>
 
-      {/* Actions — brass primary + ghost, centered */}
-      <div className="pr-actions pour" style={{ animationDelay: '500ms' }}>
+      {/* Actions — bronze primary only, ghost quieter */}
+      <div className="pr-actions pour" style={{ animationDelay: '420ms' }}>
         <button
           className="pr-btn pr-btn--primary"
           onClick={doConfirm}
           disabled={hasBlocking || busy}
           aria-disabled={hasBlocking || busy}
-          style={{ opacity: hasBlocking || busy ? 0.4 : 1 }}
+          style={{ opacity: hasBlocking || busy ? 0.45 : 1 }}
         >
-          Confirm Profile
+          Confirm &amp; continue
         </button>
         <button
           ref={requestChangesBtnRef}
@@ -384,32 +381,25 @@ export default function ProfileReview() {
           disabled={busy}
           aria-expanded={editorOpen}
           aria-controls="pr-editor"
-          style={{ opacity: busy ? 0.4 : 1 }}
+          style={{ opacity: busy ? 0.45 : 1 }}
         >
           Request changes
         </button>
       </div>
 
       <div aria-live="polite" className="pr-notice">
-        {hasBlocking ? 'Please resolve blocking unknowns before confirming.' : notice}
+        {hasBlocking ? 'Please resolve the blocking note above before confirming.' : notice}
       </div>
 
-      {/* Dev toggle — not part of proof, muted */}
-      <div className="pr-dev-toggle">
-        <label className="pr-dev-label">
-          <input type="checkbox" checked={useBlocking} onChange={(e) => setUseBlocking(e.target.checked)} /> Simulate blocking unknown
+      <div className="pr-footer">
+        <span className="mono pr-footer-text">Dossier · {p.profile_id} · revision {p.profile_revision ?? 7}</span>
+        <label className="mono pr-dev-label">
+          <input type="checkbox" checked={useBlocking} onChange={(e) => setUseBlocking(e.target.checked)} /> Simulate blocking
         </label>
       </div>
 
-      {/* Inline editor — not modal, procedure: draft */}
       {editorOpen && (
-        <div
-          id="pr-editor"
-          ref={editorRef}
-          className="pr-editor pour"
-          role="region"
-          aria-label="Request changes"
-        >
+        <div id="pr-editor" ref={editorRef} className="pr-editor pour" role="region" aria-label="Request changes">
           <div className="pr-editor-label">What would you like to change?</div>
           <div className="pr-topics" role="group" aria-label="Affected topics">
             {availableTopics.map((t, idx) => {
@@ -434,7 +424,7 @@ export default function ProfileReview() {
             id="pr-note"
             value={note}
             onChange={(e) => setNote(e.target.value)}
-            placeholder="Add a note — e.g., The budget should exclude international flights."
+            placeholder="E.g., The budget should exclude international flights."
             rows={3}
             className="pr-textarea"
           />
@@ -446,186 +436,355 @@ export default function ProfileReview() {
               Cancel
             </button>
           </div>
-          <div className="pr-editor-hint">Topics and note will be sent; we&apos;ll return to discovery for targeted questions.</div>
+          <div className="mono pr-editor-hint">Topics and note will be sent; we&rsquo;ll return to discovery for targeted questions.</div>
         </div>
       )}
 
       <style>{`
         .profile-review{
-          width: min(800px, calc(100vw - 48px));
+          width: min(980px, 86vw);
           margin: 0 auto;
-          padding: 48px 0 64px;
+          padding: 36px 0 48px;
           background: var(--voyager-bone-0);
         }
+        .pr-eyebrow{
+          font-size: 10px;
+          letter-spacing: 0.16em;
+          text-transform: uppercase;
+          color: var(--voyager-ink-3);
+          margin-bottom: 14px;
+        }
         .pr-headline{
-          font-size: 40px;
-          line-height: 48px;
+          font-size: 44px;
+          line-height: 52px;
           font-weight: 400;
-          text-align: center;
-          color: var(--voyager-ink-1);
-          margin-bottom: 48px;
-        }
-        .pr-body{
+          letter-spacing: -0.02em;
+          color: var(--voyager-ink-0);
           text-align: left;
+          margin: 0;
         }
-        .pr-group{
+        .pr-lede{
+          margin-top: 12px;
+          font-size: 14px;
+          line-height: 22px;
+          color: var(--voyager-ink-2);
+          max-width: 560px;
+        }
+        .pr-dossier{
           margin-top: 40px;
         }
-        .pr-group:first-child{ margin-top: 0; }
+        .pr-section{
+          padding-top: 28px;
+          border-top: 1px solid var(--voyager-bone-2);
+          margin-top: 36px;
+        }
+        .pr-section:first-child{
+          margin-top: 0;
+        }
+        .pr-section-head{
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          margin-bottom: 22px;
+        }
+        .pr-num{
+          font-size: 10px;
+          letter-spacing: 0.14em;
+          color: var(--voyager-ink-3);
+          min-width: 18px;
+        }
         .pr-section-label{
           font-size: 11px;
-          letter-spacing: 0.12em;
+          letter-spacing: 0.16em;
           text-transform: uppercase;
           color: var(--voyager-ink-3);
           font-weight: 500;
-          margin-bottom: 8px;
+          white-space: nowrap;
         }
-        .pr-row{
+        .pr-section-line{
+          flex: 1;
+          height: 1px;
+          background: var(--voyager-bone-2);
+          margin-left: 8px;
+        }
+        /* Journey */
+        .pr-journey-grid{
           display: grid;
-          grid-template-columns: 160px 1fr;
-          gap: 16px;
-          padding: 14px 0;
-          border-top: 1px solid var(--voyager-bone-2);
-          align-items: start;
+          grid-template-columns: 1fr 1fr;
+          gap: 20px 32px;
         }
-        .pr-stack .pr-row{ border-top: 1px solid var(--voyager-bone-2); }
+        .pr-feature--wide{
+          grid-column: 1 / -1;
+        }
         .pr-caption{
-          font-size: 11px;
-          letter-spacing: 0.12em;
+          font-size: 10px;
+          letter-spacing: 0.14em;
           text-transform: uppercase;
           color: var(--voyager-ink-3);
           font-weight: 500;
-          line-height: 22px;
+          line-height: 16px;
+          margin-bottom: 6px;
         }
-        .pr-value{
-          font-size: 15px;
-          line-height: 22px;
-          color: var(--voyager-ink-1);
+        .pr-feature-value{
+          font-size: 19px;
+          line-height: 26px;
+          color: var(--voyager-ink-0);
+          font-weight: 400;
         }
-        .pr-hint{
-          color: var(--voyager-ink-3);
-          font-size: 13px;
+        .pr-feature-value--hero{
+          font-size: 22px;
+          line-height: 30px;
+          letter-spacing: -0.015em;
         }
-        .pr-success{
-          font-style: italic;
-          color: var(--voyager-ink-2);
-        }
-        .pr-pref-row .pr-value{
-          font-size: 14px;
-        }
-        /* Unknowns */
-        .pr-unknowns{ display: flex; flex-direction: column; }
-        .pr-unknown{
-          border-left: 4px solid var(--voyager-brass-1);
-          padding-left: 16px;
-          margin-bottom: 16px;
-          padding-top: 2px;
-          padding-bottom: 4px;
-        }
-        .pr-unknown:last-child{ margin-bottom: 0; }
-        .pr-unknown-desc{
-          font-size: 14px;
-          line-height: 21px;
-          font-style: italic;
-          color: var(--voyager-ink-2);
-        }
-        .pr-unknown--blocking .pr-unknown-desc{
-          color: var(--voyager-ink-1);
-          font-weight: 500;
-          font-style: italic;
-        }
-        .pr-unknown-meta{
-          font-size: 11px;
-          letter-spacing: 0.1em;
-          text-transform: uppercase;
-          color: var(--voyager-ink-3);
+        .pr-feature-sub{
           margin-top: 4px;
-        }
-        /* Assumptions */
-        .pr-assumptions{
-          display: flex;
-          flex-direction: column;
-          gap: 12px;
-        }
-        .pr-assumption{
-          border: 1px dashed var(--voyager-brass-1);
-          border-radius: var(--voyager-radius-md);
-          padding: 12px 16px;
-          background: transparent;
-        }
-        .pr-assumption-value{
-          font-size: 14px;
-          line-height: 20px;
-          color: var(--voyager-ink-1);
-        }
-        .pr-assumption-meta{
           font-size: 12px;
           line-height: 16px;
           color: var(--voyager-ink-3);
+          font-style: italic;
+        }
+        .pr-purpose{
+          margin-top: 24px;
+          padding-top: 20px;
+          border-top: 1px solid var(--voyager-bone-1);
+          display: flex;
+          flex-direction: column;
+          gap: 14px;
+        }
+        .pr-purpose-row .pr-purpose-value{
+          font-size: 17px;
+          line-height: 24px;
+          color: var(--voyager-ink-0);
+          margin-top: 2px;
+        }
+        .pr-success-note{
+          font-size: 13px;
+          line-height: 20px;
+          font-style: italic;
+          color: var(--voyager-ink-2);
+          border-left: 1px solid var(--voyager-bone-2);
+          padding-left: 12px;
           margin-top: 4px;
+        }
+        /* Preferences */
+        .pr-pref-list{
+          display: flex;
+          flex-direction: column;
+          gap: 14px;
+        }
+        .pr-pref-item{
+          padding-bottom: 14px;
+          border-bottom: 1px solid var(--voyager-bone-1);
+        }
+        .pr-pref-item:last-child{ border-bottom: none; padding-bottom: 0; }
+        .pr-pref-head{
+          display: flex;
+          align-items: baseline;
+          justify-content: space-between;
+          gap: 12px;
+          flex-wrap: wrap;
+        }
+        .pr-pref-cat{
+          font-size: 14px;
+          font-weight: 500;
+          color: var(--voyager-ink-1);
+        }
+        .pr-pref-meta{
+          font-size: 10px;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: var(--voyager-ink-3);
+        }
+        .pr-pref-notes{
+          margin-top: 4px;
+          font-size: 13px;
+          line-height: 19px;
+          color: var(--voyager-ink-2);
+          font-style: italic;
+        }
+        .pr-style{
+          margin-top: 22px;
+          padding-top: 18px;
+          border-top: 1px solid var(--voyager-bone-1);
+        }
+        .pr-style-grid{
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+        }
+        .pr-style-pill{
+          font-size: 12px;
+          line-height: 1;
+          color: var(--voyager-ink-2);
+          background: var(--voyager-bone-1);
+          border: 1px solid var(--voyager-bone-2);
+          border-radius: 999px;
+          padding: 8px 12px;
+        }
+        .pr-style-k{
+          font-style: normal;
+          font-size: 10px;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: var(--voyager-ink-3);
+          margin-right: 6px;
+        }
+        /* Constraints */
+        .pr-constraint-grid{
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 18px 32px;
+        }
+        .pr-constraint-value{
+          font-size: 13px;
+          line-height: 19px;
+          color: var(--voyager-ink-1);
+          margin-top: 2px;
+        }
+        /* Concierge notes */
+        .pr-notes{
+          margin-top: 36px;
+          padding-top: 28px;
+          border-top: 1px solid var(--voyager-bone-2);
+        }
+        .pr-notes-head{
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          margin-bottom: 8px;
+        }
+        .pr-notes-kicker{
+          font-size: 10px;
+          letter-spacing: 0.14em;
+          text-transform: uppercase;
+          color: var(--voyager-ink-3);
+          white-space: nowrap;
+        }
+        .pr-notes-rule{
+          flex: 1;
+          height: 1px;
+          background: var(--voyager-bone-2);
+        }
+        .pr-notes-intro{
+          font-size: 12px;
+          line-height: 18px;
+          color: var(--voyager-ink-3);
+          font-style: italic;
+          margin-bottom: 16px;
+        }
+        .pr-notes-list{
+          display: flex;
+          flex-direction: column;
+          gap: 14px;
+        }
+        .pr-note{
+          border-left: 1px solid var(--voyager-bone-2);
+          padding-left: 14px;
+          padding-top: 2px;
+          padding-bottom: 2px;
+        }
+        .pr-note--blocking{
+          border-left-color: var(--voyager-clay);
+          border-left-width: 1px;
+        }
+        .pr-note-text{
+          font-size: 13px;
+          line-height: 20px;
+          font-style: italic;
+          color: var(--voyager-ink-2);
+        }
+        .pr-note--blocking .pr-note-text{
+          color: var(--voyager-ink-1);
+        }
+        .pr-note-meta{
+          margin-top: 4px;
+          font-size: 10px;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: var(--voyager-ink-3);
         }
         /* Actions */
         .pr-actions{
           display: flex;
-          gap: 24px;
-          justify-content: center;
-          margin-top: 48px;
-          margin-bottom: 32px;
+          gap: 14px;
+          align-items: center;
+          margin-top: 40px;
           flex-wrap: wrap;
         }
         .pr-btn{
           height: 44px;
-          padding: 0 28px;
-          border-radius: var(--voyager-radius-md);
-          font-size: 15px;
+          padding: 0 26px;
+          border-radius: 10px;
+          font-size: 14px;
           font-weight: 500;
           cursor: pointer;
           transition: background 150ms, opacity 150ms, border-color 150ms, color 150ms;
           font-family: inherit;
+          letter-spacing: -0.01em;
         }
         .pr-btn:disabled{ cursor: not-allowed; }
         .pr-btn--primary{
           border: none;
-          background: var(--voyager-brass-1);
-          color: var(--voyager-bone-0);
+          background: #9A7A5A;
+          color: #F7F2E9;
+          border-radius: 10px;
         }
         .pr-btn--primary:hover:not(:disabled){
-          background: var(--voyager-brass-2);
+          background: #8A6D51;
         }
-        .pr-btn--primary:disabled{ opacity: 0.4; }
         .pr-btn--ghost{
-          border: 1px solid var(--voyager-ink-2);
+          border: 1px solid var(--voyager-bone-2);
           background: transparent;
-          color: var(--voyager-ink-1);
+          color: var(--voyager-ink-2);
+          font-weight: 400;
+          border-radius: 10px;
         }
         .pr-btn--ghost:hover:not(:disabled){
-          border-color: var(--voyager-ink-1);
+          border-color: var(--voyager-ink-3);
+          color: var(--voyager-ink-1);
           background: var(--voyager-bone-1);
         }
-        .pr-btn--sm{ height: 40px; padding: 0 22px; font-size: 14px; }
+        .pr-btn--sm{ height: 38px; padding: 0 18px; font-size: 13px; border-radius: 10px; }
         .pr-notice{
-          text-align: center;
-          min-height: 20px;
-          font-size: 13px;
+          min-height: 16px;
+          font-size: 11px;
           color: var(--voyager-clay);
+          margin-top: 10px;
         }
-        .pr-dev-toggle{
-          text-align: center;
-          margin-top: 8px;
+        .pr-footer{
+          margin-top: 18px;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          flex-wrap: wrap;
+          padding-top: 14px;
+          border-top: 1px solid var(--voyager-bone-1);
+        }
+        .pr-footer-text{
+          font-size: 10px;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: var(--voyager-ink-3);
         }
         .pr-dev-label{
-          font-size: 12px;
+          font-size: 10px;
+          letter-spacing: 0.06em;
+          text-transform: uppercase;
           color: var(--voyager-ink-3);
           cursor: pointer;
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
         }
-        .pr-dev-label input{ margin-right: 6px; }
+        .pr-dev-label input{ accent-color: var(--voyager-ink-2); }
         /* Editor */
         .pr-editor{
-          margin-top: 24px;
+          margin-top: 22px;
           background: var(--voyager-bone-1);
           border: 1px solid var(--voyager-bone-2);
-          border-radius: var(--voyager-radius-md);
-          padding: 24px;
+          border-radius: 10px;
+          padding: 22px;
         }
         .pr-editor-label{
           font-size: 13px;
@@ -640,12 +799,12 @@ export default function ProfileReview() {
           margin-bottom: 16px;
         }
         .pr-chip{
-          padding: 8px 14px;
-          border-radius: var(--voyager-radius-pill);
+          padding: 7px 13px;
+          border-radius: 999px;
           border: 1px solid var(--voyager-bone-2);
           background: var(--voyager-bone-0);
           color: var(--voyager-ink-1);
-          font-size: 13px;
+          font-size: 12px;
           cursor: pointer;
           transition: all 150ms;
         }
@@ -655,20 +814,21 @@ export default function ProfileReview() {
           border-color: var(--voyager-ink-1);
         }
         .pr-textarea-label{
-          font-size: 12px;
-          color: var(--voyager-ink-2);
+          font-size: 11px;
+          color: var(--voyager-ink-3);
           display: block;
           margin-bottom: 6px;
+          letter-spacing: 0.04em;
         }
-        .pr-optional{ color: var(--voyager-ink-3); }
+        .pr-optional{ color: var(--voyager-ink-3); font-style: italic; }
         .pr-textarea{
           width: 100%;
           background: var(--voyager-bone-0);
           border: 1px solid var(--voyager-bone-2);
-          border-radius: var(--voyager-radius-md);
-          padding: 12px;
-          font-size: 14px;
-          line-height: 20px;
+          border-radius: 10px;
+          padding: 11px 12px;
+          font-size: 13px;
+          line-height: 19px;
           color: var(--voyager-ink-1);
           resize: none;
           font-family: inherit;
@@ -676,33 +836,25 @@ export default function ProfileReview() {
         .pr-textarea:focus{ outline: none; box-shadow: var(--voyager-focus-ring); }
         .pr-editor-actions{
           display: flex;
-          gap: 12px;
-          margin-top: 16px;
+          gap: 10px;
+          margin-top: 14px;
           flex-wrap: wrap;
         }
         .pr-editor-hint{
-          font-size: 12px;
+          font-size: 10px;
+          letter-spacing: 0.04em;
           color: var(--voyager-ink-3);
           margin-top: 10px;
         }
-        /* 768px collapse + 320px stack */
         @media (max-width: 768px){
-          .pr-row{
-            grid-template-columns: 1fr;
-            gap: 8px;
-          }
-          .pr-headline{
-            font-size: 32px;
-            line-height: 40px;
-          }
+          .profile-review{ width: min(980px, calc(100vw - 32px)); }
+          .pr-headline{ font-size: 34px; line-height: 40px; }
+          .pr-journey-grid, .pr-constraint-grid{ grid-template-columns: 1fr; }
+          .pr-pref-head{ flex-direction: column; gap: 4px; }
         }
-        @media (max-width: 320px){
-          .pr-actions{
-            flex-direction: column;
-          }
-          .pr-actions .pr-btn{
-            width: 100%;
-          }
+        @media (max-width: 360px){
+          .pr-actions{ flex-direction: column; align-items: stretch; }
+          .pr-actions .pr-btn{ width: 100%; justify-content: center; }
         }
       `}</style>
     </main>

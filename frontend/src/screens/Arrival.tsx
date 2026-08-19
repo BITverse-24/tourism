@@ -9,7 +9,6 @@ export default function Arrival() {
   const navigate = useNavigate()
   const taRef = useRef<HTMLTextAreaElement>(null)
 
-  // Unicode code points, not UTF-16 units
   const len = [...text].length
   const trimmed = text.trim()
   const overLimit = len > 2000
@@ -25,16 +24,18 @@ export default function Arrival() {
     if (tooShort) return
     setFeedback('')
     setBusy(true)
-    // No backend — simulate respectful pause then poured exit to Discovery
-    // Hold until "ready" — local pour delay, no optimistic navigation cut
-    setTimeout(() => setExiting(true), 520)
-    setTimeout(() => navigate('/discovery'), 980)
+    setTimeout(() => setExiting(true), 380)
+    setTimeout(() => navigate('/discovery'), 820)
   }
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
       e.preventDefault()
       if (valid) submit()
+    }
+    if (e.key === 'Enter' && !e.shiftKey) {
+      // allow Enter to submit when valid and single line intent
+      // keep textarea behaviour — only submit on Cmd+Enter to avoid accidental
     }
   }
 
@@ -45,7 +46,7 @@ export default function Arrival() {
 
   return (
     <main
-      className={`arrival${exiting ? ' is-exiting' : ''}`}
+      className={`arrival arrival--editorial${exiting ? ' is-exiting' : ''}`}
       style={
         {
           position: 'relative',
@@ -54,132 +55,48 @@ export default function Arrival() {
           alignItems: 'center',
           justifyContent: 'center',
           overflow: 'hidden',
-          background: 'var(--voyager-ink-0)',
+          background: 'var(--voyager-bone-0)',
+          isolation: 'isolate',
         } as React.CSSProperties
       }
     >
-      {/* background-image — fixed to viewport, slow living zoom */}
-      <div
-        className="background-image"
-        aria-hidden
-        style={{
-          position: 'fixed',
-          inset: 0,
-          backgroundImage:
-            'url(https://images.unsplash.com/photo-1492571350019-22de08371fd3?w=1920&q=80)',
-          backgroundSize: 'cover',
-          backgroundPosition: 'center 58%',
-          willChange: 'transform',
-          animation: 'arrivalKenBurns 28s ease-in-out infinite alternate',
-          transformOrigin: 'center center',
-        }}
-      />
-      {/* background-veil — deep ink 62% */}
-      <div
-        className="background-veil"
-        aria-hidden
-        style={{
-          position: 'fixed',
-          inset: 0,
-          background: 'rgba(27,37,44,0.62)',
-        }}
-      />
+      {/* oversized 01 watermark — very low opacity */}
+      <div className="arrival-watermark" aria-hidden="true">
+        <span className="arrival-watermark__num">01</span>
+      </div>
 
-      {/* arrival-content — relative, centered */}
-      <div
-        className="arrival-content"
-        style={{
-          position: 'relative',
-          zIndex: 1,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          width: '100%',
-          minHeight: '100svh',
-          padding: '48px 0',
-        }}
-      >
+      <div className="arrival-editorial">
         <div
           className="arrival-column"
           style={{
-            width: 'min(640px, calc(100vw - 48px))',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            // poured entrance
-            animation: exiting ? undefined : 'arrivalPour 520ms cubic-bezier(.22,.61,.36,1) both',
             opacity: exiting ? 0 : 1,
-            transform: exiting ? 'translateY(-6px)' : undefined,
-            transition: exiting ? 'opacity 420ms ease, transform 420ms cubic-bezier(.22,.61,.36,1), filter 420ms ease' : undefined,
-            filter: exiting ? 'blur(1px)' : undefined,
+            transform: exiting ? 'translateY(-8px)' : undefined,
+            transition: exiting
+              ? 'opacity 420ms ease, transform 520ms cubic-bezier(.22,.61,.36,1), filter 420ms ease'
+              : undefined,
+            filter: exiting ? 'blur(2px)' : undefined,
           }}
         >
-          {/* h1 — headline */}
-          <h1
-            className="serif"
-            style={{
-              fontFamily: 'Fraunces, Georgia, serif',
-              fontSize: 56,
-              lineHeight: '64px',
-              fontWeight: 400,
-              color: 'var(--voyager-bone-0)',
-              textAlign: 'center',
-              letterSpacing: '0.03em',
-              margin: 0,
-              maxWidth: '100%',
-            }}
-          >
+          {/* eyebrow */}
+          <div className="arrival-eyebrow" aria-hidden="true">
+            <span className="arrival-eyebrow__num">01</span>
+            <span className="arrival-eyebrow__sep">—</span>
+            <span>THE JOURNEY</span>
+          </div>
+
+          <h1 className="arrival-headline serif">
             Where shall we begin?
           </h1>
 
-          {/* reassurance paragraph — subline whisper */}
-          <p
-            style={{
-              marginTop: 16,
-              marginBottom: 0,
-              color: 'rgba(247,242,233,0.88)',
-              textAlign: 'center',
-              maxWidth: 520,
-              fontSize: 15,
-              lineHeight: '25px',
-              fontWeight: 400,
-              letterSpacing: '0.01em',
-            }}
-          >
-            A brief note or a long story — both work. We&apos;ll ask only what&apos;s missing, and shape
-            the trip around how you want to feel.
+          <p className="arrival-tagline">
+            A considered journey, shaped around how you want to feel.
           </p>
 
-          {/* intent card — hero interaction */}
-          <div
-            className="intent-card"
-            style={{
-              marginTop: 32,
-              width: '100%',
-              maxWidth: 640,
-              background: 'var(--voyager-bone-1)',
-              borderRadius: 'var(--voyager-radius-lg)',
-              padding: 32,
-              boxShadow: 'var(--voyager-shadow-card)',
-              border: '1px solid rgba(225,214,197,0.55)',
-              opacity: busy ? 0.4 : 1,
-              transition:
-                'opacity 220ms ease, box-shadow 180ms ease, transform 180ms ease, border-color 180ms ease',
-            }}
-          >
-            <label
-              htmlFor="intent"
-              style={{
-                position: 'absolute',
-                width: 1,
-                height: 1,
-                overflow: 'hidden',
-                clip: 'rect(0 0 0 0)',
-                clipPath: 'inset(50%)',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              Trip intent — describe what you want from this trip
+          <div className="arrival-rule" aria-hidden="true" />
+
+          <div className={`arrival-fieldWrap${busy ? ' is-busy' : ''}`}>
+            <label htmlFor="intent" className="arrival-fieldLabel">
+              Tell us what you&apos;re looking for
             </label>
             <textarea
               id="intent"
@@ -187,185 +104,47 @@ export default function Arrival() {
               value={text}
               onChange={onChange}
               onKeyDown={onKeyDown}
-              placeholder={
-                'Kyoto in autumn, slow, sunrise photography\nor — ten days, two friends, avoid crowds, street food over museums'
-              }
+              placeholder="Kyoto in autumn, slow mornings, photography…"
               rows={3}
               disabled={busy}
               aria-describedby="intent-helper intent-count"
               aria-invalid={overLimit ? true : undefined}
-              style={{
-                width: '100%',
-                minHeight: 96,
-                maxHeight: 160,
-                background: 'var(--voyager-bone-0)',
-                border: '1px solid var(--voyager-bone-2)',
-                borderRadius: 'var(--voyager-radius-md)',
-                padding: '14px 16px',
-                fontSize: 18,
-                lineHeight: '28px',
-                color: 'var(--voyager-ink-1)',
-                resize: 'none',
-                outline: 'none',
-                display: 'block',
-                fontFamily: 'General Sans, Inter, ui-sans-serif, sans-serif',
-                transition:
-                  'box-shadow 150ms ease, border-color 150ms ease, background 150ms ease',
-                overflowY: 'auto',
-              }}
-              onFocus={(e) => {
-                e.currentTarget.style.borderColor = 'var(--voyager-brass-2)'
-                e.currentTarget.style.boxShadow =
-                  '0 0 0 3px rgba(216,193,154,0.72), 0 0 0 1px rgba(216,193,154,0.9)'
-                const card = e.currentTarget.closest('.intent-card') as HTMLElement | null
-                if (card) {
-                  card.style.boxShadow =
-                    '0 1px 2px rgba(38,41,37,.08), 0 14px 32px rgba(38,41,37,.12)'
-                  card.style.borderColor = 'rgba(216,193,154,0.45)'
-                }
-              }}
-              onBlur={(e) => {
-                e.currentTarget.style.borderColor = 'var(--voyager-bone-2)'
-                e.currentTarget.style.boxShadow = 'none'
-                const card = e.currentTarget.closest('.intent-card') as HTMLElement | null
-                if (card) {
-                  card.style.boxShadow = 'var(--voyager-shadow-card)'
-                  card.style.borderColor = 'rgba(225,214,197,0.55)'
-                }
-              }}
+              className="arrival-textarea"
             />
-
-            {/* helper row — two-column grid, wraps at 320px */}
-            <div
-              className="helper-row"
-              style={{
-                display: 'grid',
-                gridTemplateColumns: '1fr auto',
-                gap: '8px 12px',
-                marginTop: 12,
-                alignItems: 'start',
-              }}
-            >
-              <span
-                id="intent-helper"
-                style={{
-                  fontSize: 12,
-                  lineHeight: '17px',
-                  color: 'var(--voyager-ink-3)',
-                  letterSpacing: '0.01em',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 6,
-                }}
-              >
-                <span
-                  aria-hidden
-                  style={{
-                    width: 6,
-                    height: 6,
-                    borderRadius: 999,
-                    background: 'var(--voyager-brass-1)',
-                    opacity: 0.9,
-                    flexShrink: 0,
-                    marginTop: 1,
-                  }}
-                />
+            <div className="arrival-fieldMeta">
+              <span id="intent-helper" className="arrival-helper">
                 However short or long — we&apos;ll ask only what&apos;s missing.
               </span>
               <span
                 id="intent-count"
                 aria-live="polite"
                 aria-atomic="true"
-                style={{
-                  fontSize: 12,
-                  lineHeight: '17px',
-                  color: overLimit ? 'var(--voyager-clay)' : 'var(--voyager-ink-3)',
-                  whiteSpace: 'nowrap',
-                  fontVariantNumeric: 'tabular-nums',
-                  textAlign: 'right',
-                  fontWeight: 500,
-                  transition: 'color 150ms ease',
-                }}
+                className={`arrival-count${overLimit ? ' is-over' : ''}`}
               >
                 {len} / 2000
               </span>
             </div>
           </div>
 
-          {/* primary action — 16px from card */}
           <button
             type="button"
             onClick={submit}
             disabled={!valid}
             aria-disabled={!valid}
-            style={{
-              marginTop: 16,
-              height: 44,
-              minHeight: 44,
-              padding: '0 28px',
-              borderRadius: 'var(--voyager-radius-md)',
-              border: 'none',
-              background: 'var(--voyager-brass-1)',
-              color: 'var(--voyager-ink-1)',
-              fontSize: 15,
-              fontWeight: 500,
-              letterSpacing: '0.01em',
-              cursor: valid ? 'pointer' : 'not-allowed',
-              opacity: valid || busy ? 1 : 0.4,
-              pointerEvents: busy ? 'none' : undefined,
-              transition: 'background 150ms ease, opacity 150ms ease, transform 150ms ease, box-shadow 150ms ease',
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 6,
-              boxShadow: valid ? '0 1px 2px rgba(38,41,37,.10)' : 'none',
-              // busy dims via wrapper + button opacity already — card dims to 0.4
-            }}
-            onMouseEnter={(e) => {
-              if (valid && !busy) (e.currentTarget as HTMLButtonElement).style.background = 'var(--voyager-brass-2)'
-            }}
-            onMouseLeave={(e) => {
-              ;(e.currentTarget as HTMLButtonElement).style.background = 'var(--voyager-brass-1)'
-            }}
-            onMouseDown={(e) => {
-              if (valid) (e.currentTarget as HTMLButtonElement).style.background = 'var(--voyager-brass-3)'
-            }}
-            onMouseUp={(e) => {
-              if (valid) (e.currentTarget as HTMLButtonElement).style.background = 'var(--voyager-brass-2)'
-            }}
+            className="arrival-cta"
           >
-            Begin the Interview →
+            <span>Begin the interview</span>
+            <span aria-hidden className="arrival-cta__arrow">→</span>
           </button>
 
-          {/* safety caption — 16px from button */}
-          <p
-            style={{
-              marginTop: 16,
-              marginBottom: 0,
-              fontSize: 12,
-              lineHeight: '17px',
-              color: 'rgba(247,242,233,0.72)',
-              textAlign: 'center',
-              letterSpacing: '0.01em',
-            }}
-          >
+          <p className="arrival-footnote">
             You can change anything later — nothing is booked until you confirm the profile.
           </p>
 
-          {/* inline feedback — polite live region beneath caption */}
           <div
             aria-live="polite"
             aria-atomic="true"
-            style={{
-              marginTop: 12,
-              minHeight: 20,
-              fontSize: 13,
-              lineHeight: '18px',
-              color: feedback ? 'var(--voyager-clay)' : 'rgba(242,235,221,0.92)',
-              textAlign: 'center',
-              maxWidth: 520,
-              transition: 'color 150ms ease',
-            }}
+            className="arrival-feedback"
           >
             {feedback ? feedback : overLimit ? 'Please keep your note to 2000 characters.' : ''}
           </div>
@@ -373,72 +152,255 @@ export default function Arrival() {
       </div>
 
       <style>{`
-        @keyframes arrivalKenBurns {
-          from { transform: scale(1); }
-          to   { transform: scale(1.06); }
+        @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500&display=swap');
+        .arrival--editorial {
+          background: var(--voyager-bone-0, #F7F2E9);
+          min-height: 100svh;
         }
-        @keyframes arrivalPour {
-          from { opacity: 0; transform: translateY(8px); }
-          to   { opacity: 1; transform: translateY(0); }
+        .arrival-watermark {
+          position: absolute;
+          inset: 0;
+          pointer-events: none;
+          z-index: 0;
+          overflow: hidden;
         }
-        .arrival.is-exiting .background-image {
-          filter: blur(7px);
-          transition: filter 520ms ease;
+        .arrival-watermark__num {
+          position: absolute;
+          left: 50%;
+          top: 46%;
+          transform: translate(-50%, -52%);
+          font-family: Fraunces, Georgia, serif;
+          font-size: clamp(280px, 42vw, 640px);
+          line-height: 1;
+          font-weight: 500;
+          letter-spacing: -0.06em;
+          color: #1B252C;
+          opacity: 0.035;
+          user-select: none;
+          white-space: nowrap;
         }
-        .arrival.is-exiting .background-veil {
-          background: rgba(27,37,44,0.62);
+        .arrival-editorial {
+          position: relative;
+          z-index: 1;
+          width: 100%;
+          min-height: 100svh;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 48px 24px 56px;
         }
-        .arrival.is-exiting .arrival-content {
-          filter: blur(1px);
+        .arrival-column {
+          width: min(720px, 92vw);
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          text-align: center;
+          animation: arrivalPour 680ms cubic-bezier(.22,.61,.36,1) both;
         }
-        /* helper row wraps at 320px */
-        @media (max-width: 320px) {
-          .helper-row {
-            grid-template-columns: 1fr !important;
-          }
-          .helper-row #intent-count {
-            text-align: left !important;
-          }
+        .arrival-eyebrow {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          font: 500 11px/16px General Sans, Inter, ui-sans-serif, sans-serif;
+          letter-spacing: 0.16em;
+          text-transform: uppercase;
+          color: var(--voyager-ink-3, #7D878A);
+          margin-bottom: 18px;
         }
-        /* arrival-content vertical padding responsive */
-        @media (max-width: 768px) {
-          .arrival-content {
-            padding: 32px 0 !important;
-          }
-          .arrival-column h1 {
-            font-size: 40px !important;
-            line-height: 48px !important;
-          }
-          .intent-card {
-            padding: 24px !important;
-          }
+        .arrival-eyebrow__num {
+          color: var(--voyager-brass-3, #86633B);
+          font-weight: 600;
         }
-        @media (max-width: 320px) {
-          .intent-card {
-            padding: 20px !important;
-          }
+        .arrival-eyebrow__sep { opacity: 0.45; }
+        .arrival-headline {
+          font-family: Fraunces, Georgia, serif;
+          font-size: clamp(44px, 5.2vw, 64px);
+          line-height: 0.98;
+          font-weight: 400;
+          letter-spacing: -0.03em;
+          color: var(--voyager-ink-0, #1B252C);
+          margin: 0;
+          text-wrap: balance;
+          font-variation-settings: "opsz" 72, "WONK" 1;
         }
-        /* textarea placeholder */
-        #intent::placeholder {
-          color: var(--voyager-ink-3);
-          opacity: 1;
+        .arrival-tagline {
+          margin-top: 16px;
+          font-family: Fraunces, Georgia, serif;
+          font-size: 16px;
+          line-height: 26px;
+          font-style: italic;
+          font-weight: 400;
+          color: var(--voyager-ink-2, #56636A);
+          max-width: 520px;
+          letter-spacing: 0.01em;
         }
-        /* brass focus ring via :focus-visible for keyboard users */
-        #intent:focus-visible {
-          border-color: var(--voyager-brass-2) !important;
-          box-shadow: 0 0 0 3px rgba(216,193,154,.72), 0 0 0 1px rgba(216,193,154,0.9) !important;
+        .arrival-rule {
+          width: 100%;
+          max-width: 720px;
+          height: 1px;
+          margin: 32px 0 28px;
+          background: linear-gradient(to right, transparent, var(--voyager-bone-3, #C9BBA5) 12%, var(--voyager-bone-3, #C9BBA5) 88%, transparent);
+          opacity: 0.9;
         }
-        /* button focus */
-        button:focus-visible {
+        .arrival-fieldWrap {
+          width: 100%;
+          text-align: left;
+          transition: opacity 200ms ease;
+        }
+        .arrival-fieldWrap.is-busy { opacity: 0.55; }
+        .arrival-fieldLabel {
+          display: block;
+          font: 500 11px/16px General Sans, Inter, ui-sans-serif, sans-serif;
+          letter-spacing: 0.12em;
+          text-transform: uppercase;
+          color: var(--voyager-ink-2, #56636A);
+          margin-bottom: 12px;
+        }
+        .arrival-textarea {
+          width: 100%;
+          min-height: 148px;
+          max-height: 220px;
+          background: #FFFBF2;
+          border: 1px solid var(--voyager-bone-2, #E1D6C5);
+          border-radius: 14px;
+          padding: 20px 22px;
+          font-size: 17px;
+          line-height: 27px;
+          color: var(--voyager-ink-0, #1B252C);
+          resize: vertical;
           outline: none;
-          box-shadow: 0 0 0 3px rgba(216,193,154,.72), 0 1px 2px rgba(38,41,37,.10);
+          display: block;
+          font-family: General Sans, Inter, ui-sans-serif, sans-serif;
+          transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
+          box-shadow: inset 0 1px 0 rgba(27,37,44,.04);
         }
-        button:disabled {
+        .arrival-textarea::placeholder {
+          color: #9AA3A6;
+          opacity: 1;
+          font-style: italic;
+        }
+        .arrival-textarea:hover {
+          border-color: var(--voyager-bone-3, #C9BBA5);
+        }
+        .arrival-textarea:focus {
+          border-color: var(--voyager-bone-3, #C9BBA5);
+          background: #FFFEFB;
+          box-shadow: 0 0 0 3px rgba(179,138,85,.16), inset 0 1px 0 rgba(27,37,44,.03);
+        }
+        .arrival-textarea:disabled { opacity: 0.6; cursor: not-allowed; }
+        .arrival-fieldMeta {
+          display: grid;
+          grid-template-columns: 1fr auto;
+          gap: 8px 16px;
+          margin-top: 10px;
+          align-items: start;
+        }
+        .arrival-helper {
+          font-size: 12px;
+          line-height: 17px;
+          color: var(--voyager-ink-3, #7D878A);
+          letter-spacing: 0.01em;
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+        }
+        .arrival-helper::before {
+          content: "";
+          width: 5px;
+          height: 5px;
+          border-radius: 999px;
+          background: var(--voyager-bone-3, #C9BBA5);
+          flex-shrink: 0;
+          opacity: 0.95;
+        }
+        .arrival-count {
+          font-size: 11px;
+          line-height: 17px;
+          color: var(--voyager-ink-3, #7D878A);
+          white-space: nowrap;
+          font-variant-numeric: tabular-nums;
+          text-align: right;
+          font-weight: 500;
+          letter-spacing: 0.04em;
+          text-transform: uppercase;
+        }
+        .arrival-count.is-over { color: var(--voyager-clay, #B56F62); }
+        .arrival-cta {
+          margin-top: 28px;
+          background: transparent;
+          border: none;
+          border-bottom: 1px solid rgba(27,37,44,0.18);
+          border-radius: 0;
+          padding: 10px 2px 9px;
+          color: var(--voyager-ink-0, #1B252C);
+          font-size: 13px;
+          font-weight: 500;
+          letter-spacing: 0.10em;
+          text-transform: uppercase;
+          cursor: pointer;
+          display: inline-flex;
+          align-items: center;
+          gap: 10px;
+          transition: color 180ms ease, border-color 180ms ease, opacity 180ms ease, transform 180ms ease;
+        }
+        .arrival-cta:disabled {
+          opacity: 0.38;
+          cursor: not-allowed;
           pointer-events: none;
         }
-        /* respect reduced motion */
+        .arrival-cta:not(:disabled):hover {
+          color: var(--voyager-brass-3, #86633B);
+          border-bottom-color: rgba(134,99,59,0.42);
+          transform: translateY(-1px);
+        }
+        .arrival-cta:not(:disabled):active { transform: translateY(0); }
+        .arrival-cta:focus-visible {
+          outline: none;
+          box-shadow: 0 0 0 3px rgba(179,138,85,.22);
+          border-bottom-color: rgba(134,99,59,0.42);
+        }
+        .arrival-cta__arrow {
+          font-size: 15px;
+          line-height: 1;
+          transition: transform 180ms ease;
+          display: inline-block;
+        }
+        .arrival-cta:not(:disabled):hover .arrival-cta__arrow { transform: translateX(4px); }
+        .arrival-footnote {
+          margin-top: 20px;
+          font-size: 12px;
+          line-height: 18px;
+          color: rgba(86,99,106,0.62);
+          text-align: center;
+          letter-spacing: 0.01em;
+          max-width: 520px;
+        }
+        .arrival-feedback {
+          margin-top: 12px;
+          min-height: 20px;
+          font-size: 13px;
+          line-height: 18px;
+          color: var(--voyager-clay, #B56F62);
+          text-align: center;
+          max-width: 520px;
+        }
+        @keyframes arrivalPour {
+          from { opacity: 0; transform: translateY(10px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+        .is-exiting .arrival-column { animation: none; }
+        @media (max-width: 768px) {
+          .arrival-editorial { padding: 32px 18px 40px; }
+          .arrival-headline { font-size: clamp(36px, 9vw, 48px); }
+          .arrival-tagline { font-size: 15px; line-height: 24px; }
+          .arrival-textarea { min-height: 132px; font-size: 16px; }
+          .arrival-watermark__num { font-size: clamp(200px, 70vw, 380px); opacity: 0.028; }
+        }
+        @media (max-width: 380px) {
+          .arrival-fieldMeta { grid-template-columns: 1fr; }
+          .arrival-count { text-align: left; }
+        }
         @media (prefers-reduced-motion: reduce) {
-          .background-image { animation: none !important; }
           .arrival-column { animation: none !important; transition: none !important; }
         }
       `}</style>

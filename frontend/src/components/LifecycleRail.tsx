@@ -12,27 +12,27 @@ const stages = [
 ]
 
 function Dot({status}:{status:string}){
-  if(status==='completed') return <span style={{width:8,height:8,borderRadius:999,background:'var(--voyager-sage)', display:'inline-block'}}/>
-  if(status==='failed') return <span style={{width:8,height:8,borderRadius:999,background:'var(--voyager-clay)', display:'inline-block'}}/>
-  if(status==='progress') return <span style={{width:8,height:8,borderRadius:999,background:'var(--voyager-brass-1)', display:'inline-block', boxShadow:'0 0 0 6px rgba(179,138,85,0.18)', animation:'rippleBreathe 2.2s ease-in-out infinite'}}/>
-  return <span style={{width:8,height:8,borderRadius:999,border:'1px solid var(--voyager-bone-3)', display:'inline-block'}}/>
+  if(status==='completed') return <span style={{width:7,height:7,borderRadius:999,background:'var(--voyager-sage)', display:'inline-block', opacity:0.95}}/>
+  if(status==='failed') return <span style={{width:7,height:7,borderRadius:999,background:'var(--voyager-clay)', display:'inline-block'}}/>
+  if(status==='progress') return <span style={{width:7,height:7,borderRadius:999,background:'var(--voyager-brass-1)', display:'inline-block', boxShadow:'0 0 0 5px rgba(179,138,85,0.14)', animation:'rippleBreathe 2.2s ease-in-out infinite'}}/>
+  return <span style={{width:7,height:7,borderRadius:999,border:'1px solid rgba(201,187,165,0.55)', display:'inline-block'}}/>
 }
 
 export default function LifecycleRail({expanded}:{expanded:boolean}){
   if(!expanded){
-    return <div aria-hidden style={{position:'fixed', right:0, top:72, bottom:0, width:4, background:'var(--voyager-brass-1)', opacity:.9}}/>
+    return <div aria-hidden style={{position:'fixed', right:0, top:64, bottom:0, width:3, background:'rgba(179,138,85,0.32)'}}/>
   }
   return (
-    <aside aria-label="Lifecycle" style={{position:'fixed', right:0, top:72, bottom:0, width:320, background:'var(--voyager-ink-0)', color:'var(--voyager-light-ink)', padding:'32px 24px', overflow:'auto', boxShadow:'var(--voyager-shadow-night-rail)', borderLeft:'1px solid rgba(242,235,221,0.08)'}}>
-      <div style={{fontSize:11, letterSpacing:'0.16em', textTransform:'uppercase', color:'rgba(242,235,221,0.58)', marginBottom:24}}>Lifecycle</div>
-      <div style={{display:'flex', flexDirection:'column', gap:22}}>
+    <aside aria-label="Lifecycle" style={{position:'fixed', right:0, top:64, bottom:0, width:288, background:'rgba(27,37,44,0.96)', color:'var(--voyager-light-ink)', padding:'28px 20px', overflow:'auto', boxShadow:'-8px 0 24px rgba(0,0,0,0.10)', borderLeft:'1px solid rgba(242,235,221,0.06)', boxSizing:'border-box'}}>
+      <div style={{fontSize:10, letterSpacing:'0.14em', textTransform:'uppercase', color:'rgba(242,235,221,0.46)', marginBottom:20, fontWeight:400}}>Lifecycle</div>
+      <div style={{display:'flex', flexDirection:'column', gap:18}}>
         {stages.map(s=>(
-          <div key={s.key} style={{display:'flex', gap:12}}>
-            <Dot status={s.status}/>
+          <div key={s.key} style={{display:'flex', gap:10, alignItems:'flex-start'}}>
+            <span style={{marginTop:5, display:'inline-flex'}}><Dot status={s.status}/></span>
             <div>
-              <div style={{fontSize:13, fontWeight:500, color:'var(--voyager-light-ink)'}}>{s.label}</div>
-              {s.summary && <div style={{fontSize:12, color:'rgba(242,235,221,0.62)', marginTop:2, lineHeight:1.5}}>{s.summary}</div>}
-              {s.status==='failed' && <div style={{fontSize:11, color:'var(--voyager-clay)', marginTop:4}}>This check will be retried — your plan is still being shaped.</div>}
+              <div style={{fontSize:12.5, fontWeight:400, color:'rgba(242,235,221,0.92)', letterSpacing:'0.01em'}}>{s.label}</div>
+              {s.summary && <div style={{fontSize:11.5, color:'rgba(242,235,221,0.52)', marginTop:2, lineHeight:1.45}}>{s.summary}</div>}
+              {s.status==='failed' && <div style={{fontSize:11, color:'var(--voyager-clay)', marginTop:4, opacity:0.9}}>This check will be retried — your plan is still being shaped.</div>}
             </div>
           </div>
         ))}

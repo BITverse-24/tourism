@@ -18,9 +18,10 @@ export default function TradeoffBrief() {
 
   return (
     <main
-      className="tradeoff-brief"
+      className="tradeoff-brief fluid-medium"
       style={{
-        width: 'min(800px, calc(100vw - 48px))',
+        width: '90vw',
+        maxWidth: 980,
         margin: '0 auto',
         padding: '96px 0 128px',
         minWidth: 0,

@@ -1,8 +1,4 @@
-import { useState } from 'react'
 import { mockPlan } from '../data/mockPlan'
-
-type Allocation = { place: string; nights?: number; days: number; reason?: string }
-type Accommodation = { place: string; nights: number; recommendation: string; reason: string; estimated_cost?: string; status: 'suggested' | 'selected_by_traveler' | 'not_yet_decided' }
 
 function budgetText(pos: string): string {
   switch (pos) {
@@ -13,592 +9,521 @@ function budgetText(pos: string): string {
   }
 }
 
-function statusLabel(s: string): string {
-  if (s === 'suggested') return 'Suggested'
-  if (s === 'selected_by_traveler') return 'Selected by traveler'
-  return 'Not yet decided'
-}
-
 export default function TripOverview() {
   const plan = mockPlan
-  // derive total nights/days for allocation proportions
-  const allocations: Allocation[] = plan.city_allocations
-  const route = [...plan.destination_route].sort((a, b) => a.order - b.order)
-  const totalUnits = allocations.reduce((s, a) => s + (a.nights ?? a.days), 0) || 1
+  const allocations = plan.city_allocations
   const totalNights = allocations.reduce((s, a) => s + (a.nights ?? 0), 0)
-  const totalDays = allocations.reduce((s, a) => s + (a.days ?? 0), 0)
+  const primary = allocations[0]
+  const nightLabel = totalNights ? `${totalNights} NIGHTS` : primary ? `${primary.nights ?? primary.days} NIGHTS` : ''
+  const placeLabel = primary?.place?.toUpperCase() ?? 'KYOTO'
+  const marker = `${placeLabel} · ${nightLabel}`
 
-  // which disclosure is open: one at a time for simplicity but independent per spec
-  const [openKey, setOpenKey] = useState<string | null>(null)
-  const toggle = (k: string) => setOpenKey(prev => (prev === k ? null : k))
-
-  // hero date line
   const dateLine = (() => {
     const td = plan.trip_dates
-    const daysLen = plan.days?.length ?? totalDays ?? totalNights
-    if (td?.start && td?.end) {
-      const flex = td.flexibility ? ` · ${td.flexibility}` : ''
-      const d = daysLen ? ` · ${daysLen} days` : ''
-      return `${td.start} → ${td.end}${d}${flex}`
-    }
-    if (td?.start || td?.end) {
-      const s = td.start ?? ''
-      const e = td.end ?? ''
-      const range = s && e ? `${s} → ${e}` : s || e
-      const d = daysLen ? ` · ${daysLen} days` : ''
-      const flex = td.flexibility ? ` · ${td.flexibility}` : ''
-      return `${range}${d}${flex}`.trim()
-    }
-    // duration fallback
-    if (daysLen) {
-      const flex = td?.flexibility ? ` · ${td.flexibility}` : ' · Flexible'
-      return `${daysLen} days${flex}`
-    }
-    return td?.flexibility ?? ''
+    const daysLen = plan.days?.length ?? totalNights
+    if (td?.start && td?.end) return `${td.start} → ${td.end}`
+    if (td?.start || td?.end) return td.start ?? td.end ?? ''
+    if (daysLen) return `${daysLen} days`
+    return ''
   })()
 
-  const isDraft = plan.plan_title.toLowerCase().includes('draft')
-
-  // generate abstract positions for cartography circles and path
-  // place circles horizontally spaced, slight vertical wave for atmosphere
-  const circlePositions = route.map((_, idx) => {
-    const n = route.length
-    // spread across 400 width with padding 60
-    const x = n === 1 ? 200 : 60 + (idx * (280 / Math.max(1, n - 1)))
-    // gentle vertical undulation
-    const y = 200 + Math.sin(idx * 1.1) * 18 - idx * 4
-    return { x, y }
-  })
-
-  const pathD = (() => {
-    if (circlePositions.length === 0) return ''
-    if (circlePositions.length === 1) return `M ${circlePositions[0].x - 24} ${circlePositions[0].y} C ${circlePositions[0].x - 8} ${circlePositions[0].y - 18}, ${circlePositions[0].x + 8} ${circlePositions[0].y + 18}, ${circlePositions[0].x + 24} ${circlePositions[0].y}`
-    let d = `M ${circlePositions[0].x} ${circlePositions[0].y}`
-    for (let i = 1; i < circlePositions.length; i++) {
-      const prev = circlePositions[i - 1]
-      const cur = circlePositions[i]
-      const mx = (prev.x + cur.x) / 2
-      // soft cubic with slight offset for organic feel
-      const c1x = mx - 24
-      const c1y = prev.y - 14
-      const c2x = mx + 24
-      const c2y = cur.y + 14
-      d += ` C ${c1x} ${c1y}, ${c2x} ${c2y}, ${cur.x} ${cur.y}`
-    }
-    return d
-  })()
+  // stay — first accommodation
+  const stay = plan.accommodation?.[0]
 
   return (
     <main
-      className="trip-overview content-canvas"
+      className="trip-overview"
       style={{
-        paddingTop: 64,
-        paddingBottom: 128,
-        maxWidth: 1240,
+        width: 'min(1360px, 92vw)',
         margin: '0 auto',
+        paddingTop: 56,
+        paddingBottom: 96,
       }}
     >
-      {/* Hero */}
-      <div style={{ animation: 'pourIn 500ms cubic-bezier(.22,.61,.36,1) both' }}>
+      {/* ——— Top editorial header ——— */}
+      <div style={{ maxWidth: 760 }}>
+        <p
+          style={{
+            fontSize: 11,
+            letterSpacing: '0.18em',
+            textTransform: 'uppercase',
+            color: 'var(--voyager-ink-3)',
+            fontWeight: 500,
+          }}
+        >
+          01 — THE JOURNEY
+        </p>
+
         <h1
           className="serif"
           style={{
-            fontSize: 40,
-            lineHeight: '48px',
-            fontWeight: 400,
+            marginTop: 18,
+            fontSize: 'clamp(36px, 4.2vw, 52px)',
+            lineHeight: 1.05,
+            fontWeight: 300,
+            letterSpacing: '-0.03em',
             color: 'var(--voyager-ink-1)',
-            textAlign: 'left',
-            letterSpacing: '-0.02em',
           }}
         >
           {plan.plan_title}
         </h1>
+
         {dateLine && (
           <p
             style={{
-              marginTop: 12,
-              fontSize: 16,
-              lineHeight: '25px',
+              marginTop: 18,
+              fontSize: 13,
+              lineHeight: '20px',
+              letterSpacing: '0.06em',
               color: 'var(--voyager-ink-2)',
             }}
           >
             {dateLine}
+            {plan.trip_dates?.flexibility ? ` · ${plan.trip_dates.flexibility}` : ''}
           </p>
         )}
-        {isDraft && (
-          <div
-            style={{
-              marginTop: 16,
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 8,
-              padding: '6px 12px',
-              border: '1px dashed var(--voyager-brass-1)',
-              borderRadius: 'var(--voyager-radius-pill)',
-              fontSize: 12,
-              letterSpacing: '0.08em',
-              textTransform: 'uppercase',
-              color: 'var(--voyager-ink-2)',
-            }}
-          >
-            Draft — not yet confirmed
-          </div>
-        )}
       </div>
 
-      {/* Allocation bar */}
+      {/* very thin horizontal rule + marker — not gold */}
       <div
-        role="list"
-        aria-label="Time allocation by place"
         style={{
-          marginTop: 32,
-          marginBottom: 48,
+          marginTop: 28,
           display: 'flex',
-          gap: 4,
-          height: 12,
-          alignItems: 'stretch',
-          animation: 'fadeIn 420ms ease 180ms both',
+          alignItems: 'center',
+          gap: 16,
         }}
       >
-        {allocations.map((a, i) => {
-          const value = a.nights ?? a.days
-          const pct = (value / totalUnits) * 100
-          // opacity wash: begin near full, step down gently
-          const opacity = Math.max(0.52, 1 - i * 0.14)
-          const amountLabel = a.nights != null ? `${a.nights} nights` : `${a.days} days`
-          const ariaName = `${a.place}, ${amountLabel}${a.reason ? `, ${a.reason}` : ''}`
-          return (
-            <div
-              key={`${a.place}-${i}`}
-              role="listitem"
-              aria-label={ariaName}
-              title={`${a.place}: ${amountLabel}${a.reason ? ` — ${a.reason}` : ''}`}
-              tabIndex={0}
-              style={{
-                flex: `${value} 1 0%`,
-                minWidth: 4,
-                width: `${pct}%`,
-                background: 'var(--voyager-brass-1)',
-                opacity,
-                borderRadius: 999,
-                transition: 'filter 150ms ease, opacity 150ms ease',
-              }}
-              onFocus={e => ((e.currentTarget as HTMLDivElement).style.filter = 'brightness(1.06)')}
-              onBlur={e => ((e.currentTarget as HTMLDivElement).style.filter = 'none')}
-              onMouseEnter={e => ((e.currentTarget as HTMLDivElement).style.filter = 'brightness(1.06)')}
-              onMouseLeave={e => ((e.currentTarget as HTMLDivElement).style.filter = 'none')}
-            />
-          )
-        })}
+        <div style={{ flex: 1, height: 1, background: 'var(--voyager-bone-2)' }} aria-hidden />
+        <span
+          style={{
+            fontSize: 10,
+            letterSpacing: '0.16em',
+            textTransform: 'uppercase',
+            color: 'var(--voyager-ink-3)',
+            fontWeight: 500,
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {marker}
+        </span>
       </div>
 
-      {/* Main spread 7fr / 5fr */}
+      {/* ——— Editorial body: left ~65% / right 35% ——— */}
       <div
-        className="overview-grid"
+        className="overview-editorial"
         style={{
+          marginTop: 40,
           display: 'grid',
-          gridTemplateColumns: '7fr 5fr',
-          gap: 64,
+          gridTemplateColumns: 'minmax(0, 1.85fr) minmax(320px, 0.95fr)',
+          gap: '56px 64px',
           alignItems: 'start',
         }}
       >
-        {/* Left — Cartography 1:1 */}
-        <div style={{ animation: 'pourIn 520ms cubic-bezier(.22,.61,.36,1) 260ms both' }}>
-          <div
-            aria-label="Route illustration"
-            style={{
-              aspectRatio: '1 / 1',
-              background: 'var(--voyager-bone-1)',
-              border: `1px solid ${isDraft ? 'var(--voyager-brass-1)' : 'var(--voyager-bone-2)'}`,
-              borderStyle: isDraft ? 'dashed' : 'solid',
-              borderRadius: 'var(--voyager-radius-lg)',
-              overflow: 'hidden',
-              position: 'relative',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              boxShadow: 'var(--voyager-shadow-card)',
-            }}
-          >
-            {/* warm skeleton fallback is the bone background itself; SVG is the ink illustration */}
-            <svg
-              viewBox="0 0 400 400"
-              role="img"
-              aria-label={`Route through ${route.map(r => r.place).join(', ')} in order`}
-              style={{ width: '100%', height: '100%', display: 'block' }}
+        {/* LEFT — editorial rows */}
+        <div>
+          {/* Destination / Stay as quiet rows — not accordions */}
+          <div style={{ borderTop: '1px solid var(--voyager-bone-2)' }}>
+            {/* Destination row */}
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '132px 1fr',
+                gap: 24,
+                padding: '22px 0',
+                borderBottom: '1px solid var(--voyager-bone-2)',
+              }}
             >
-              {/* soft route path */}
-              {pathD && (
-                <path
-                  d={pathD}
-                  fill="none"
-                  stroke="var(--voyager-ink-2)"
-                  strokeOpacity={0.55}
-                  strokeWidth={2}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              )}
-              {route.map((r, idx) => {
-                const pos = circlePositions[idx]
-                if (!pos) return null
-                return (
-                  <g key={`${r.place}-${r.order}`}>
-                    <circle
-                      cx={pos.x}
-                      cy={pos.y}
-                      r={10}
-                      fill="var(--voyager-bone-0)"
-                      stroke="var(--voyager-ink-2)"
-                      strokeOpacity={0.9}
-                      strokeWidth={1.2}
-                    />
-                    {/* place label */}
-                    <text
-                      x={pos.x}
-                      y={pos.y + 36}
-                      textAnchor="middle"
-                      fontSize={10}
-                      letterSpacing="0.10em"
-                      fill="var(--voyager-ink-2)"
-                      style={{ textTransform: 'uppercase', fontWeight: 500, fontFamily: 'General Sans, Inter, ui-sans-serif, sans-serif' }}
-                    >
-                      {r.place}
-                    </text>
-                  </g>
-                )
-              })}
-            </svg>
-          </div>
-          <p style={{ marginTop: 16, fontSize: 12, lineHeight: '17px', color: 'var(--voyager-ink-3)' }}>
-            Route is ordered; geography is illustrative, not precise.
-          </p>
-        </div>
-
-        {/* Right — Details rail */}
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 24,
-            animation: 'pourIn 520ms cubic-bezier(.22,.61,.36,1) 340ms both',
-          }}
-        >
-          {/* Allocation disclosures */}
-          {allocations.map((a, idx) => {
-            const key = `alloc-${idx}`
-            const isOpen = openKey === key
-            const amountLabel = a.nights != null ? `${a.nights} nights` : `${a.days} days`
-            return (
-              <div
-                key={key}
+              <span
                 style={{
-                  borderTop: '1px solid var(--voyager-bone-2)',
+                  fontSize: 11,
+                  letterSpacing: '0.14em',
+                  textTransform: 'uppercase',
+                  color: 'var(--voyager-ink-3)',
+                  fontWeight: 500,
+                  paddingTop: 2,
                 }}
               >
-                <button
-                  type="button"
-                  id={`${key}-btn`}
-                  aria-expanded={isOpen}
-                  aria-controls={`${key}-panel`}
-                  onClick={() => toggle(key)}
+                Destination
+              </span>
+              <div>
+                <p
+                  className="serif"
                   style={{
-                    width: '100%',
-                    minHeight: 56,
-                    height: 56,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: 16,
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    textAlign: 'left',
-                    padding: '0 2px',
+                    fontSize: 18,
+                    lineHeight: '26px',
                     color: 'var(--voyager-ink-1)',
+                    fontWeight: 400,
                   }}
                 >
-                  <span
-                    style={{
-                      fontSize: 13,
-                      lineHeight: '18px',
-                      fontWeight: 500,
-                      letterSpacing: '0.12em',
-                      textTransform: 'uppercase',
-                      color: 'var(--voyager-ink-1)',
-                    }}
-                  >
-                    {a.place} · {amountLabel}
-                  </span>
-                  <span
-                    aria-hidden="true"
-                    style={{
-                      fontSize: 18,
-                      lineHeight: '18px',
-                      color: 'var(--voyager-ink-3)',
-                      flexShrink: 0,
-                      width: 24,
-                      textAlign: 'center',
-                    }}
-                  >
-                    {isOpen ? '−' : '+'}
-                  </span>
-                </button>
-                <div
-                  id={`${key}-panel`}
-                  role="region"
-                  aria-labelledby={`${key}-btn`}
-                  hidden={!isOpen}
-                  style={{
-                    display: isOpen ? 'block' : 'none',
-                    paddingTop: isOpen ? 24 : 0,
-                    paddingBottom: isOpen ? 8 : 0,
-                    animation: isOpen ? 'settle 420ms cubic-bezier(.22,.61,.36,1) both' : undefined,
-                  }}
-                >
-                  {a.reason ? (
-                    <p style={{ fontSize: 16, lineHeight: '25px', color: 'var(--voyager-ink-2)' }}>{a.reason}</p>
-                  ) : (
-                    <p style={{ fontSize: 16, lineHeight: '25px', color: 'var(--voyager-ink-3)' }}>
-                      Time here reflects the planned pace and routing.
-                    </p>
-                  )}
-                </div>
+                  {primary ? `${primary.place} · ${primary.nights != null ? `${primary.nights} nights` : `${primary.days} days`}` : 'Kyoto · 3 nights'}
+                </p>
+                {primary?.reason && (
+                  <p style={{ marginTop: 8, fontSize: 14, lineHeight: '22px', color: 'var(--voyager-ink-2)', maxWidth: 520 }}>
+                    {primary.reason}
+                  </p>
+                )}
               </div>
-            )
-          })}
+            </div>
 
-          {/* Accommodation disclosures */}
-          {plan.accommodation && plan.accommodation.length > 0 ? (
-            plan.accommodation.map((acc: Accommodation, idx: number) => {
-              const key = `acc-${idx}`
-              const isOpen = openKey === key
-              return (
-                <div
-                  key={key}
+            {/* Stay row */}
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '132px 1fr',
+                gap: 24,
+                padding: '22px 0',
+                borderBottom: '1px solid var(--voyager-bone-2)',
+              }}
+            >
+              <span
+                style={{
+                  fontSize: 11,
+                  letterSpacing: '0.14em',
+                  textTransform: 'uppercase',
+                  color: 'var(--voyager-ink-3)',
+                  fontWeight: 500,
+                  paddingTop: 2,
+                }}
+              >
+                Stay
+              </span>
+              <div>
+                {stay ? (
+                  <>
+                    <p
+                      style={{
+                        fontSize: 15,
+                        lineHeight: '22px',
+                        color: 'var(--voyager-ink-1)',
+                        fontWeight: 500,
+                      }}
+                    >
+                      {stay.recommendation}
+                    </p>
+                    <p style={{ marginTop: 6, fontSize: 13, lineHeight: '19px', color: 'var(--voyager-ink-2)' }}>
+                      {stay.place} · {stay.nights} nights · {stay.reason}
+                    </p>
+                    {stay.estimated_cost && (
+                      <p style={{ marginTop: 6, fontSize: 12, lineHeight: '16px', color: 'var(--voyager-ink-3)' }}>
+                        {stay.estimated_cost} · {stay.status === 'suggested' ? 'Suggested' : stay.status === 'selected_by_traveler' ? 'Selected by traveler' : 'Not yet decided'}
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  <p style={{ fontSize: 14, lineHeight: '22px', color: 'var(--voyager-ink-2)' }}>
+                    Lodging not yet decided — recommendations will appear here when selected.
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* The intention */}
+          <div style={{ marginTop: 44 }}>
+            <p
+              style={{
+                fontSize: 11,
+                letterSpacing: '0.14em',
+                textTransform: 'uppercase',
+                color: 'var(--voyager-ink-3)',
+                fontWeight: 500,
+              }}
+            >
+              The intention
+            </p>
+            <p
+              className="serif"
+              style={{
+                marginTop: 14,
+                fontSize: 20,
+                lineHeight: '32px',
+                color: 'var(--voyager-ink-1)',
+                fontWeight: 300,
+                letterSpacing: '-0.015em',
+                maxWidth: 560,
+              }}
+            >
+              Slow mornings, quiet temples, neighborhood wandering — one main experience per part of day, time to breathe.
+            </p>
+            <p
+              style={{
+                marginTop: 14,
+                fontSize: 14,
+                lineHeight: '23px',
+                color: 'var(--voyager-ink-2)',
+                maxWidth: 560,
+              }}
+            >
+              {plan.summary}
+            </p>
+          </div>
+
+          {/* What this trip feels like */}
+          <div
+            style={{
+              marginTop: 36,
+              paddingTop: 20,
+              borderTop: '1px solid var(--voyager-bone-2)',
+            }}
+          >
+            <p
+              style={{
+                fontSize: 11,
+                letterSpacing: '0.14em',
+                textTransform: 'uppercase',
+                color: 'var(--voyager-ink-3)',
+                fontWeight: 500,
+              }}
+            >
+              What this trip feels like
+            </p>
+            <p
+              style={{
+                marginTop: 10,
+                fontSize: 11,
+                letterSpacing: '0.16em',
+                textTransform: 'uppercase',
+                color: 'var(--voyager-ink-2)',
+                fontWeight: 500,
+                lineHeight: '20px',
+              }}
+            >
+              EARLY LIGHT · LOW CROWDS · LOCAL FOOD · UNHURRIED DAYS
+            </p>
+          </div>
+
+          {/* subtle closing rule */}
+          <div style={{ marginTop: 36, height: 1, background: 'var(--voyager-bone-2)' }} aria-hidden />
+        </div>
+
+        {/* RIGHT — 35% Concierge estimate : the visual anchor */}
+        <div
+          style={{
+            background: 'var(--voyager-bone-1)',
+            border: '1px solid var(--voyager-bone-2)',
+            borderRadius: 'var(--voyager-radius-md)',
+            padding: '28px 28px 24px',
+            position: 'sticky',
+            top: 24,
+          }}
+        >
+          <p
+            style={{
+              fontSize: 10,
+              letterSpacing: '0.18em',
+              textTransform: 'uppercase',
+              color: 'var(--voyager-ink-3)',
+              fontWeight: 500,
+            }}
+          >
+            CONCIERGE ESTIMATE
+          </p>
+
+          {/* price + tiny status */}
+          <div
+            style={{
+              marginTop: 14,
+              display: 'flex',
+              alignItems: 'baseline',
+              gap: 12,
+              flexWrap: 'wrap',
+            }}
+          >
+            <span
+              className="serif"
+              style={{
+                fontSize: 36,
+                lineHeight: '40px',
+                fontWeight: 300,
+                letterSpacing: '-0.03em',
+                color: 'var(--voyager-ink-1)',
+              }}
+            >
+              INR 63,000
+            </span>
+            <span
+              style={{
+                fontSize: 10,
+                letterSpacing: '0.12em',
+                textTransform: 'uppercase',
+                color: 'var(--voyager-ink-3)',
+                fontWeight: 500,
+                border: '1px solid var(--voyager-bone-2)',
+                borderRadius: 'var(--voyager-radius-pill)',
+                padding: '4px 9px',
+                lineHeight: 1,
+                background: 'var(--voyager-bone-0)',
+              }}
+            >
+              {budgetText(plan.cost_summary.budget_position)}
+            </span>
+          </div>
+
+          <p
+            style={{
+              marginTop: 10,
+              fontSize: 12,
+              lineHeight: '18px',
+              color: 'var(--voyager-ink-3)',
+            }}
+          >
+            {plan.cost_summary.scope}
+          </p>
+
+          {/* dotted ledger */}
+          <div
+            style={{
+              marginTop: 22,
+              paddingTop: 18,
+              borderTop: '1px solid var(--voyager-bone-2)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 12,
+            }}
+            aria-label="Cost breakdown"
+          >
+            {[
+              { name: 'Accommodation', amount: '36,000' },
+              { name: 'Local transport', amount: '6,000' },
+              { name: 'Food', amount: '18,000' },
+              { name: 'Experiences', amount: '3,000' },
+            ].map(row => (
+              <div
+                key={row.name}
+                style={{
+                  display: 'flex',
+                  alignItems: 'baseline',
+                  gap: 10,
+                  fontSize: 13,
+                  lineHeight: '20px',
+                }}
+              >
+                <span style={{ color: 'var(--voyager-ink-2)', whiteSpace: 'nowrap' }}>{row.name}</span>
+                <span
+                  aria-hidden
                   style={{
-                    borderTop: '1px solid var(--voyager-bone-2)',
+                    flex: 1,
+                    borderBottom: '1px dotted var(--voyager-bone-3)',
+                    opacity: 0.9,
+                    transform: 'translateY(-3px)',
+                    minWidth: 12,
+                  }}
+                />
+                <span
+                  className="mono"
+                  style={{
+                    color: 'var(--voyager-ink-1)',
+                    fontWeight: 500,
+                    fontSize: 13,
+                    whiteSpace: 'nowrap',
                   }}
                 >
-                  <button
-                    type="button"
-                    id={`${key}-btn`}
-                    aria-expanded={isOpen}
-                    aria-controls={`${key}-panel`}
-                    onClick={() => toggle(key)}
-                    style={{
-                      width: '100%',
-                      minHeight: 56,
-                      height: 56,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      gap: 16,
-                      background: 'none',
-                      border: 'none',
-                      cursor: 'pointer',
-                      textAlign: 'left',
-                      padding: '0 2px',
-                      color: 'var(--voyager-ink-1)',
-                    }}
-                  >
-                    <span
-                      style={{
-                        fontSize: 13,
-                        lineHeight: '18px',
-                        fontWeight: 500,
-                        letterSpacing: '0.12em',
-                        textTransform: 'uppercase',
-                        color: 'var(--voyager-ink-1)',
-                      }}
-                    >
-                      Stay · {acc.place}
-                    </span>
-                    <span
-                      aria-hidden="true"
-                      style={{
-                        fontSize: 18,
-                        lineHeight: '18px',
-                        color: 'var(--voyager-ink-3)',
-                        flexShrink: 0,
-                        width: 24,
-                        textAlign: 'center',
-                      }}
-                    >
-                      {isOpen ? '−' : '+'}
-                    </span>
-                  </button>
-                  <div
-                    id={`${key}-panel`}
-                    role="region"
-                    aria-labelledby={`${key}-btn`}
-                    hidden={!isOpen}
-                    style={{
-                      display: isOpen ? 'block' : 'none',
-                      paddingTop: isOpen ? 24 : 0,
-                      paddingBottom: isOpen ? 8 : 0,
-                      animation: isOpen ? 'settle 420ms cubic-bezier(.22,.61,.36,1) both' : undefined,
-                    }}
-                  >
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', gap: 8 }}>
-                        <span style={{ fontSize: 16, lineHeight: '25px', fontWeight: 500, color: 'var(--voyager-ink-1)' }}>
-                          {acc.recommendation}
-                        </span>
-                        <span
-                          style={{
-                            fontSize: 11,
-                            letterSpacing: '0.10em',
-                            textTransform: 'uppercase',
-                            color: 'var(--voyager-ink-3)',
-                            fontWeight: 500,
-                          }}
-                        >
-                          {statusLabel(acc.status)}
-                        </span>
-                      </div>
-                      <p style={{ fontSize: 16, lineHeight: '25px', color: 'var(--voyager-ink-2)' }}>{acc.reason}</p>
-                      {acc.estimated_cost && (
-                        <p style={{ fontSize: 13, lineHeight: '18px', color: 'var(--voyager-ink-3)' }}>{acc.estimated_cost}</p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )
-            })
-          ) : (
-            <div style={{ borderTop: '1px solid var(--voyager-bone-2)', paddingTop: 16 }}>
+                  {row.amount}
+                </span>
+              </div>
+            ))}
+          </div>
+
+          {/* Included / Not included */}
+          <div
+            style={{
+              marginTop: 22,
+              paddingTop: 18,
+              borderTop: '1px solid var(--voyager-bone-2)',
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: 20,
+            }}
+          >
+            <div>
               <p
                 style={{
-                  fontSize: 13,
-                  letterSpacing: '0.12em',
+                  fontSize: 10,
+                  letterSpacing: '0.14em',
                   textTransform: 'uppercase',
                   color: 'var(--voyager-ink-3)',
                   fontWeight: 500,
                 }}
               >
-                Accommodation
+                Included
               </p>
-              <p style={{ marginTop: 12, fontSize: 16, lineHeight: '25px', color: 'var(--voyager-ink-2)' }}>
-                Lodging not yet decided — recommendations will appear here when selected.
-              </p>
+              <ul
+                style={{
+                  marginTop: 8,
+                  listStyle: 'none',
+                  padding: 0,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 4,
+                  fontSize: 12,
+                  lineHeight: '18px',
+                  color: 'var(--voyager-ink-2)',
+                }}
+              >
+                <li>Kyoto stay (3 nights)</li>
+                <li>Local activities</li>
+                <li>Lodging estimate</li>
+              </ul>
             </div>
-          )}
+            <div>
+              <p
+                style={{
+                  fontSize: 10,
+                  letterSpacing: '0.14em',
+                  textTransform: 'uppercase',
+                  color: 'var(--voyager-ink-3)',
+                  fontWeight: 500,
+                }}
+              >
+                Not included
+              </p>
+              <ul
+                style={{
+                  marginTop: 8,
+                  listStyle: 'none',
+                  padding: 0,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 4,
+                  fontSize: 12,
+                  lineHeight: '18px',
+                  color: 'var(--voyager-ink-2)',
+                }}
+              >
+                <li>International flights</li>
+                <li>Travel insurance</li>
+                <li>Personal purchases</li>
+              </ul>
+            </div>
+          </div>
 
-          {/* Cost summary card — last in rail */}
-          <div
-            style={{
-              background: 'var(--voyager-bone-1)',
-              border: `1px solid ${isDraft ? 'var(--voyager-brass-1)' : 'var(--voyager-bone-2)'}`,
-              borderStyle: isDraft ? 'dashed' : 'solid',
-              borderRadius: 'var(--voyager-radius-md)',
-              padding: 24,
-              boxShadow: 'var(--voyager-shadow-card)',
-            }}
-          >
-            {/* caption */}
+          {/* caveats — quiet footnote */}
+          {plan.cost_summary.caveats.length > 0 && (
             <div
               style={{
-                fontSize: 13,
-                lineHeight: '18px',
-                fontWeight: 500,
-                letterSpacing: '0.12em',
-                textTransform: 'uppercase',
-                color: 'var(--voyager-ink-3)',
+                marginTop: 18,
+                paddingTop: 16,
+                borderTop: '1px solid var(--voyager-bone-2)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 8,
               }}
             >
-              Cost summary — {plan.cost_summary.currency}
-            </div>
-            {/* heading — estimated total */}
-            <div
-              className="mono"
-              style={{
-                marginTop: 10,
-                fontSize: 22,
-                lineHeight: '30px',
-                fontWeight: 500,
-                color: 'var(--voyager-ink-1)',
-              }}
-            >
-              {plan.cost_summary.currency} {plan.cost_summary.estimated_total.toLocaleString('en-IN')}
-            </div>
-            {/* scope */}
-            <p
-              style={{
-                marginTop: 10,
-                fontSize: 12,
-                lineHeight: '17px',
-                color: 'var(--voyager-ink-3)',
-              }}
-            >
-              {plan.cost_summary.scope}
-            </p>
-            {/* categories */}
-            <div style={{ marginTop: 18, display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {plan.cost_summary.categories.map(c => (
-                <div
-                  key={c.name}
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    gap: 16,
-                    fontSize: 16,
-                    lineHeight: '25px',
-                    color: 'var(--voyager-ink-2)',
-                  }}
-                >
-                  <span>{c.name}</span>
-                  <span className="mono" style={{ color: 'var(--voyager-ink-1)', flexShrink: 0 }}>
-                    {plan.cost_summary.currency} {c.amount.toLocaleString('en-IN')}
-                  </span>
-                </div>
+              {plan.cost_summary.caveats.map((c, i) => (
+                <p key={i} style={{ fontSize: 11, lineHeight: '16px', color: 'var(--voyager-ink-3)' }}>
+                  — {c}
+                </p>
               ))}
             </div>
-            {/* budget position — plain text */}
-            <p
-              style={{
-                marginTop: 16,
-                fontSize: 13,
-                lineHeight: '18px',
-                letterSpacing: '0.08em',
-                textTransform: 'uppercase',
-                fontWeight: 500,
-                color: 'var(--voyager-ink-2)',
-              }}
-            >
-              {budgetText(plan.cost_summary.budget_position)}
-            </p>
-            {/* caveats */}
-            {plan.cost_summary.caveats.length > 0 && (
-              <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {plan.cost_summary.caveats.map((cv, i) => (
-                  <p
-                    key={i}
-                    style={{
-                      fontSize: 12,
-                      lineHeight: '17px',
-                      color: 'var(--voyager-ink-3)',
-                    }}
-                  >
-                    {cv}
-                  </p>
-                ))}
-              </div>
-            )}
-          </div>
+          )}
         </div>
       </div>
 
       <style>{`
-        @keyframes pourIn { from { opacity:0; transform: translateY(8px);} to {opacity:1; transform: translateY(0);} }
-        @keyframes fadeIn { from {opacity:0;} to {opacity:1;} }
-        @keyframes settle { from { opacity:0; transform: translateY(6px);} to {opacity:1; transform: translateY(0);} }
-        @media (max-width: 1024px) {
-          .overview-grid { grid-template-columns: 1fr !important; }
+        @media (max-width: 980px) {
+          .overview-editorial { grid-template-columns: 1fr !important; }
+          .overview-editorial > div:last-child { position: static !important; }
         }
-        /* focus ring — brass */
-        .trip-overview button:focus-visible { box-shadow: var(--voyager-focus-ring); outline: none; border-radius: 6px; }
-        .trip-overview [role="listitem"]:focus-visible { box-shadow: var(--voyager-focus-ring); outline: none; border-radius: 999px; }
       `}</style>
     </main>
   )

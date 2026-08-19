@@ -28,11 +28,8 @@ export type ProfileSnapshot = {
   revision: number;
   sequence?: number;
   profile: {
-    // trip context
     trip_context?: Record<string, unknown> | null;
-    // purpose
     purpose_and_priorities?: Record<string, unknown> | null;
-    // preferences
     preferences?: Array<{
       category: string;
       strength: string;
@@ -40,20 +37,15 @@ export type ProfileSnapshot = {
       notes?: string;
       confidence?: string;
     }> | null;
-    // travel_style
     travel_style?: Record<string, unknown> | null;
-    // hard_constraints
     hard_constraints?: Record<string, unknown> | null;
-    // unknowns
     unknowns?: Array<{ topic: string; impact: string; description: string }> | null;
-    // assumptions
     assumptions?: Array<{
       topic: string;
       value: string;
       reason: string;
       user_confirmation_needed?: boolean;
     }> | null;
-    // allow extra fields
     [k: string]: unknown;
   };
 };
@@ -61,19 +53,16 @@ export type ProfileSnapshot = {
 export type DiscoveryProps = {
   question: DiscoveryQuestion | null;
   profile?: ProfileSnapshot | null;
-  /** server-observed sequence for brass accent fill 0..total */
   sequence?: number;
   sequenceTotal?: number;
   busy?: boolean;
   feedback?: string | null;
-  /** called with fresh command_id; server remains authoritative */
   onAnswer?: (payload: {
     question_id: string;
     selected_option_ids: string[];
     free_text: string;
     command_id: string;
   }) => void;
-  /** optional nav, kept minimal */
   onBack?: () => void;
   onToggleNav?: () => void;
 };
@@ -229,7 +218,6 @@ export default function Discovery({
   const feedbackId = useId();
   const prevQRef = useRef<string | null>(null);
 
-  // Reset local state when question changes
   useEffect(() => {
     if (!question) return;
     if (prevQRef.current !== question.question_id) {
@@ -240,13 +228,11 @@ export default function Discovery({
     }
   }, [question?.question_id]);
 
-  // Keep ordered selection: toggle behavior
   const toggleOption = (optionId: string) => {
     if (!question || busy) return;
     const mode = question.selection_mode;
     const fmode = question.free_text_mode;
     if (fmode === "only_if_no_option" && text.trim().length > 0) {
-      // selecting clears text in this mode
       setText("");
       setShowMutualNote(true);
     }
@@ -282,7 +268,7 @@ export default function Discovery({
     if (fm === "only_if_no_option") {
       if (hasSelection && hasText) return false;
       if (req) return hasSelection || hasText;
-      return true; // not required: empty allowed
+      return true;
     }
     if (fm === "disabled") {
       return req ? hasSelection : true;
@@ -290,9 +276,7 @@ export default function Discovery({
     if (fm === "optional") {
       return req ? hasSelection || hasText : true;
     }
-    // required
     if (fm === "required") {
-      // require text when no selection, or always require text if required
       if (req) return hasText;
       return hasSelection || hasText;
     }
@@ -304,11 +288,9 @@ export default function Discovery({
   const handleSubmit = () => {
     if (!question || !canSubmit || !onAnswer) return;
     const fm = question.free_text_mode;
-    // enforce mutual exclusion at submit time for only_if_no_option
     let ids = [...selected];
     let ft = text;
     if (fm === "only_if_no_option" && hasSelection && hasText) {
-      // keep selection, drop text
       ft = "";
     }
     if (fm === "disabled") ft = "";
@@ -320,7 +302,6 @@ export default function Discovery({
     });
   };
 
-  // Rail sections in fixed order
   const railSections: RailSection[] = useMemo(() => {
     if (!profile?.profile) return [];
     const p = profile.profile as Record<string, unknown>;
@@ -430,12 +411,17 @@ export default function Discovery({
   }, [sequence, sequenceTotal]);
 
   const questionKey = question?.question_id ?? "empty";
+  const paddedSeq = sequence != null ? String(sequence).padStart(2, "0") : "--";
+  const paddedTotal = sequenceTotal != null ? String(sequenceTotal).padStart(2, "0") : "--";
 
   return (
     <>
       <style>{css}</style>
       <div className="discovery__canvas">
-        {/* Minimal top nav — kept basic */}
+        <div className="discovery__watermark" aria-hidden="true">
+          <span className="discovery__watermarkText">THE ART OF TRAVEL</span>
+          <span className="discovery__watermarkNum">02</span>
+        </div>
         {(onBack || onToggleNav) && (
           <nav className="discovery__nav" aria-label="Discovery navigation">
             {onBack ? (
@@ -454,7 +440,6 @@ export default function Discovery({
         <main className="discovery" aria-label="Discovery interview">
           {/* Interview column */}
           <div className="discovery__interview">
-            {/* vertical brass accent */}
             <div className="discovery__accent" aria-hidden="true">
               <div className="discovery__accentTrack" />
               <div className="discovery__accentFill" style={{ height: `${progressPct * 100}%` }} />
@@ -462,20 +447,32 @@ export default function Discovery({
 
             {!question ? (
               <div className="discovery__empty">
+                <div className="discovery__eyebrow discovery__pour discovery__pour--1">
+                  <span className="discovery__eyebrowNum">01</span>
+                  <span className="discovery__eyebrowSep">/</span>
+                  <span>DISCOVERY</span>
+                  <span className="discovery__eyebrowMeta">· {paddedSeq} / {paddedTotal}</span>
+                </div>
                 <p className="discovery__prompt discovery__prompt--empty">Waiting for the next question…</p>
               </div>
             ) : (
               <div
                 key={questionKey}
                 className={`discovery__block ${busy ? "discovery__block--busy" : ""}`}
-                style={{ opacity: busy ? 0.4 : 1 }}
+                style={{ opacity: busy ? 0.42 : 1 }}
               >
-                {/* Prompt — serif heading, stagger 0 */}
+                {/* 01 / DISCOVERY micro-label */}
+                <div className="discovery__eyebrow discovery__pour discovery__pour--1" aria-hidden="true">
+                  <span className="discovery__eyebrowNum">{paddedSeq}</span>
+                  <span className="discovery__eyebrowSep">/</span>
+                  <span>DISCOVERY</span>
+                  <span className="discovery__eyebrowMeta">· {paddedTotal} QUESTIONS</span>
+                </div>
+
                 <h2 id={promptId} className="discovery__prompt discovery__pour discovery__pour--1">
                   {question.prompt}
                 </h2>
 
-                {/* Choice group — stagger 1 */}
                 <div
                   className="discovery__choices discovery__pour discovery__pour--2"
                   role="group"
@@ -505,14 +502,12 @@ export default function Discovery({
                   )}
                 </div>
 
-                {/* Mutual exclusion note */}
                 {question.free_text_mode === "only_if_no_option" && showMutualNote && !busy ? (
                   <p className="discovery__mutualNote discovery__pour discovery__pour--3" role="note">
                     Selecting an option will clear your note · Notes and options can&apos;t be sent together.
                   </p>
                 ) : null}
 
-                {/* Note area — stagger 2 */}
                 {showNote ? (
                   <div className="discovery__noteWrap discovery__pour discovery__pour--3">
                     <label htmlFor={`note-${question.question_id}`} className="srOnly">
@@ -534,7 +529,6 @@ export default function Discovery({
                   </div>
                 ) : null}
 
-                {/* Continue — ghost, left aligned, stagger 3 */}
                 <div className="discovery__action discovery__pour discovery__pour--4">
                   <button
                     type="button"
@@ -543,11 +537,12 @@ export default function Discovery({
                     disabled={!canSubmit}
                     aria-disabled={!canSubmit ? "true" : undefined}
                   >
-                    Continue →
+                    Continue
+                    <span className="discovery__continueArrow" aria-hidden="true">→</span>
                   </button>
+                  <span className="discovery__continueHint">Press Enter to continue</span>
                 </div>
 
-                {/* Live feedback — polite */}
                 <div
                   id={feedbackId}
                   className="discovery__feedback"
@@ -561,12 +556,20 @@ export default function Discovery({
             )}
           </div>
 
-          {/* Rail — sticky */}
+          {/* Rail — private concierge dossier */}
           <aside className="discovery__rail" aria-label="Traveler Profile">
             <div className="rail__inner">
-              <div className="rail__caption">Traveler Profile</div>
+              <div className="rail__dossierHead">
+                <div className="rail__eyebrow">
+                  <span className="rail__eyebrowNum">02</span>
+                  <span className="rail__eyebrowSep">/</span>
+                  <span>DOSSIER</span>
+                </div>
+                <div className="rail__title">Traveler Profile</div>
+                <div className="rail__subtitle">Private · concierge copy</div>
+              </div>
               {railSections.length === 0 ? (
-                <p className="rail__muted">Your profile will form here as you answer.</p>
+                <p className="rail__muted">Your profile will form here as you answer. Each reply refines the dossier.</p>
               ) : (
                 railSections.map((sec) => (
                   <section key={sec.id} className="rail__section" aria-labelledby={`rail-${sec.id}`}>
@@ -577,6 +580,11 @@ export default function Discovery({
                   </section>
                 ))
               )}
+              <div className="rail__foot">
+                <span>Rev. {profile?.revision ?? "—"}</span>
+                <span className="rail__footDot" aria-hidden="true">·</span>
+                <span>Confidential</span>
+              </div>
             </div>
           </aside>
         </main>
@@ -586,224 +594,349 @@ export default function Discovery({
 }
 
 // ---------------------------------------------------------------------------
-// CSS — token-correct, no external deps
+// CSS — darker warm taupe + stone + charcoal + ivory
 // ---------------------------------------------------------------------------
 
 const css = `
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&display=swap');
+
+/* -- tokens extended for darker warm luxury */
 :root {
+  --voyager-ivory: #F7F2E9;
+  --voyager-ivory-2: #FFFBF2;
+  --voyager-stone: #C9BBA5;
+  --voyager-stone-2: #B8A99A;
+  --voyager-taupe-light: #E8DDCB;
+  --voyager-taupe: #D9CCB6;
+  --voyager-taupe-dark: #CABEA9;
   --voyager-bone-0: #F7F2E9;
-  --voyager-bone-1: #EEE6D8;
-  --voyager-bone-2: #E1D6C5;
+  --voyager-bone-1: #E8DDCB;
+  --voyager-bone-2: #D9CCB6;
   --voyager-bone-3: #C9BBA5;
   --voyager-ink-0: #1B252C;
-  --voyager-ink-1: #263239;
-  --voyager-ink-2: #56636A;
-  --voyager-ink-3: #7D878A;
-  --voyager-light-ink: #F2EBDD;
+  --voyager-ink-1: #242F36;
+  --voyager-ink-2: #5A676E;
+  --voyager-ink-3: #8A9699;
+  --voyager-charcoal: #1B252C;
+  --voyager-bronze: #8C6A3A;
+  --voyager-bronze-hover: #745830;
   --voyager-brass-1: #B38A55;
   --voyager-brass-2: #D8C19A;
   --voyager-brass-3: #86633B;
-  --voyager-radius-md: 12px;
-  --voyager-radius-pill: 999px;
-  --voyager-shadow-card: 0 1px 2px rgba(38,41,37,.08), 0 12px 28px rgba(38,41,37,.08);
-  --voyager-focus-ring: 0 0 0 3px rgba(216,193,154,.72);
+  --voyager-radius-card: 10px;
+  --voyager-radius-pill: 12px;
+  --voyager-radius-input: 14px;
+  --voyager-shadow-card: 0 1px 3px rgba(27,37,44,.06), 0 16px 32px rgba(27,37,44,.07);
+  --voyager-shadow-card-soft: 0 1px 2px rgba(27,37,44,.05), 0 20px 48px rgba(27,37,44,.08);
+  --voyager-focus-ring: 0 0 0 3px rgba(179,138,85,.28);
 }
 
+/* Canvas — larger editorial composition, moved upward, occupies 55–60% visual field */
 .discovery__canvas {
-  background: var(--voyager-bone-0);
+  background: var(--voyager-ivory);
   min-height: 100svh;
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 48px 32px 64px;
+  padding: 40px 0 64px;
+  position: relative;
+  overflow: clip;
+  isolation: isolate;
+}
+
+/* Watermark — extremely subtle, fills empty space without busyness */
+.discovery__watermark {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  overflow: hidden;
+}
+.discovery__watermarkText {
+  position: absolute;
+  left: 50%;
+  top: 44%;
+  transform: translate(-50%, -50%);
+  white-space: nowrap;
+  font-family: Fraunces, Georgia, serif;
+  font-size: clamp(96px, 13vw, 188px);
+  line-height: 1;
+  font-weight: 400;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--voyager-charcoal);
+  opacity: 0.032;
+  user-select: none;
+}
+.discovery__watermarkNum {
+  position: absolute;
+  left: 54%;
+  top: 10%;
+  transform: translateX(-50%);
+  font-family: Fraunces, Georgia, serif;
+  font-size: clamp(220px, 28vw, 520px);
+  line-height: 1;
+  font-weight: 500;
+  letter-spacing: -0.06em;
+  color: var(--voyager-charcoal);
+  opacity: 0.032;
+  user-select: none;
 }
 
 .discovery__nav {
-  width: min(1240px, 100%);
+  width: min(1480px, 92vw);
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 24px;
+  margin-bottom: 28px;
+  position: relative;
+  z-index: 1;
 }
 .discovery__navBtn {
-  font: 500 13px/18px General Sans, Inter, ui-sans-serif, sans-serif;
-  letter-spacing: .06em;
+  font: 500 12px/16px General Sans, Inter, ui-sans-serif, sans-serif;
+  letter-spacing: .08em;
   text-transform: uppercase;
   color: var(--voyager-ink-2);
   background: transparent;
   border: 1px solid transparent;
   padding: 8px 12px;
-  border-radius: var(--voyager-radius-md);
+  border-radius: 10px;
   cursor: pointer;
 }
-.discovery__navBtn:hover { color: var(--voyager-ink-1); border-color: var(--voyager-bone-2); }
+.discovery__navBtn:hover { color: var(--voyager-charcoal); border-color: var(--voyager-stone); }
 .discovery__navBtn:focus-visible { outline: none; box-shadow: var(--voyager-focus-ring); }
 
+/* Grid — scaled + ~45-50% wider editorial composition */
 .discovery {
-  width: min(1240px, 100%);
+  width: min(1480px, 92vw);
   display: grid;
-  grid-template-columns: minmax(0, 7fr) minmax(280px, 5fr);
-  gap: 64px;
+  grid-template-columns: minmax(0, 1.9fr) minmax(380px, 440px);
+  gap: 72px;
   align-items: start;
   position: relative;
+  z-index: 1;
 }
 
-/* Interview column */
+@media (min-width: 1600px) {
+  .discovery { width: min(1520px, 92vw); gap: 84px; }
+  .discovery__nav { width: min(1520px, 92vw); }
+  .discovery__watermarkText { font-size: 200px; }
+}
+
+/* Interview column — wider, with vertical editorial line from question through interaction */
 .discovery__interview {
   position: relative;
-  padding-left: 20px;
+  padding-left: 36px;
   min-width: 0;
+  padding-top: 6px;
 }
 
 .discovery__accent {
   position: absolute;
   left: 0;
-  top: 0;
-  bottom: 0;
-  width: 2px;
+  top: 8px;
+  bottom: 12px;
+  width: 1px;
   pointer-events: none;
 }
 .discovery__accentTrack {
   position: absolute;
   inset: 0;
-  background: var(--voyager-bone-2);
+  background: linear-gradient(to bottom, transparent 0%, var(--voyager-taupe) 6%, var(--voyager-taupe) 94%, transparent 100%);
   border-radius: 999px;
+  opacity: .9;
 }
 .discovery__accentFill {
   position: absolute;
   top: 0;
   left: 0;
   width: 100%;
-  background: var(--voyager-brass-1);
+  background: var(--voyager-bronze);
   border-radius: 999px;
-  transition: height 420ms ease;
+  transition: height 520ms cubic-bezier(.22,.61,.36,1);
   max-height: 100%;
 }
 
 .discovery__block {
-  padding-bottom: 96px;
+  padding-bottom: 36px;
   transition: opacity 150ms ease;
 }
 .discovery__block--busy { pointer-events: none; }
 
-/* Prompt — serif, generous rhythm */
+/* 02 / DISCOVERY micro-label — slightly larger */
+.discovery__eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font: 500 11px/16px General Sans, Inter, ui-sans-serif, sans-serif;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: var(--voyager-ink-3);
+  margin-bottom: 22px;
+}
+.discovery__eyebrowNum {
+  color: var(--voyager-bronze);
+  font-weight: 600;
+  letter-spacing: .08em;
+}
+.discovery__eyebrowSep { opacity: .5; }
+.discovery__eyebrowMeta { opacity: .7; letter-spacing: .1em; }
+
+/* Prompt — 40–48px editorial presence, stronger, more horizontal scale */
 .discovery__prompt {
   font-family: Fraunces, Georgia, serif;
-  font-size: 28px;
-  line-height: 36px;
+  font-size: clamp(38px, 3.1vw, 46px);
+  line-height: 1.08;
   font-weight: 500;
-  color: var(--voyager-ink-1);
-  margin: 0 0 24px 0;
-  max-width: 42ch;
+  letter-spacing: -0.03em;
+  color: var(--voyager-charcoal);
+  margin: 0 0 36px 0;
+  max-width: 18.5ch;
+  font-variation-settings: "opsz" 72, "WONK" 1;
+  text-wrap: balance;
 }
-.discovery__prompt--empty { color: var(--voyager-ink-3); }
+.discovery__prompt--empty { color: var(--voyager-ink-3); font-size: clamp(26px, 2.4vw, 32px); line-height: 1.2; }
 
-/* Choices — wrapping cloud */
+/* Choices — larger, more spacious, 3 across with generous padding */
 .discovery__choices {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
-  margin-bottom: 24px;
+  gap: 14px;
+  margin-bottom: 32px;
+}
+@media (min-width: 900px) {
+  .discovery__choices {
+    gap: 14px;
+  }
 }
 .discovery__noOptions {
-  font: 400 16px/25px General Sans, Inter, ui-sans-serif, sans-serif;
+  font: 400 15px/24px General Sans, Inter, ui-sans-serif, sans-serif;
   color: var(--voyager-ink-3);
   margin: 0;
 }
 
-/* Chip tokens — bone-1 rest, brass-2 hover, ink-1 selected, 44px min */
+/* Chips — larger, taller, generous padding, quiet luxury taupe */
 .chip {
   display: inline-flex;
   flex-direction: column;
   align-items: flex-start;
   justify-content: center;
-  gap: 2px;
-  min-height: 44px;
-  padding: 10px 18px;
+  gap: 3px;
+  min-height: 56px;
+  padding: 14px 22px;
   border-radius: var(--voyager-radius-pill);
-  border: 1px solid var(--voyager-bone-2);
-  font: 400 16px/20px General Sans, Inter, ui-sans-serif, sans-serif;
-  color: var(--voyager-ink-1);
-  background: var(--voyager-bone-1);
+  border: 1px solid var(--voyager-stone);
+  font: 400 15.5px/20px General Sans, Inter, ui-sans-serif, sans-serif;
+  color: var(--voyager-charcoal);
+  background: var(--voyager-taupe-light);
   cursor: pointer;
-  transition: background 150ms ease, color 150ms ease, border-color 150ms ease, transform 150ms ease;
+  transition: background 160ms ease, color 160ms ease, border-color 160ms ease, transform 160ms ease, box-shadow 160ms ease;
   text-align: left;
   max-width: 100%;
+  flex: 0 1 auto;
 }
 .chip:hover:not(:disabled) {
-  background: var(--voyager-brass-2);
-  border-color: var(--voyager-brass-2);
+  background: var(--voyager-taupe);
+  border-color: var(--voyager-stone-2);
+  transform: translateY(-1px);
 }
 .chip:focus-visible { outline: none; box-shadow: var(--voyager-focus-ring); }
 .chip:disabled { cursor: not-allowed; }
 .chip--selected {
-  background: var(--voyager-ink-1) !important;
-  color: var(--voyager-bone-0) !important;
-  border-color: var(--voyager-ink-1) !important;
+  background: var(--voyager-charcoal) !important;
+  color: var(--voyager-ivory) !important;
+  border-color: var(--voyager-charcoal) !important;
+  box-shadow: 0 4px 16px rgba(27,37,44,.2);
 }
-.chip--selected .chip__desc { color: rgba(247,242,233,.78); }
+.chip--selected .chip__desc { color: rgba(247,242,233,.74); }
 .chip--inferred {
   background: transparent !important;
-  border: 1px dashed var(--voyager-brass-1) !important;
+  border: 1px dashed var(--voyager-stone-2) !important;
   color: var(--voyager-ink-2);
 }
-.chip--stated { /* filled warm */ }
-.chip--sm { min-height: 32px; padding: 6px 12px; font-size: 13px; line-height: 16px; }
-.chip__label { font-weight: 500; }
-.chip__desc { font-size: 13px; line-height: 16px; color: var(--voyager-ink-3); }
+.chip--stated { }
+.chip--sm { min-height: 30px; padding: 7px 11px; font-size: 12px; line-height: 15px; border-radius: 10px; }
+.chip__label { font-weight: 500; letter-spacing: -0.01em; }
+.chip__desc { font-size: 12.5px; line-height: 15px; color: var(--voyager-ink-2); margin-top: 1px; }
 
 .discovery__mutualNote {
-  font: 500 12px/17px General Sans, Inter, ui-sans-serif, sans-serif;
+  font: 500 11px/16px General Sans, Inter, ui-sans-serif, sans-serif;
+  letter-spacing: .02em;
   color: var(--voyager-ink-3);
-  margin: 0 0 12px 0;
+  margin: 0 0 16px 0;
 }
 
-.discovery__noteWrap { margin-bottom: 24px; }
+/* Note field — personal letter / note field: wider, taller, letter-like */
+.discovery__noteWrap { margin-bottom: 32px; }
 .discovery__textarea {
   width: 100%;
-  min-height: 96px;
-  padding: 16px;
-  border-radius: var(--voyager-radius-md);
-  border: 1px solid var(--voyager-bone-2);
-  background: var(--voyager-bone-1);
-  color: var(--voyager-ink-1);
-  font: 400 16px/25px General Sans, Inter, ui-sans-serif, sans-serif;
+  min-height: 164px;
+  padding: 22px 24px;
+  border-radius: var(--voyager-radius-input);
+  border: 1px solid var(--voyager-stone);
+  background: var(--voyager-ivory-2);
+  color: var(--voyager-charcoal);
+  font: 400 15.5px/26px General Sans, Inter, ui-sans-serif, sans-serif;
   resize: vertical;
-  box-shadow: none;
+  box-shadow: inset 0 1px 0 rgba(27,37,44,.04);
+  transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
 }
-.discovery__textarea::placeholder { color: var(--voyager-ink-3); }
-.discovery__textarea:focus { outline: none; box-shadow: var(--voyager-focus-ring); border-color: var(--voyager-brass-2); }
+.discovery__textarea::placeholder { color: var(--voyager-ink-3); opacity: .88; font-style: italic; }
+.discovery__textarea:focus { outline: none; box-shadow: var(--voyager-focus-ring), inset 0 1px 0 rgba(27,37,44,.03); border-color: var(--voyager-stone-2); background: #FFFEFB; }
 .discovery__textarea:disabled { opacity: .6; }
 .discovery__caption {
   display: block;
-  margin-top: 8px;
-  font: 500 12px/17px General Sans, Inter, ui-sans-serif, sans-serif;
+  margin-top: 10px;
+  font: 500 11px/16px General Sans, Inter, ui-sans-serif, sans-serif;
   color: var(--voyager-ink-3);
+  letter-spacing: .02em;
 }
 
-.discovery__action { margin-top: 8px; }
-.discovery__continue {
-  min-height: 44px;
-  padding: 0 24px;
-  border-radius: var(--voyager-radius-md);
-  border: 1px solid var(--voyager-ink-2);
-  background: transparent;
-  color: var(--voyager-ink-1);
-  font: 500 15px/22px General Sans, Inter, ui-sans-serif, sans-serif;
-  cursor: pointer;
-  transition: opacity 150ms ease, background 150ms ease, border-color 150ms ease;
+/* Continue — confident, with generous scale */
+.discovery__action {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
 }
-.discovery__continue:hover:not(:disabled) { background: var(--voyager-bone-1); }
-.discovery__continue:focus-visible { outline: none; box-shadow: var(--voyager-focus-ring); }
+.discovery__continue {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 0 30px;
+  border-radius: 10px;
+  border: 1px solid var(--voyager-bronze);
+  background: var(--voyager-bronze);
+  color: var(--voyager-ivory-2);
+  font: 500 14px/20px General Sans, Inter, ui-sans-serif, sans-serif;
+  letter-spacing: .04em;
+  cursor: pointer;
+  transition: opacity 160ms ease, background 160ms ease, border-color 160ms ease, transform 140ms ease, box-shadow 160ms ease;
+}
+.discovery__continue:hover:not(:disabled) { background: var(--voyager-bronze-hover); border-color: var(--voyager-bronze-hover); transform: translateY(-1px); box-shadow: 0 4px 16px rgba(140,106,58,.18); }
+.discovery__continue:active:not(:disabled) { transform: translateY(0); box-shadow: none; }
+.discovery__continue:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(140,106,58,.28); }
 .discovery__continue:disabled {
-  opacity: .4;
+  opacity: .38;
   pointer-events: none;
+  background: transparent;
+  color: var(--voyager-ink-3);
+  border-color: var(--voyager-stone);
+}
+.discovery__continueArrow { font-size: 15px; transition: transform 160ms ease; }
+.discovery__continue:hover:not(:disabled) .discovery__continueArrow { transform: translateX(3px); }
+.discovery__continueHint {
+  font: 400 11px/16px General Sans, Inter, ui-sans-serif, sans-serif;
+  letter-spacing: .04em;
+  color: var(--voyager-ink-3);
 }
 
 .discovery__feedback {
   min-height: 20px;
-  margin-top: 16px;
-  font: 400 14px/20px General Sans, Inter, ui-sans-serif, sans-serif;
+  margin-top: 18px;
+  font: 400 13px/20px General Sans, Inter, ui-sans-serif, sans-serif;
   color: var(--voyager-ink-2);
 }
 
@@ -819,96 +952,144 @@ const css = `
   border: 0;
 }
 
-/* Rail — sticky 104px */
+/* Rail — slightly wider/taller, more breathing room between sections */
 .discovery__rail {
   position: sticky;
-  top: 104px;
-  max-height: calc(100svh - 128px);
+  top: 32px;
+  max-height: calc(100svh - 64px);
   overflow: auto;
   scrollbar-width: thin;
+  scrollbar-color: var(--voyager-stone) transparent;
   align-self: start;
 }
 .rail__inner {
-  padding: 24px;
-  background: var(--voyager-bone-1);
-  border: 1px solid var(--voyager-bone-2);
-  border-radius: var(--voyager-radius-md);
-  box-shadow: var(--voyager-shadow-card);
+  padding: 32px 28px 24px;
+  background: var(--voyager-taupe-light);
+  border: 0.5px solid var(--voyager-stone);
+  border-radius: 12px;
+  box-shadow: var(--voyager-shadow-card-soft);
 }
-.rail__caption {
-  font: 500 13px/18px General Sans, Inter, ui-sans-serif, sans-serif;
-  letter-spacing: .12em;
+.rail__dossierHead {
+  padding-bottom: 20px;
+  margin-bottom: 20px;
+  border-bottom: 0.5px solid rgba(27,37,44,.12);
+}
+.rail__eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: 500 10px/14px General Sans, Inter, ui-sans-serif, sans-serif;
+  letter-spacing: .14em;
   text-transform: uppercase;
   color: var(--voyager-ink-3);
-  margin-bottom: 16px;
+  margin-bottom: 12px;
 }
-.rail__section { margin-bottom: 24px; }
-.rail__section:last-child { margin-bottom: 0; }
-.rail__sectionLabel {
-  font: 500 13px/18px General Sans, Inter, ui-sans-serif, sans-serif;
+.rail__eyebrowNum { color: var(--voyager-bronze); font-weight: 600; }
+.rail__eyebrowSep { opacity: .5; }
+.rail__title {
+  font-family: Fraunces, Georgia, serif;
+  font-size: 19px;
+  line-height: 23px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  color: var(--voyager-charcoal);
+}
+.rail__subtitle {
+  margin-top: 5px;
+  font: 400 11px/14px General Sans, Inter, ui-sans-serif, sans-serif;
   letter-spacing: .08em;
   text-transform: uppercase;
+  color: var(--voyager-ink-3);
+}
+.rail__section { padding: 20px 0; border-top: 0.5px solid rgba(27,37,44,.09); }
+.rail__section:first-of-type { border-top: none; padding-top: 0; }
+.rail__section:last-child { padding-bottom: 0; }
+.rail__sectionLabel {
+  font: 500 11px/14px General Sans, Inter, ui-sans-serif, sans-serif;
+  letter-spacing: .12em;
+  text-transform: uppercase;
   color: var(--voyager-ink-2);
-  margin: 0 0 10px 0;
+  margin: 0 0 12px 0;
 }
 .rail__sectionBody { }
-.rail__muted { font: 400 14px/20px General Sans, Inter, ui-sans-serif, sans-serif; color: var(--voyager-ink-3); margin: 0; }
+.rail__muted { font: 400 13.5px/21px General Sans, Inter, ui-sans-serif, sans-serif; color: var(--voyager-ink-3); margin: 0; }
 
-.rail__kv { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
-.rail__kvRow { display: grid; grid-template-columns: 1fr; gap: 2px; }
-.rail__kvKey { font: 500 12px/17px General Sans, Inter, ui-sans-serif, sans-serif; letter-spacing: .06em; text-transform: uppercase; color: var(--voyager-ink-3); }
-.rail__kvVal { font: 400 14px/20px General Sans, Inter, ui-sans-serif, sans-serif; color: var(--voyager-ink-1); word-break: break-word; }
-.rail__stack { display: grid; gap: 8px; }
-.rail__bodySm { font: 400 14px/20px General Sans, Inter, ui-sans-serif, sans-serif; color: var(--voyager-ink-1); }
+/* kv — 12/13px hierarchy with more breathing */
+.rail__kv { list-style: none; padding: 0; margin: 0; display: grid; gap: 11px; }
+.rail__kvRow { display: grid; grid-template-columns: 1fr; gap: 3px; }
+.rail__kvKey { font: 500 10px/14px General Sans, Inter, ui-sans-serif, sans-serif; letter-spacing: .1em; text-transform: uppercase; color: var(--voyager-ink-3); }
+.rail__kvVal { font: 400 13px/18px General Sans, Inter, ui-sans-serif, sans-serif; color: var(--voyager-charcoal); word-break: break-word; }
+.rail__stack { display: grid; gap: 11px; }
+.rail__bodySm { font: 400 13px/18px General Sans, Inter, ui-sans-serif, sans-serif; color: var(--voyager-charcoal); }
 
 .rail__chips { list-style: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 8px; }
 
-.rail__unknowns { list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; }
+.rail__unknowns { list-style: none; padding: 0; margin: 0; display: grid; gap: 14px; }
 .rail__unknown {
-  border-left: 4px solid var(--voyager-brass-1);
-  padding-left: 16px;
-  padding-bottom: 4px;
+  border-left: 1.5px solid var(--voyager-stone-2);
+  padding-left: 12px;
+  padding-bottom: 2px;
 }
-.rail__unknownTopic { font: 500 13px/18px General Sans, Inter, ui-sans-serif, sans-serif; color: var(--voyager-ink-1); }
-.rail__unknownDesc { font: 400 14px/20px General Sans, Inter, Georgia, serif; font-style: italic; color: var(--voyager-ink-2); margin-top: 4px; }
-.rail__impact { font: 500 11px/16px General Sans, Inter, ui-sans-serif, sans-serif; letter-spacing: .06em; text-transform: uppercase; color: var(--voyager-ink-3); margin-top: 4px; display: inline-block; }
-.rail__impact--blocking { color: var(--voyager-ink-1); }
+.rail__unknownTopic { font: 500 12px/16px General Sans, Inter, ui-sans-serif, sans-serif; color: var(--voyager-charcoal); }
+.rail__unknownDesc { font: 400 12px/17px General Sans, Inter, ui-sans-serif, sans-serif; font-style: italic; color: var(--voyager-ink-2); margin-top: 4px; }
+.rail__impact { font: 500 10px/14px General Sans, Inter, ui-sans-serif, sans-serif; letter-spacing: .08em; text-transform: uppercase; color: var(--voyager-ink-3); margin-top: 4px; display: inline-block; }
+.rail__impact--blocking { color: var(--voyager-charcoal); }
 
 .rail__assumptions { list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; }
 .rail__assumption { display: grid; gap: 6px; }
 
-/* Motion — gentle gather */
+.rail__foot {
+  margin-top: 22px;
+  padding-top: 16px;
+  border-top: 0.5px solid rgba(27,37,44,.1);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: 400 10px/14px General Sans, Inter, ui-sans-serif, sans-serif;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--voyager-ink-3);
+}
+.rail__footDot { opacity: .5; }
+
+/* Motion */
 @keyframes discoverySettle {
-  from { opacity: 0; transform: translateY(8px); }
+  from { opacity: 0; transform: translateY(10px); }
   to   { opacity: 1; transform: translateY(0); }
 }
-.discovery__pour { animation: discoverySettle 500ms ease both; }
+.discovery__pour { animation: discoverySettle 560ms cubic-bezier(.22,.61,.36,1) both; }
 .discovery__pour--1 { animation-delay: 0ms; }
-.discovery__pour--2 { animation-delay: 80ms; }
-.discovery__pour--3 { animation-delay: 160ms; }
-.discovery__pour--4 { animation-delay: 240ms; }
+.discovery__pour--2 { animation-delay: 95ms; }
+.discovery__pour--3 { animation-delay: 185ms; }
+.discovery__pour--4 { animation-delay: 270ms; }
 
 @media (prefers-reduced-motion: reduce) {
   .discovery__pour { animation: none; }
   .discovery__accentFill { transition: none; }
 }
 
-/* Below 1200 — reduce rail */
-@media (max-width: 1200px) {
-  .discovery { grid-template-columns: minmax(0, 7fr) 280px; gap: 48px; }
+@media (max-width: 1280px) {
+  .discovery { grid-template-columns: minmax(0, 1.65fr) 360px; gap: 56px; }
+  .discovery__watermarkText { font-size: clamp(84px, 11vw, 148px); }
+  .discovery__watermarkNum { font-size: clamp(180px, 24vw, 420px); }
 }
-
-/* Below 1024 — stack, rail after interview, not sticky */
 @media (max-width: 1024px) {
   .discovery { grid-template-columns: 1fr; gap: 32px; }
   .discovery__rail { position: static; max-height: none; overflow: visible; }
-  .discovery__interview { padding-left: 16px; }
+  .discovery__interview { padding-left: 24px; }
   .discovery__canvas { padding: 32px 16px 48px; }
+  .discovery, .discovery__nav { width: min(1480px, 92vw); }
+  .discovery__watermarkText { top: 38%; }
+  .discovery__watermarkNum { top: 6%; left: 50%; }
 }
-
-/* 320 — one-column chips stack, 44px targets preserved */
+@media (max-width: 640px) {
+  .discovery__prompt { font-size: clamp(30px, 8vw, 38px); line-height: 1.08; max-width: none; }
+  .discovery__interview { padding-left: 20px; }
+  .discovery__watermarkText { font-size: 56px; letter-spacing: 0.1em; opacity: 0.02; }
+  .discovery__watermarkNum { font-size: 180px; opacity: 0.02; }
+}
 @media (max-width: 480px) {
   .discovery__choices { flex-direction: column; }
   .chip { width: 100%; }
 }
-`;
+`
