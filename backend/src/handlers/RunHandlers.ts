@@ -3,28 +3,28 @@ import { logger } from '../modules/logger';
 import { RunCancelMessage, RunCancelSchema } from '../structures/CommandMessage';
 import { Acknowledge } from '../structures/enums';
 import { runCancelService } from '../services/RunServices';
+import { checkBaseCommandRejections } from './BaseValidation';
+import { AckMessage } from '../structures/AckMessage';
+import { buildAckMsg } from '../factory/Ack';
+import { currentWorkflowState, getNextSequence } from '../services/StateServices';
+import { ServiceResult } from '../structures/types';
 
-export function runCancelHandler(socket: Socket, data: RunCancelMessage) {
+export async function runCancelHandler(socket: Socket, data: RunCancelMessage) {
     logger.debug('socket sent run.cancel', { socketid: socket.id, data: data });
-    const isValidData = RunCancelSchema.safeParse(data);
-    if (!isValidData.success) {
-        logger.warn('recieved data in invalid format for run.cancel', {
-            socketid: socket.id,
-            data: data,
-            zod_error: isValidData.error,
-        });
 
-        const ackmsg = {}; // TODO
-        socket.emit(Acknowledge.COMMAND_REJECTED, ackmsg)
-        return;
-    }
-    else {
-        const ackmsg = {}; // TODO
-        socket.emit(Acknowledge.COMMAND_ACCEPTED, ackmsg)
-    }
+    if (!checkBaseCommandRejections(socket, data, RunCancelSchema)) return;
 
-    runCancelService(data)
+    const ackmsg: AckMessage = buildAckMsg(
+        data,
+        await getNextSequence(data.run_id),
+        true,
+        await currentWorkflowState(data.session_id),
+        false,
+    )
+    socket.emit(Acknowledge.COMMAND_ACCEPTED, ackmsg)
 
-    // TODO EMIT BACK EVENTS BASED ON PROCESSED RESULTS
-    
+    const reses: ServiceResult[] = await runCancelService(data)
+
+    for (let res of reses)
+        socket.emit(res.event, res.data);
 }

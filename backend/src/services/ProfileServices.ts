@@ -1,5 +1,25 @@
 import { ProfileConfirmMessage, ProfileRequestChangesMessage } from "../structures/CommandMessage";
+import { ServiceResult } from "../structures/types";
 
-export function profileConfirmService(data: ProfileConfirmMessage) { }
+export async function profileConfirmService(
+    data: ProfileConfirmMessage
+): Promise<ServiceResult[]> {
+    const res: ServiceResult[] = []
 
-export function profileRequestChangesService(data: ProfileRequestChangesMessage) { }
+    // mark the confirmed profile
+    // start planning
+
+    return res
+}
+
+export async function profileRequestChangesService(
+    data: ProfileRequestChangesMessage
+): Promise<ServiceResult[]> {
+    const res: ServiceResult[] = []
+
+    // set workflow to discovery
+    // go to discovery service
+    // give agent to ask questions for the requested change topics
+
+    return res
+}

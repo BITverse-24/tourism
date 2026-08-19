@@ -1,38 +1,33 @@
 import { Socket } from 'socket.io';
 import { logger } from '../modules/logger';
-import { SessionCloseMessage, SessionCloseSchema, SessionStartMessage, SessionStartSchema } from '../structures/CommandMessage';
+import { SessionCloseMessage, SessionStartMessage, SessionStartSchema } from '../structures/CommandMessage';
 import { Acknowledge } from '../structures/enums';
 import { sessionCloseService, sessionStartService } from '../services/SessionServices';
 import { ServiceResult } from '../structures/types';
-import { validateCommandDataFormat } from '../modules/util';
-import { currentWorkflowState } from '../services/StateServices';
+import { currentWorkflowState, getNextSequence } from '../services/StateServices';
+import { AckMessage } from '../structures/AckMessage';
+import { buildAckMsg } from '../factory/Ack';
+import { checkBaseCommandRejections } from './BaseValidation';
+import { NewSessionMessageSchema } from '../structures/NewSessionMessage';
 
 export async function sessionStartHandler(socket: Socket, data: SessionStartMessage) {
     logger.debug('recieved session.start', { socketid: socket.id, data: data });
-    const formatValidationRes = validateCommandDataFormat(
+
+    const newSessMsgCheckRes = NewSessionMessageSchema.safeParse(data)
+    const isNewSessionMsg = newSessMsgCheckRes.success
+
+    if (!isNewSessionMsg && !checkBaseCommandRejections(socket, data, SessionStartSchema)) return;
+    
+    const ackmsg: AckMessage = buildAckMsg(
         data,
-        SessionStartSchema,
-        await currentWorkflowState(),
-    ) 
-    if (!formatValidationRes.valid) {
-
-        logger.warn('recieved data in invalid format for session.start', {
-            socketid: socket.id,
-            data: data,
-            ack: formatValidationRes.ack
-        })
-        socket.emit(Acknowledge.COMMAND_REJECTED, formatValidationRes.ack)
-        return;
-    }
-    // check if session doesnt exist in memory - session_expired command rejection
-    // else if () {
-    // }
-    //
-
-    const ackmsg = {}; // TODO
+        await getNextSequence(),
+        true,
+        await currentWorkflowState(data.session_id),
+        false,
+    )
     socket.emit(Acknowledge.COMMAND_ACCEPTED, ackmsg)
 
-    const reses: ServiceResult[] = sessionStartService(data)
+    const reses: ServiceResult[] = await sessionStartService(data, isNewSessionMsg)
 
     for (let res of reses)
         socket.emit(res.event, res.data);
@@ -40,32 +35,19 @@ export async function sessionStartHandler(socket: Socket, data: SessionStartMess
 
 export async function sessionCloseHandler(socket: Socket, data: SessionCloseMessage) {
     logger.debug('recieved session.close', { socketid: socket.id, data: data });
-    const formatValidationRes = validateCommandDataFormat(
+
+    if (!checkBaseCommandRejections(socket, data, SessionStartSchema)) return;
+
+    const ackmsg: AckMessage = buildAckMsg(
         data,
-        SessionStartSchema,
-        await currentWorkflowState(),
-    ) 
-    if (!formatValidationRes.valid) {
-
-        logger.warn('recieved data in invalid format for session.close', {
-            socketid: socket.id,
-            data: data,
-            ack: formatValidationRes.ack
-        })
-        socket.emit(Acknowledge.COMMAND_REJECTED, formatValidationRes.ack)
-        return;
-    }
-    // check if session doesnt exist in memory - session_expired command rejection
-    // else if () {
-    // }
-    //
-
-    const ackmsg = {
-        // TODO
-    };
+        await getNextSequence(data.run_id),
+        true,
+        await currentWorkflowState(data.session_id),
+        false,
+    )
     socket.emit(Acknowledge.COMMAND_ACCEPTED, ackmsg)
 
-    const reses: ServiceResult[] = sessionCloseService(data)
+    const reses: ServiceResult[] = await sessionCloseService(data)
 
     for (let res of reses)
         socket.emit(res.event, res.data);

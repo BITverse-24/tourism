@@ -9,9 +9,9 @@ export const BaseMessageEnvelopeSchema = z.object({
     session_id: z.string(),
     run_id: z.string(),
     command_id: z.string(),
-    sequence: z.number(),
     occurred_at: z.string(),
 });
+export type BaseMessageEnvelope = z.infer<typeof BaseMessageEnvelopeSchema>;
 
 export const MessageEnvelopeSchema = z.discriminatedUnion(
     "type",
@@ -22,5 +22,4 @@ export const MessageEnvelopeSchema = z.discriminatedUnion(
         ...ErrorSchemas,
     ],
 )
-
 export type MessageEnvelope = z.infer<typeof MessageEnvelopeSchema>;

@@ -1,0 +1,93 @@
+import { z } from "zod";
+import { currentWorkflowState, getNextSequence } from "../services/StateServices";
+import { MessageEnvelope } from "../structures/MessageEnvelope";
+import { isValidSession, validateCommandDataFormat } from "../services/ValidationServices";
+import { buildAckMsg } from "../factory/Ack";
+import { logger } from "../modules/logger";
+import { Acknowledge, RejectionCode } from "../structures/enums";
+import { Socket } from "socket.io";
+import { getCommandIdsForRun, getCurrentRunIdForSession } from "../models/data";
+
+export async function checkBaseCommandRejections<T extends z.ZodObject>(
+    socket: Socket,
+    data: MessageEnvelope,
+    schema: T,
+): Promise<boolean> {
+
+    const curr_workflow_state = await currentWorkflowState();
+    const curr_run_id = await getCurrentRunIdForSession(data.session_id);
+
+    const formatValidationRes = validateCommandDataFormat(
+        data,
+        schema,
+        await currentWorkflowState(),
+        await getNextSequence(data.run_id)
+    ) 
+    const sessionIdValidRes = await isValidSession(data.session_id);
+    if (!formatValidationRes.valid) {
+
+        logger.warn(`recieved data in invalid format for ${data.type}`, {
+            socketid: socket.id,
+            data: data,
+            ack: formatValidationRes.ack
+        })
+        socket.emit(Acknowledge.COMMAND_REJECTED, formatValidationRes.ack)
+        return false;
+    }
+    // check if session doesnt exist in memory - session_expired command rejection
+    else if (!sessionIdValidRes.valid) {
+        socket.emit(
+            Acknowledge.COMMAND_REJECTED,
+            buildAckMsg(
+                data,
+                await getNextSequence(data.run_id),
+                false,
+                curr_workflow_state,
+                undefined,
+                RejectionCode.SESSION_EXPIRED,
+                `invalid session id`,
+                false,
+                { valid_sessions: sessionIdValidRes.validSessions }
+            )
+        )
+        return false;
+    }
+    // check for run id correctness
+    else if (curr_run_id !== data.run_id) {
+        socket.emit(
+            Acknowledge.COMMAND_REJECTED,
+            buildAckMsg(
+                data,
+                await getNextSequence(data.run_id),
+                false,
+                curr_workflow_state,
+                undefined,
+                RejectionCode.RUN_CANCELLED,
+                `not current run id`,
+                false,
+                { current_run_id: curr_run_id }
+            )
+        )
+        return false;
+    }
+    // check for command id conflict
+    else if ((await getCommandIdsForRun(curr_run_id)).has(data.command_id)) {
+        socket.emit(
+            Acknowledge.COMMAND_REJECTED,
+            buildAckMsg(
+                data,
+                await getNextSequence(data.run_id),
+                false,
+                curr_workflow_state,
+                undefined,
+                RejectionCode.COMMAND_ID_CONFLICT,
+                `command id already used`,
+                false,
+                { }
+            )
+        )
+        return false;
+    }
+
+    return true;
+}

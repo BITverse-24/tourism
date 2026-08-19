@@ -1,10 +1,20 @@
 import { Socket, Server } from 'socket.io';
-import { tripEvents } from '../events/TripEvents';
 import { logger } from '../modules/logger';
+import { runEvents } from '../events/RunEvents';
+import { profileEvents } from '../events/PlanningEvents';
+import { decisionEvents } from '../events/DecisionEvents';
+import { discoveryEvents } from '../events/DiscoveryEvents';
+import { replanEvents } from '../events/ReplanEvents';
+import { sessionEvents } from '../events/SessionEvents';
 
 export function onConnect(socket: Socket) {
     logger.debug('socket connected', { socketid: socket.id });
-    tripEvents(socket);
+    sessionEvents(socket)
+    runEvents(socket)
+    profileEvents(socket)
+    decisionEvents(socket)
+    discoveryEvents(socket)
+    replanEvents(socket)
 }
 
 export function onDisconnect(socket: Socket) {

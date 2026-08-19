@@ -3,27 +3,32 @@ import { logger } from '../modules/logger';
 import { DiscoveryAnswerMessage, DiscoveryAnswerSchema } from '../structures/CommandMessage';
 import { Acknowledge } from '../structures/enums';
 import { discoveryAnswerService } from '../services/DiscoveryServices';
+import { checkBaseCommandRejections } from './BaseValidation';
+import { AckMessage } from '../structures/AckMessage';
+import { buildAckMsg } from '../factory/Ack';
+import { currentWorkflowState, getNextSequence } from '../services/StateServices';
+import { ServiceResult } from '../structures/types';
 
-export function discoveryAnswerHandler(socket: Socket, data: DiscoveryAnswerMessage) {
+export async function discoveryAnswerHandler(socket: Socket, data: DiscoveryAnswerMessage) {
     logger.debug('socket sent discovery.answer', { socketid: socket.id, data: data });
-    const isValidData = DiscoveryAnswerSchema.safeParse(data);
-    if (!isValidData.success) {
-        logger.warn('recieved data in invalid format for session.start', {
-            socketid: socket.id,
-            data: data,
-            zod_error: isValidData.error,
-        });
 
-        const ackmsg = {}; // TODO
-        socket.emit(Acknowledge.COMMAND_REJECTED, ackmsg)
-        return;
-    }
-    else {
-        const ackmsg = {}; // TODO
-        socket.emit(Acknowledge.COMMAND_ACCEPTED, ackmsg)
-    }
+    if (!checkBaseCommandRejections(socket, data, DiscoveryAnswerSchema)) return;
 
-    discoveryAnswerService(data)
+    // validate selected option id
+    // validate selection count
+    // validate question id to be correct
 
-    // TODO EMIT BACK EVENTS BASED ON PROCESSED RESULTS
+    const ackmsg: AckMessage = buildAckMsg(
+        data,
+        await getNextSequence(data.run_id),
+        true,
+        await currentWorkflowState(data.session_id),
+        false,
+    )
+    socket.emit(Acknowledge.COMMAND_ACCEPTED, ackmsg)
+
+    const reses: ServiceResult[] = await discoveryAnswerService(data)
+
+    for (let res of reses)
+        socket.emit(res.event, res.data);
 }

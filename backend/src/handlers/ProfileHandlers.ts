@@ -3,51 +3,57 @@ import { logger } from '../modules/logger';
 import { ProfileConfirmMessage, ProfileConfirmSchema, ProfileRequestChangesMessage, ProfileRequestChangesSchema } from '../structures/CommandMessage';
 import { profileConfirmService, profileRequestChangesService } from '../services/ProfileServices';
 import { Acknowledge } from '../structures/enums';
+import { checkBaseCommandRejections } from './BaseValidation';
+import { buildAckMsg } from '../factory/Ack';
+import { AckMessage } from '../structures/AckMessage';
+import { currentWorkflowState, getNextSequence } from '../services/StateServices';
+import { ServiceResult } from '../structures/types';
 
-export function profileConfirmHandler(socket: Socket, data: ProfileConfirmMessage) {
+export async function profileConfirmHandler(socket: Socket, data: ProfileConfirmMessage) {
     logger.debug('socket sent profile.confirm', { socketid: socket.id, data: data });
-    const isValidData = ProfileConfirmSchema.safeParse(data);
-    if (!isValidData.success) {
-        logger.warn('recieved data in invalid format for profile.confirm', {
-            socketid: socket.id,
-            data: data,
-            zod_error: isValidData.error,
-        });
 
-        const ackmsg = {}; // TODO
-        socket.emit(Acknowledge.COMMAND_REJECTED, ackmsg)
-        return;
-    }
-    else {
-        const ackmsg = {}; // TODO
-        socket.emit(Acknowledge.COMMAND_ACCEPTED, ackmsg)
-    }
+    if (!checkBaseCommandRejections(socket, data, ProfileConfirmSchema)) return;
 
-    profileConfirmService(data)
+    // check if provided profile revision version is latest snapshot
+    // if not send rejected ack profile revision conflict
 
-    // TODO EMIT BACK EVENTS BASED ON PROCESSED RESULTS
+    // check if the profile has any blocking unkowns
+    // if it does send rejected ack error profile not ready
+
+    const ackmsg: AckMessage = buildAckMsg(
+        data,
+        await getNextSequence(data.run_id),
+        true,
+        await currentWorkflowState(data.session_id),
+        false,
+    )
+    socket.emit(Acknowledge.COMMAND_ACCEPTED, ackmsg)
+
+    const reses: ServiceResult[] = await profileConfirmService(data)
+
+    for (let res of reses)
+        socket.emit(res.event, res.data);
 }
 
-export function profileRequestChangesHandler(socket: Socket, data: ProfileRequestChangesMessage) {
+export async function profileRequestChangesHandler(
+    socket: Socket,
+    data: ProfileRequestChangesMessage
+) {
     logger.debug('socket sent profile.request_changes', { socketid: socket.id, data: data });
-    const isValidData = ProfileRequestChangesSchema.safeParse(data);
-    if (!isValidData.success) {
-        logger.warn('recieved data in invalid format for profile.request_changes', {
-            socketid: socket.id,
-            data: data,
-            zod_error: isValidData.error,
-        });
 
-        const ackmsg = {}; // TODO
-        socket.emit(Acknowledge.COMMAND_REJECTED, ackmsg)
-        return;
-    }
-    else {
-        const ackmsg = {}; // TODO
-        socket.emit(Acknowledge.COMMAND_ACCEPTED, ackmsg)
-    }
+    if (!checkBaseCommandRejections(socket, data, ProfileConfirmSchema)) return;
 
-    profileRequestChangesService(data)
+    const ackmsg: AckMessage = buildAckMsg(
+        data,
+        await getNextSequence(data.run_id),
+        true,
+        await currentWorkflowState(data.session_id),
+        false,
+    )
+    socket.emit(Acknowledge.COMMAND_ACCEPTED, ackmsg)
 
-    // TODO EMIT BACK EVENTS BASED ON PROCESSED RESULTS
+    const reses: ServiceResult[] = await profileRequestChangesService(data)
+
+    for (let res of reses)
+        socket.emit(res.event, res.data);
 }

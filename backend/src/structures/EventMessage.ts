@@ -4,6 +4,7 @@ import { WorkflowStates } from "./enums";
 
 const BaseEventMessageSchema = BaseMessageEnvelopeSchema.extend({
     kind: z.literal("event"),
+    sequence: z.number(),
 })
 
 export const SessionReadySchema = BaseEventMessageSchema.extend({

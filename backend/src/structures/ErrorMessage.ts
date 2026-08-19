@@ -3,6 +3,7 @@ import { BaseMessageEnvelopeSchema } from "./MessageEnvelope";
 
 const BaseErrorMessageSchema = BaseMessageEnvelopeSchema.extend({
     kind: z.literal('error'),
+    sequence: z.number(),
 })
 
 export const ErrorMessageSchema = BaseErrorMessageSchema.extend({

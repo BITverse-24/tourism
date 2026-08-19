@@ -5,6 +5,7 @@ import { RejectionCode, WorkflowStates } from "./enums";
 const BaseAckMessageSchema = BaseMessageEnvelopeSchema.extend({
     kind: z.literal('ack'),
     workflow_state: z.enum(WorkflowStates),
+    sequence: z.number(),
 })
 
 export const CommandAcceptedSchema = BaseAckMessageSchema.extend({
@@ -24,8 +25,15 @@ export const CommandRejectedSchema = BaseAckMessageSchema.extend({
 })
 export type CommandRejectedMessage = z.infer<typeof CommandRejectedSchema>;
 
-
 export const AckSchemas = [
     CommandAcceptedSchema,
     CommandRejectedSchema,
 ] as const
+
+export const AckMessageSchema = z.discriminatedUnion(
+    "type",
+    [
+        ...AckSchemas
+    ],
+);
+export type AckMessage = z.infer<typeof AckMessageSchema>;
