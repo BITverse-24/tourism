@@ -137,6 +137,82 @@ export interface DiscoveryResult {
   completion_reason: string | null;
 }
 
+export interface TripContextPatch {
+  destination_request?: string | null;
+  resolved_destination?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  duration_days?: number | null;
+  date_flexibility?: TripContext["date_flexibility"] | null;
+  party_size?: number | null;
+  party_notes?: string | null;
+  budget?: Budget | null;
+}
+
+export interface PurposeAndPrioritiesPatch {
+  primary_purpose?: string | null;
+  secondary_purposes?: string[];
+  priorities?: string[];
+  success_definition?: string | null;
+}
+
+export interface PreferencesPatch {
+  upsert?: Preference[];
+  remove_categories?: string[];
+}
+
+export interface TravelStylePatch {
+  pace?: TravelStyle["pace"] | null;
+  energy_pattern?: TravelStyle["energy_pattern"] | null;
+  walking_tolerance?: TravelStyle["walking_tolerance"] | null;
+  crowd_tolerance?: TravelStyle["crowd_tolerance"] | null;
+  comfort_preference?: TravelStyle["comfort_preference"] | null;
+  spontaneity?: TravelStyle["spontaneity"] | null;
+}
+
+export interface HardConstraintsPatch {
+  must_visit_add?: string[];
+  avoid_add?: string[];
+  dietary_requirements_add?: string[];
+  accessibility_requirements_add?: string[];
+  accommodation_requirements_add?: string[];
+  must_visit_remove?: string[];
+  avoid_remove?: string[];
+  dietary_requirements_remove?: string[];
+  accessibility_requirements_remove?: string[];
+  accommodation_requirements_remove?: string[];
+  maximum_daily_travel?: string | null;
+  maximum_hotel_changes?: number | null;
+  budget_ceiling?: Budget | null;
+}
+
+export interface UnknownsPatch {
+  add?: ProfileUnknown[];
+  resolve_topics?: string[];
+}
+
+export interface AssumptionsPatch {
+  add?: ProfileAssumption[];
+  remove_topics?: string[];
+}
+
+export interface ProfilePatch {
+  trip_context?: TripContextPatch | null;
+  purpose_and_priorities?: PurposeAndPrioritiesPatch | null;
+  preferences?: PreferencesPatch | null;
+  travel_style?: TravelStylePatch | null;
+  hard_constraints?: HardConstraintsPatch | null;
+  unknowns?: UnknownsPatch | null;
+  assumptions?: AssumptionsPatch | null;
+}
+
+export interface DiscoveryPatchResult {
+  finished: boolean;
+  next_question: DiscoveryQuestion | null;
+  completion_reason: string | null;
+  profile_patch: ProfilePatch;
+}
+
 export interface ProcessDiscoveryOptions {
   api_key?: string;
   model?: string;
@@ -162,7 +238,7 @@ export interface FetchResponse {
 
 export type Fetcher = (input: string, init?: FetchRequestInit) => Promise<FetchResponse>;
 
-export const DISCOVERY_SYSTEM_PROMPT = `You are Agent 1, the Discovery/Profile module for Voyager, an agentic travel-planning product.
+export const DISCOVERY_SYSTEM_PROMPT_FULL = `You are Agent 1, the Discovery/Profile module for Voyager, an agentic travel-planning product.
 
 Your only job is to understand the traveler well enough for a later planning stage. In one response, do both jobs:
 1. Update the complete traveler profile using the current profile and the latest answer.
@@ -204,6 +280,49 @@ Return exactly one JSON object with these four root-level keys. The fields finis
   "profile": { "profile_id": "...", "trip_context": {}, "purpose_and_priorities": {}, "preferences": [], "travel_style": {}, "hard_constraints": {}, "unknowns": [], "assumptions": [] }
 }
 Use null for next_question when finished is true and null for completion_reason when finished is false. Return the complete profile, not a patch. Do not include markdown, commentary, chain-of-thought, or extra keys.`;
+
+export const DISCOVERY_SYSTEM_PROMPT = `You are Agent 1, the Discovery/Profile module for Voyager, an agentic travel-planning product.
+
+Your only job is to understand the traveler well enough for a later planning stage. In one response, do two jobs:
+1. Return ONLY the additions/changes to the traveler profile derived from the latest answer (a patch). Do not repeat the complete profile.
+2. Decide whether enough information exists to plan the trip. If it does not, ask exactly one useful next question.
+
+The backend already holds the complete profile in memory and will merge your patch. The full current profile is provided in context for grounding — use it to avoid asking for known information, but do not echo it back.
+
+First turn:
+- The profile and answer may both be null.
+- Return an empty patch (all sections null/omitted) and ask a clear default question about the travel destination.
+
+Questions should collect, when relevant: destination, dates or duration, party size, budget and its scope, trip purpose, priorities, interests, pace, energy pattern, walking tolerance, crowd tolerance, comfort, spontaneity, must-visit items, things to avoid, dietary requirements, accessibility requirements, and accommodation requirements.
+
+Patch rules:
+- Return ONLY changed fields in profile_patch. Omit any section or field that did not change.
+- Within trip_context, purpose_and_priorities, travel_style: include only keys that changed in this turn. Omit unchanged keys. Use null only to explicitly clear a previously set value.
+- Use the exact field names: destination_request (not destination), start_date, end_date, duration_days, party_size, budget, primary_purpose, etc. Do not invent alternate names.
+- Never invent dates, budget, party size, destinations, constraints, or preferences. Only patch what the traveler actually said or clearly accepted.
+- Do not treat an inference as something the traveler directly said. Inferred preferences must have source=inferred and a confidence value.
+- A hard constraint may only be patched from something the traveler clearly stated or explicitly accepted.
+- Never copy a target or flexible budget into hard_constraints.budget_ceiling. Only patch budget_ceiling when the traveler clearly states a maximum, limit, or non-negotiable ceiling (type must be ceiling).
+- For preferences: use preferences.upsert to add or update by category; use preferences.remove_categories only when the traveler retracts an interest. Prefer updating strength to not_interested over removal.
+- For hard_constraints array fields: use *_add to add items, *_remove to retract items. Do not resend the entire array.
+- For unknowns: use unknowns.add to add new unknowns, unknowns.resolve_topics to remove resolved ones (by topic string).
+- For assumptions: use assumptions.add to add, assumptions.remove_topics to remove.
+- Keep the patch minimal and readable. Do not plan an itinerary, recommend places, book anything, or discuss implementation details.
+
+Completion rules:
+- Set finished=true only when the merged profile (current profile + your patch) contains enough reliable information for planning. At minimum: destination, dates or duration, party size, trip purpose or priorities, and enough budget information.
+- If a blocking unknown would remain after merging, set finished=false and ask about it.
+- If finished=true, next_question must be null and completion_reason must briefly explain why.
+- If finished=false, next_question must contain exactly one question and completion_reason must be null.
+
+Return exactly one JSON object with these four root-level keys. The fields finished, next_question, and completion_reason are siblings of profile_patch, never inside it:
+{
+  "finished": false,
+  "next_question": { "question_id": "...", "prompt": "...", "selection_mode": "single", "required": true, "options": [], "free_text_mode": "optional", "free_text_placeholder": "..." },
+  "completion_reason": null,
+  "profile_patch": { "trip_context": { "destination_request": "Kyoto" }, "preferences": { "upsert": [{ "category": "photography", "strength": "strong", "notes": null, "source": "stated", "confidence": null }] } }
+}
+Use null for next_question when finished is true and null for completion_reason when finished is false. Return ONLY the patch, not the complete profile. Do not include markdown, commentary, chain-of-thought, or extra keys.`;
 
 const stringOrNullSchema = { type: ["string", "null"] } as const;
 const numberOrNullSchema = { type: ["number", "null"] } as const;
@@ -422,6 +541,202 @@ export const DISCOVERY_RESPONSE_SCHEMA = {
     },
   },
   required: ["finished", "next_question", "completion_reason", "profile"],
+} as const;
+
+export const DISCOVERY_PATCH_RESPONSE_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    finished: { type: "boolean" },
+    next_question: {
+      type: ["object", "null"],
+      additionalProperties: false,
+      properties: {
+        question_id: { type: "string" },
+        prompt: { type: "string" },
+        selection_mode: { type: "string", enum: ["single", "multiple"] },
+        required: { type: "boolean" },
+        options: {
+          type: "array",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              option_id: { type: "string" },
+              label: { type: "string" },
+              description: { type: "string" },
+            },
+            required: ["option_id", "label", "description"],
+          },
+        },
+        free_text_mode: {
+          type: "string",
+          enum: ["disabled", "optional", "only_if_no_option", "required"],
+        },
+        free_text_placeholder: stringOrNullSchema,
+      },
+      required: [
+        "question_id",
+        "prompt",
+        "selection_mode",
+        "required",
+        "options",
+        "free_text_mode",
+        "free_text_placeholder",
+      ],
+    },
+    completion_reason: stringOrNullSchema,
+    profile_patch: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        trip_context: {
+          type: ["object", "null"],
+          additionalProperties: false,
+          properties: {
+            destination_request: stringOrNullSchema,
+            resolved_destination: stringOrNullSchema,
+            start_date: stringOrNullSchema,
+            end_date: stringOrNullSchema,
+            duration_days: numberOrNullSchema,
+            date_flexibility: {
+              type: ["string", "null"],
+              enum: ["fixed", "somewhat_flexible", "highly_flexible", "unknown", null],
+            },
+            party_size: numberOrNullSchema,
+            party_notes: stringOrNullSchema,
+            budget: budgetSchema,
+          },
+        },
+        purpose_and_priorities: {
+          type: ["object", "null"],
+          additionalProperties: false,
+          properties: {
+            primary_purpose: stringOrNullSchema,
+            secondary_purposes: { type: "array", items: { type: "string" } },
+            priorities: { type: "array", items: { type: "string" } },
+            success_definition: stringOrNullSchema,
+          },
+        },
+        preferences: {
+          type: ["object", "null"],
+          additionalProperties: false,
+          properties: {
+            upsert: {
+              type: "array",
+              items: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                  category: { type: "string" },
+                  strength: {
+                    type: "string",
+                    enum: ["must_have", "strong", "nice_to_have", "not_interested", "unknown"],
+                  },
+                  notes: stringOrNullSchema,
+                  source: { type: "string", enum: ["stated", "inferred", "defaulted"] },
+                  confidence: {
+                    type: ["string", "null"],
+                    enum: ["high", "medium", "low", null],
+                  },
+                },
+                required: ["category", "strength", "notes", "source", "confidence"],
+              },
+            },
+            remove_categories: { type: "array", items: { type: "string" } },
+          },
+        },
+        travel_style: {
+          type: ["object", "null"],
+          additionalProperties: false,
+          properties: {
+            pace: { type: ["string", "null"], enum: ["slow", "balanced", "fast", "unknown", null] },
+            energy_pattern: {
+              type: ["string", "null"],
+              enum: ["morning", "afternoon", "evening", "consistent", "unknown", null],
+            },
+            walking_tolerance: {
+              type: ["string", "null"],
+              enum: ["low", "medium", "high", "unknown", null],
+            },
+            crowd_tolerance: {
+              type: ["string", "null"],
+              enum: ["low", "medium", "high", "unknown", null],
+            },
+            comfort_preference: {
+              type: ["string", "null"],
+              enum: ["comfort_first", "balanced", "exploration_first", "unknown", null],
+            },
+            spontaneity: {
+              type: ["string", "null"],
+              enum: ["structured", "some_flexibility", "spontaneous", "unknown", null],
+            },
+          },
+        },
+        hard_constraints: {
+          type: ["object", "null"],
+          additionalProperties: false,
+          properties: {
+            must_visit_add: { type: "array", items: { type: "string" } },
+            avoid_add: { type: "array", items: { type: "string" } },
+            dietary_requirements_add: { type: "array", items: { type: "string" } },
+            accessibility_requirements_add: { type: "array", items: { type: "string" } },
+            accommodation_requirements_add: { type: "array", items: { type: "string" } },
+            must_visit_remove: { type: "array", items: { type: "string" } },
+            avoid_remove: { type: "array", items: { type: "string" } },
+            dietary_requirements_remove: { type: "array", items: { type: "string" } },
+            accessibility_requirements_remove: { type: "array", items: { type: "string" } },
+            accommodation_requirements_remove: { type: "array", items: { type: "string" } },
+            maximum_daily_travel: stringOrNullSchema,
+            maximum_hotel_changes: numberOrNullSchema,
+            budget_ceiling: budgetSchema,
+          },
+        },
+        unknowns: {
+          type: ["object", "null"],
+          additionalProperties: false,
+          properties: {
+            add: {
+              type: "array",
+              items: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                  topic: { type: "string" },
+                  impact: { type: "string", enum: ["blocking", "material", "minor"] },
+                  description: { type: "string" },
+                },
+                required: ["topic", "impact", "description"],
+              },
+            },
+            resolve_topics: { type: "array", items: { type: "string" } },
+          },
+        },
+        assumptions: {
+          type: ["object", "null"],
+          additionalProperties: false,
+          properties: {
+            add: {
+              type: "array",
+              items: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                  topic: { type: "string" },
+                  value: { type: "string" },
+                  reason: { type: "string" },
+                  user_confirmation_needed: { type: "boolean" },
+                },
+                required: ["topic", "value", "reason", "user_confirmation_needed"],
+              },
+            },
+            remove_topics: { type: "array", items: { type: "string" } },
+          },
+        },
+      },
+    },
+  },
+  required: ["finished", "next_question", "completion_reason", "profile_patch"],
 } as const;
 
 const DEFAULT_MODEL = "openai/gpt-oss-20b";
@@ -709,6 +1024,249 @@ function normalizeProfile(rawProfile: Record<string, unknown>): TravelerProfile 
   return profile;
 }
 
+function cloneProfile(profile: TravelerProfile): TravelerProfile {
+  return JSON.parse(JSON.stringify(profile)) as TravelerProfile;
+}
+
+function hasOwnPatchField<T extends object>(obj: T, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(obj, key);
+}
+
+export function applyProfilePatch(
+  current: TravelerProfile | null,
+  patch: ProfilePatch | null | undefined,
+): TravelerProfile {
+  const base = current ? cloneProfile(current) : emptyProfile("mock-profile");
+  if (!patch || typeof patch !== "object") return base;
+
+  const tc = patch.trip_context;
+  if (tc && typeof tc === "object") {
+    const rec = tc as Record<string, unknown>;
+    if (hasOwnPatchField(rec, "destination_request")) {
+      base.trip_context.destination_request = stringOrNull(rec.destination_request);
+    }
+    if (hasOwnPatchField(rec, "resolved_destination")) {
+      base.trip_context.resolved_destination = stringOrNull(rec.resolved_destination);
+    }
+    if (hasOwnPatchField(rec, "start_date")) {
+      base.trip_context.start_date = stringOrNull(rec.start_date);
+    }
+    if (hasOwnPatchField(rec, "end_date")) {
+      base.trip_context.end_date = stringOrNull(rec.end_date);
+    }
+    if (hasOwnPatchField(rec, "duration_days")) {
+      base.trip_context.duration_days = numberOrNull(rec.duration_days);
+    }
+    if (hasOwnPatchField(rec, "date_flexibility")) {
+      const v = rec.date_flexibility;
+      base.trip_context.date_flexibility =
+        v === "fixed" || v === "somewhat_flexible" || v === "highly_flexible" ? (v as TripContext["date_flexibility"]) : v === null ? "unknown" : base.trip_context.date_flexibility;
+      if (v === "unknown") base.trip_context.date_flexibility = "unknown";
+    }
+    if (hasOwnPatchField(rec, "party_size")) {
+      base.trip_context.party_size = numberOrNull(rec.party_size);
+    }
+    if (hasOwnPatchField(rec, "party_notes")) {
+      base.trip_context.party_notes = stringOrNull(rec.party_notes);
+    }
+    if (hasOwnPatchField(rec, "budget")) {
+      const b = normalizeBudget(rec.budget, null);
+      if (b !== null || rec.budget === null) base.trip_context.budget = b;
+    }
+  }
+
+  const pp = patch.purpose_and_priorities;
+  if (pp && typeof pp === "object") {
+    const rec = pp as Record<string, unknown>;
+    if (hasOwnPatchField(rec, "primary_purpose")) {
+      base.purpose_and_priorities.primary_purpose = stringOrNull(rec.primary_purpose);
+    }
+    if (hasOwnPatchField(rec, "secondary_purposes") && Array.isArray(rec.secondary_purposes)) {
+      base.purpose_and_priorities.secondary_purposes = stringArray(rec.secondary_purposes);
+    }
+    if (hasOwnPatchField(rec, "priorities") && Array.isArray(rec.priorities)) {
+      base.purpose_and_priorities.priorities = stringArray(rec.priorities);
+    }
+    if (hasOwnPatchField(rec, "success_definition")) {
+      base.purpose_and_priorities.success_definition = stringOrNull(rec.success_definition);
+    }
+  }
+
+  const ts = patch.travel_style;
+  if (ts && typeof ts === "object") {
+    const rec = ts as Record<string, unknown>;
+    if (hasOwnPatchField(rec, "pace") && rec.pace !== undefined) {
+      const v = rec.pace;
+      if (v === "slow" || v === "balanced" || v === "fast" || v === "unknown" || v === null) {
+        base.travel_style.pace = (v as TravelStyle["pace"]) ?? "unknown";
+        if (v === null) base.travel_style.pace = "unknown";
+      }
+    }
+    if (hasOwnPatchField(rec, "energy_pattern") && rec.energy_pattern !== undefined) {
+      const v = rec.energy_pattern;
+      if (v === "morning" || v === "afternoon" || v === "evening" || v === "consistent" || v === "unknown" || v === null) {
+        base.travel_style.energy_pattern = (v as TravelStyle["energy_pattern"]) ?? "unknown";
+        if (v === null) base.travel_style.energy_pattern = "unknown";
+      }
+    }
+    if (hasOwnPatchField(rec, "walking_tolerance") && rec.walking_tolerance !== undefined) {
+      const v = rec.walking_tolerance;
+      if (v === "low" || v === "medium" || v === "high" || v === "unknown" || v === null) {
+        base.travel_style.walking_tolerance = (v as TravelStyle["walking_tolerance"]) ?? "unknown";
+        if (v === null) base.travel_style.walking_tolerance = "unknown";
+      }
+    }
+    if (hasOwnPatchField(rec, "crowd_tolerance") && rec.crowd_tolerance !== undefined) {
+      const v = rec.crowd_tolerance;
+      if (v === "low" || v === "medium" || v === "high" || v === "unknown" || v === null) {
+        base.travel_style.crowd_tolerance = (v as TravelStyle["crowd_tolerance"]) ?? "unknown";
+        if (v === null) base.travel_style.crowd_tolerance = "unknown";
+      }
+    }
+    if (hasOwnPatchField(rec, "comfort_preference") && rec.comfort_preference !== undefined) {
+      const v = rec.comfort_preference;
+      if (v === "comfort_first" || v === "balanced" || v === "exploration_first" || v === "unknown" || v === null) {
+        base.travel_style.comfort_preference = (v as TravelStyle["comfort_preference"]) ?? "unknown";
+        if (v === null) base.travel_style.comfort_preference = "unknown";
+      }
+    }
+    if (hasOwnPatchField(rec, "spontaneity") && rec.spontaneity !== undefined) {
+      const v = rec.spontaneity;
+      if (v === "structured" || v === "some_flexibility" || v === "spontaneous" || v === "unknown" || v === null) {
+        base.travel_style.spontaneity = (v as TravelStyle["spontaneity"]) ?? "unknown";
+        if (v === null) base.travel_style.spontaneity = "unknown";
+      }
+    }
+  }
+
+  const pref = patch.preferences;
+  if (pref && typeof pref === "object") {
+    if (Array.isArray(pref.upsert)) {
+      for (const item of pref.upsert) {
+        const rec = recordOrEmpty(item);
+        const category = stringOrNull(rec.category);
+        if (!category) continue;
+        const normalized: Preference = {
+          category,
+          strength:
+            rec.strength === "must_have" ||
+            rec.strength === "strong" ||
+            rec.strength === "nice_to_have" ||
+            rec.strength === "not_interested"
+              ? (rec.strength as PreferenceStrength)
+              : "unknown",
+          notes: stringOrNull(rec.notes),
+          source: rec.source === "stated" || rec.source === "inferred" ? (rec.source as Preference["source"]) : "defaulted",
+          confidence:
+            rec.confidence === "high" || rec.confidence === "medium" || rec.confidence === "low"
+              ? (rec.confidence as InferenceConfidence)
+              : null,
+        };
+        const idx = base.preferences.findIndex((p) => p.category.toLowerCase() === category.toLowerCase());
+        if (idx >= 0) base.preferences[idx] = normalized;
+        else base.preferences.push(normalized);
+      }
+    }
+    if (Array.isArray(pref.remove_categories)) {
+      const toRemove = new Set(pref.remove_categories.map((c) => String(c).toLowerCase()));
+      base.preferences = base.preferences.filter((p) => !toRemove.has(p.category.toLowerCase()));
+    }
+  }
+
+  const hc = patch.hard_constraints;
+  if (hc && typeof hc === "object") {
+    const addUnique = (currentList: string[], additions: unknown): string[] => {
+      if (!Array.isArray(additions)) return currentList;
+      const cleaned = stringArray(additions);
+      const existing = new Set(currentList.map((s) => s.toLowerCase()));
+      for (const item of cleaned) {
+        if (!existing.has(item.toLowerCase())) {
+          currentList.push(item);
+          existing.add(item.toLowerCase());
+        }
+      }
+      return currentList;
+    };
+    const removeByValue = (currentList: string[], removals: unknown): string[] => {
+      if (!Array.isArray(removals)) return currentList;
+      const toRemove = new Set(stringArray(removals).map((s) => s.toLowerCase()));
+      return currentList.filter((s) => !toRemove.has(s.toLowerCase()));
+    };
+    if (Array.isArray(hc.must_visit_add)) base.hard_constraints.must_visit = addUnique(base.hard_constraints.must_visit, hc.must_visit_add);
+    if (Array.isArray(hc.avoid_add)) base.hard_constraints.avoid = addUnique(base.hard_constraints.avoid, hc.avoid_add);
+    if (Array.isArray(hc.dietary_requirements_add)) base.hard_constraints.dietary_requirements = addUnique(base.hard_constraints.dietary_requirements, hc.dietary_requirements_add);
+    if (Array.isArray(hc.accessibility_requirements_add)) base.hard_constraints.accessibility_requirements = addUnique(base.hard_constraints.accessibility_requirements, hc.accessibility_requirements_add);
+    if (Array.isArray(hc.accommodation_requirements_add)) base.hard_constraints.accommodation_requirements = addUnique(base.hard_constraints.accommodation_requirements, hc.accommodation_requirements_add);
+    if (Array.isArray(hc.must_visit_remove)) base.hard_constraints.must_visit = removeByValue(base.hard_constraints.must_visit, hc.must_visit_remove);
+    if (Array.isArray(hc.avoid_remove)) base.hard_constraints.avoid = removeByValue(base.hard_constraints.avoid, hc.avoid_remove);
+    if (Array.isArray(hc.dietary_requirements_remove)) base.hard_constraints.dietary_requirements = removeByValue(base.hard_constraints.dietary_requirements, hc.dietary_requirements_remove);
+    if (Array.isArray(hc.accessibility_requirements_remove)) base.hard_constraints.accessibility_requirements = removeByValue(base.hard_constraints.accessibility_requirements, hc.accessibility_requirements_remove);
+    if (Array.isArray(hc.accommodation_requirements_remove)) base.hard_constraints.accommodation_requirements = removeByValue(base.hard_constraints.accommodation_requirements, hc.accommodation_requirements_remove);
+    if (hasOwnPatchField(hc as Record<string, unknown>, "maximum_daily_travel")) {
+      base.hard_constraints.maximum_daily_travel = stringOrNull((hc as Record<string, unknown>).maximum_daily_travel);
+    }
+    if (hasOwnPatchField(hc as Record<string, unknown>, "maximum_hotel_changes")) {
+      base.hard_constraints.maximum_hotel_changes = numberOrNull((hc as Record<string, unknown>).maximum_hotel_changes);
+    }
+    if (hasOwnPatchField(hc as Record<string, unknown>, "budget_ceiling")) {
+      const bc = normalizeBudgetCeiling((hc as Record<string, unknown>).budget_ceiling);
+      if (bc !== null || (hc as Record<string, unknown>).budget_ceiling === null) base.hard_constraints.budget_ceiling = bc;
+    }
+  }
+
+  const unk = patch.unknowns;
+  if (unk && typeof unk === "object") {
+    if (Array.isArray(unk.add)) {
+      for (const item of unk.add) {
+        const rec = recordOrEmpty(item);
+        const topic = stringOrNull(rec.topic);
+        const description = stringOrNull(rec.description);
+        if (!topic || !description) continue;
+        const normalized: ProfileUnknown = {
+          topic,
+          description,
+          impact: rec.impact === "blocking" || rec.impact === "material" ? (rec.impact as ProfileUnknown["impact"]) : "minor",
+        };
+        const idx = base.unknowns.findIndex((u) => u.topic.toLowerCase() === topic.toLowerCase());
+        if (idx >= 0) base.unknowns[idx] = normalized;
+        else base.unknowns.push(normalized);
+      }
+    }
+    if (Array.isArray(unk.resolve_topics)) {
+      const toResolve = new Set(unk.resolve_topics.map((t) => String(t).toLowerCase()));
+      base.unknowns = base.unknowns.filter((u) => !toResolve.has(u.topic.toLowerCase()));
+    }
+  }
+
+  const assum = patch.assumptions;
+  if (assum && typeof assum === "object") {
+    if (Array.isArray(assum.add)) {
+      for (const item of assum.add) {
+        const rec = recordOrEmpty(item);
+        const topic = stringOrNull(rec.topic);
+        const value = stringOrNull(rec.value);
+        const reason = stringOrNull(rec.reason);
+        if (!topic || !value || !reason) continue;
+        const normalized: ProfileAssumption = {
+          topic,
+          value,
+          reason,
+          user_confirmation_needed: rec.user_confirmation_needed === true,
+        };
+        const idx = base.assumptions.findIndex((a) => a.topic.toLowerCase() === topic.toLowerCase());
+        if (idx >= 0) base.assumptions[idx] = normalized;
+        else base.assumptions.push(normalized);
+      }
+    }
+    if (Array.isArray(assum.remove_topics)) {
+      const toRemove = new Set(assum.remove_topics.map((t) => String(t).toLowerCase()));
+      base.assumptions = base.assumptions.filter((a) => !toRemove.has(a.topic.toLowerCase()));
+    }
+  }
+
+  return base;
+}
+
 function validateResult(value: unknown): asserts value is DiscoveryResult {
   if (!isRecord(value)) throw new DiscoveryResponseError("Groq returned a response that is not an object.");
   if (!isRecord(value.profile)) throw new DiscoveryResponseError("Groq returned an invalid traveler profile.");
@@ -730,9 +1288,30 @@ function validateResult(value: unknown): asserts value is DiscoveryResult {
   }
 }
 
+function validatePatchResult(value: unknown): asserts value is DiscoveryPatchResult {
+  if (!isRecord(value)) throw new DiscoveryResponseError("Groq returned a response that is not an object.");
+  if (!isRecord(value.profile_patch)) throw new DiscoveryResponseError("Groq returned an invalid profile_patch.");
+  if (typeof value.finished !== "boolean") throw new DiscoveryResponseError("Groq returned an invalid completion flag.");
+  if (value.next_question !== null && !isRecord(value.next_question)) {
+    throw new DiscoveryResponseError("Groq returned an invalid next question.");
+  }
+  if (value.finished && value.next_question !== null) {
+    throw new DiscoveryResponseError("A finished discovery response cannot contain a next question.");
+  }
+  if (!value.finished && value.next_question === null) {
+    throw new DiscoveryResponseError("An unfinished discovery response must contain a next question.");
+  }
+  if (value.completion_reason !== null && typeof value.completion_reason !== "string") {
+    throw new DiscoveryResponseError("Groq returned an invalid completion reason.");
+  }
+  if (value.finished && typeof value.completion_reason !== "string") {
+    throw new DiscoveryResponseError("A finished discovery response must explain why it is complete.");
+  }
+}
+
 function buildUserMessage(input: DiscoveryInput): string {
   return JSON.stringify({
-    instructions: "Return the complete updated profile and either one next question or a finished response.",
+    instructions: "Return ONLY the profile_patch (changed fields) and either one next question or a finished response. The full current profile is provided for grounding; do not echo it back.",
     profile: input.profile,
     answer: input.answer,
     profile_id_if_new: input.profile?.profile_id ?? "mock-profile",
@@ -808,7 +1387,7 @@ export async function processDiscovery(
         json_schema: {
           name: "voyager_discovery_turn",
           strict: true,
-          schema: DISCOVERY_RESPONSE_SCHEMA,
+          schema: DISCOVERY_PATCH_RESPONSE_SCHEMA,
         },
       },
     });
@@ -864,11 +1443,39 @@ export async function processDiscovery(
       throw new DiscoveryResponseError("Groq returned discovery content that is not valid JSON.");
     }
 
-    validateResult(result);
-    return {
-      ...result,
-      profile: normalizeProfile(result.profile as unknown as Record<string, unknown>),
-    };
+    // Preferred path: patch-based response (LLM returns only additions, backend merges in-memory).
+    if (isRecord(result) && "profile_patch" in result) {
+      validatePatchResult(result);
+      const patchResult = result as DiscoveryPatchResult;
+      const merged = applyProfilePatch(input.profile, patchResult.profile_patch);
+      // Preserve profile_id from input when available; applyProfilePatch uses mock-profile for null input.
+      if (input.profile?.profile_id) {
+        merged.profile_id = input.profile.profile_id;
+      } else if (patchResult.profile_patch && isRecord((patchResult.profile_patch as unknown as Record<string, unknown>))) {
+        // No prior profile — keep generated id (already mock-profile).
+      }
+      // Final normalization pass ensures invariants (e.g., budget_ceiling guard) on merged result.
+      const normalized = normalizeProfile(merged as unknown as Record<string, unknown>);
+      // normalizeProfile may reset profile_id to mock-profile if merged had odd id; restore original.
+      normalized.profile_id = merged.profile_id;
+      return {
+        finished: patchResult.finished,
+        next_question: patchResult.next_question,
+        completion_reason: patchResult.completion_reason,
+        profile: normalized,
+      };
+    }
+
+    // Legacy fallback: full profile response (backward compatibility with DISCOVERY_SYSTEM_PROMPT_FULL).
+    if (isRecord(result) && "profile" in result) {
+      validateResult(result);
+      return {
+        ...(result as DiscoveryResult),
+        profile: normalizeProfile((result as DiscoveryResult).profile as unknown as Record<string, unknown>),
+      };
+    }
+
+    throw new DiscoveryResponseError("Groq returned a discovery response without profile or profile_patch.");
   } catch (error) {
     if (error instanceof DiscoveryApiError || error instanceof DiscoveryResponseError) throw error;
     if (error instanceof DOMException && error.name === "AbortError") {
