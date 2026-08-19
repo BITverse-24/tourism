@@ -2,7 +2,7 @@
 
 ### "Quiet Luxury, Liquid Intelligence" · v1.4 Modular Library
 
-> **How to use this library:** This README is the only base knowledge you need. It defines the visual language, spatial rules, motion principles, shell, primitive components, lifecycle, accessibility, transport and architecture. Each screen file under `/design` (mirrored in `screens/`) then describes *one* screen in detail, assuming you have read this README. Do not re-define tokens in screen files.
+> **How to use this library:** This README is the only base knowledge you need. It defines the visual language, spatial rules, motion principles, shell, primitive components, lifecycle, accessibility, transport and architecture. Each screen file under `/design` then describes *one* screen in detail, assuming you have read this README. Do not re-define tokens in screen files.
 >
 > **Contracts are canonical for data:** The shapes of the traveler profile, final plan, and WebSocket messages are defined outside this directory in `docs/TRAVELER_PROFILE_SCHEMA.md`, `docs/FINAL_TRIP_PLAN_SCHEMA.md`, `docs/WEBSOCKET_CONTRACT.md`, and `docs/AGENT_ARCHITECTURE.md`. This `/design` directory defines only *how those shapes look and behave*. If a screen description ever conflicts with `docs/`, `docs/` wins. The legacy single-file `DESIGN.md` at the repo root is frozen and superseded by this library.
 >
@@ -22,6 +22,24 @@
 4. **Desktop-first canvas:** Design for a minimum width of 1024px. The content canvas is centered, at most 1240px wide, conceptually 12 columns. Below 1024px, preserve order and avoid horizontal scroll; hide the right rail entirely below 1200px.
 5. **No emoji:** Use single-weight, thin stroke line icons only; never emoji, never duotone.
 6. **Contracts win:** Data shapes, workflow state names, and lifecycle stage names come from `docs/`. This directory owns only visual and interaction design.
+
+---
+
+## 0.5 Quiet Luxury — The Aesthetic That Governs Everything
+
+Voyager's luxury is quiet, not loud. The reference is not a boutique hotel lobby filled with marble and gold, but the *feeling* of being remembered — the concierge who knows your name, the paper that feels right between fingers, the room where everything is already placed.
+
+**Principles to implement on every screen:**
+
+* **Warm minimalism:** Bone surfaces (warm paper/linen, never stark white), dark ink text (charcoal-navy, never pure black), brass used as jewelry — small, precise, warm metal against the neutrals. One accent, used sparingly, is what makes it feel precious.
+* **Generous whitespace as material:** The most luxurious element is empty space. Headlines breathe above and below; cards have deep internal padding; sections are separated by 96–128 of air. Compress nothing to save space.
+* **Tactile paper over glossy UI:** Every card, chip rest state, input fill, and rail surface should read as thick, matte, slightly textured stock laid on a table with a soft double shadow (a tighter faint shadow plus a broader diffuse one). No hard drop shadows, no glossy highlights, no bevels, no plastic.
+* **Typography as hospitality:** Serif for what matters (headlines, titles, provenance notes) — elegant, grounded, confident. Sans for what guides (body, rails, captions) — humane, legible, unhurried. Uppercase captions with generous tracking feel like letterpressed labels. Line lengths are deliberately limited for comfortable reading; line heights are generous.
+* **Discipline of brass:** Brass appears only for interaction (hover/selected), for the dashed draft border, and for slim left accents on unknowns/warnings. Its scarcity is its power. Never use brass as a background wash, never pair it with red/green semantics.
+* **Motion as breath, not performance:** Nothing bounces, springs, or pops. Page transitions pour, content settles with a slight upward rise and fade, micro interactions tint precisely, the single ripple breathes. Even failures are quiet — a small muted dot and plain text, not a banner.
+* **Light as lamplight:** On deep ink, text is warm bone slightly transparent, not stark white on black — like paper under a lamp. On warm bone, shadows are warm-grey, not blue-grey, so the palette holds together.
+
+If a choice would make the product look more like an app, do the other thing. If a choice would add color, check whether whitespace would do more.
 
 ---
 
@@ -69,7 +87,7 @@ A single spacing scale governs all gaps, padding, and section margins: 4, 8, 12,
 - Deeper lift for floating elements (summary strip, expanded rail).
 - Two border treatments: a solid hairline warm border for final content, and a dashed brass border for draft/provisional content.
 
-The exact hex values, shadow opacities, and border weights are recorded in the legacy frozen spec and must not be reinvented; use the named tokens above. Never place body-weight text directly on strong brass — place dark ink text on brass instead.
+The exact hex values, shadow opacities, and border weights are canonical in §11.1 below; use those values through semantic tokens. Never place body-weight text directly on strong brass — place dark ink text on brass instead.
 
 ### 1.4 Typography
 
@@ -190,7 +208,6 @@ Render hard constraints literally; never synthesize preferences into constraints
 - `design/day-canvas.md` — Ordered day-by-day canvas (main itinerary)
 - `design/experience-detail.md` — Full-screen morph detail
 - `design/replanning.md` — Deferred replanning (reserved)
-- `design/screens/` — Mirror of the 10 screen files for import convenience
 
 ---
 
@@ -216,3 +233,101 @@ Render hard constraints literally; never synthesize preferences into constraints
 | 8 | Day / City Canvas | day-canvas.md | Plan Ready | Days & timed items |
 | 9 | Experience Detail | experience-detail.md | Plan Ready (overlay) | Single item + fit note |
 | 10 | Replanning | replanning.md | Deferred | Reserved — not active in initial flow |
+
+---
+
+## 11. Self-Contained Implementation Contract
+
+This section turns the visual direction above into values a coding agent can implement without access to the old prototype or a missing design file. These values are part of the `/design` contract. If a screen description below uses a relative phrase such as “comfortable padding” or “soft shadow,” use the values here.
+
+### 11.1 Canonical tokens
+
+Use CSS custom properties, a typed token object, or the equivalent in the UI framework. Do not use literal values in screen components when one of these tokens applies.
+
+```css
+:root {
+  --voyager-bone-0: #F7F2E9;       /* page background */
+  --voyager-bone-1: #EEE6D8;       /* card and input surface */
+  --voyager-bone-2: #E1D6C5;       /* hairline and quiet divider */
+  --voyager-bone-3: #C9BBA5;       /* disabled, placeholder, skeleton */
+  --voyager-ink-0: #1B252C;        /* deepest consultation background */
+  --voyager-ink-1: #263239;        /* primary light-surface text */
+  --voyager-ink-2: #56636A;        /* secondary text */
+  --voyager-ink-3: #7D878A;        /* meta, caption, placeholder */
+  --voyager-light-ink: #F2EBDD;    /* text on consultation background */
+  --voyager-brass-1: #B38A55;      /* primary action, selected accent */
+  --voyager-brass-2: #D8C19A;      /* hover tint, focus ring */
+  --voyager-brass-3: #86633B;      /* pressed state, dark accent */
+  --voyager-clay: #B56F62;         /* failed or timed-out state */
+  --voyager-sage: #708A77;         /* completed state */
+  --voyager-radius-sm: 6px;
+  --voyager-radius-md: 12px;
+  --voyager-radius-lg: 18px;
+  --voyager-radius-pill: 999px;
+  --voyager-shadow-card: 0 1px 2px rgba(38, 41, 37, .08), 0 12px 28px rgba(38, 41, 37, .08);
+  --voyager-shadow-float: 0 2px 5px rgba(38, 41, 37, .10), 0 20px 44px rgba(38, 41, 37, .12);
+  --voyager-shadow-night-rail: -12px 0 30px rgba(0, 0, 0, .12);
+  --voyager-focus-ring: 0 0 0 3px rgba(216, 193, 154, .72);
+}
+```
+
+Semantic use is strict: `clay` and `sage` are never decorative fills or positive/negative comparison badges; brass is never a warning color. Use `--voyager-bone-2` for 1px rules and `--voyager-bone-3` for disabled text. On `--voyager-ink-0`, use `--voyager-light-ink`, never white.
+
+### 11.2 Type, spacing, and geometry
+
+Font loading order is `Fraunces, Georgia, serif` for serif styles; `General Sans, Inter, ui-sans-serif, sans-serif` for sans styles; and `IBM Plex Mono, ui-monospace, monospace` for numeric scope. Use the following exact styles:
+
+| Token | Size / line-height | Weight | Use |
+|---|---:|---:|---|
+| `display-xl` | 56 / 64px | 400 | Arrival hero only, desktop |
+| `display-lg` | 40 / 48px | 400 | Screen titles and plan title |
+| `heading-lg` | 28 / 36px | 500 | Major section headings |
+| `heading-md` | 22 / 30px | 500 | Cards and day headings |
+| `body-lg` | 18 / 28px | 400 | Prompts and primary reading |
+| `body-md` | 16 / 25px | 400 | Descriptions and rail content |
+| `caption` | 13 / 18px | 500 | Uppercase labels; letter-spacing .12em |
+| `meta` | 12 / 17px | 500 | Timestamps, tags, helper text |
+| `numeric` | 12 / 18px | 400 | Costs, deltas, quantities |
+
+Apply the spacing scale exactly: `4, 8, 12, 16, 24, 32, 48, 64, 96, 128px`. Default card padding is 32px; compact cards use 24px. Default content width is `min(1240px, calc(100vw - 64px))` at desktop, `calc(100vw - 48px)` at 1024–1199px, and `calc(100vw - 32px)` below 768px.
+
+Global geometry:
+
+| Element | Canonical value |
+|---|---:|
+| Header height | 72px desktop; 64px below 768px |
+| Content max-width | 1240px |
+| Desktop page gutter | 32px each side |
+| Lifecycle rail | 320px expanded; 4px collapsed edge |
+| Rail reveal breakpoint | visible at `min-width: 1200px` |
+| Two-column-to-one-column breakpoint | 1024px unless a screen says otherwise |
+| Minimum interactive target | 44 × 44px |
+| Hairline border | 1px solid |
+| Draft border | 1px dashed `--voyager-brass-1` |
+| Standard control radius | `--voyager-radius-md` |
+
+At widths below 1024px, preserve the primary-content-first DOM order and do not create horizontal scrolling. At widths below 768px, stack multi-column layouts, make actions full-width where specified, and reduce display titles to 40/48px and body-large to 16/25px. Every state must remain usable at 320px.
+
+### 11.3 Component contracts
+
+**Buttons.** Primary buttons are at least 44px high, use 16px horizontal padding plus 24px side inset, `--voyager-brass-1` fill, `--voyager-ink-1` text, and `--voyager-radius-md`. Ghost buttons use a 1px `--voyager-ink-2` border and transparent fill. Hover is a 150ms tint to `--voyager-brass-2`; pressed is `--voyager-brass-3`; disabled/busy is `opacity: .4` with `pointer-events: none`. Preserve the accessible name while showing busy; do not replace the label with a spinner.
+
+**Inputs.** Textareas use `--voyager-bone-1`, `--voyager-ink-1`, 1px `--voyager-bone-2`, `--voyager-radius-md`, 16px padding, and `resize: none`. Focus uses `--voyager-focus-ring` and does not change layout. Placeholder uses `--voyager-ink-3`. A visible label or accessible name is mandatory even when the visual label is represented by the surrounding prompt.
+
+**Cards.** Standard cards use `--voyager-bone-1`, `--voyager-shadow-card`, `--voyager-radius-md`, and 32px padding. Use 24px padding only for compact rail or timeline cards. Final content gets a 1px solid `--voyager-bone-2` border. Draft content gets the dashed brass border and the exact badge text `Draft — not yet confirmed`.
+
+**Icons.** Use one-weight stroke icons at 20px in controls and 16px in meta rows, with `stroke-width: 1.5`, round line caps, and no filled or duotone treatment. Every meaningful icon has a text label or accessible name. Never substitute emoji.
+
+**Images.** Experience imagery is 4:3; meal imagery is 4:5; hero imagery is a cover image with a 40vh minimum and 56vh maximum. Use `object-fit: cover`, a 250ms opacity fade after load, and a `--voyager-bone-2` skeleton with no broken-image icon. Image alt text is descriptive when informative and empty when decorative.
+
+### 11.4 View and event rules
+
+Every screen owns a small view model with `workflowState`, `busy`, `errorMessage`, and the latest authoritative snapshot relevant to that screen. Render server text exactly unless a screen explicitly calls for a fixed label. A client may format dates, currency, counts, and line breaks; it may not invent destination facts, reasons, scores, progress percentages, or missing values.
+
+Apply server events in sequence order. Replace complete Profile and Plan snapshots only when the revision is newer. Never advance a screen on a click alone: render busy, wait for `command.accepted`, then wait for the next authoritative event before transitioning. Repeated accepted commands marked `deduplicated` must not replay entrance motion or append duplicate content.
+
+Use a polite `aria-live="polite"` region for server messages. Keep focus stable during snapshot replacement; move focus only when the workflow state changes or a newly opened overlay requires a focus trap. On a rejected command, preserve entered values unless the contract explicitly supplies a newer authoritative value.
+
+### 11.5 Definition of done for every screen
+
+A screen is implementation-complete only when default, hover, focus, selected, disabled, busy, empty, error, and narrow-width states are implemented; optional fields can be absent; no internal server field is displayed; keyboard order matches visual reading order; 44px targets and visible brass focus rings are present; draft/final status is explicit where relevant; event replay and stale-command behavior do not duplicate UI; and screenshot review passes at 1440px, 1200px, 1024px, 768px, and 320px widths.
