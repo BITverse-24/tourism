@@ -11,6 +11,110 @@ import type { TravelerProfile } from "./src/types.js";
 
 export type { TravelerProfile } from "./src/types.js";
 
+// --- tradeoff tool (separate file also at src/tools/askUserTradeoff.ts, inlined here so backend only needs agent-2.ts) ---
+export const MAX_TRADEOFF_CALLS = 3;
+export interface AskUserTradeoffRequest {
+  attraction_id_a: string;
+  attraction_id_b: string;
+  question: string;
+}
+export type AskUserTradeoffResolver = (request: AskUserTradeoffRequest) => Promise<string>;
+export interface TradeoffHistoryEntry {
+  question: string;
+  attraction_id_a: string;
+  attraction_id_b: string;
+  choice: string;
+}
+export function buildAskUserTradeoffToolSchema(): unknown {
+  return {
+    type: "function",
+    function: {
+      name: "ask_user_tradeoff",
+      description:
+        "Ask the user to choose between two attractions when the tradeoff materially affects the plan. Vary framing naturally but include both attraction names and contrasting highlights. Use only when the decision changes the itinerary. Returns the user's choice: an attraction name/id, or 'neither'. Backend displays the question on the frontend and waits for the reply.",
+      strict: true,
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          attraction_id_a: { type: "string", description: "First attraction stable ID" },
+          attraction_id_b: { type: "string", description: "Second attraction stable ID" },
+          question: {
+            type: "string",
+            description:
+              "Natural tradeoff question including both attraction names and contrast, e.g. 'Amber Fort vs City Palace, one has ... but the other has ...'. Vary phrasing each time.",
+          },
+        },
+        required: ["attraction_id_a", "attraction_id_b", "question"],
+      },
+    },
+  };
+}
+export function isNeitherChoice(choice: string): boolean {
+  const c = choice.trim().toLowerCase();
+  return c === "neither" || c === "neither option" || c === "neither one" || c === "skip both" || c === "none";
+}
+async function executeAskUserTradeoffTool(
+  state: {
+    known_attractions: Map<string, { attraction_id: string; city_id: string; name: string }>;
+    tradeoff_history: TradeoffHistoryEntry[];
+    tradeoff_calls: number;
+    options: { askUserTradeoff?: AskUserTradeoffResolver };
+    deadline: number;
+  },
+  rawArguments: string,
+): Promise<string> {
+  if (!state.options.askUserTradeoff) {
+    return JSON.stringify({ error: { code: "tradeoff_not_configured", message: "ask_user_tradeoff requires options.askUserTradeoff resolver." } });
+  }
+  if (state.tradeoff_calls >= MAX_TRADEOFF_CALLS) {
+    return JSON.stringify({ error: { code: "tradeoff_budget_exhausted", message: `At most ${MAX_TRADEOFF_CALLS} tradeoff questions allowed.` } });
+  }
+  let args: Record<string, unknown>;
+  try {
+    const parsed: unknown = JSON.parse(rawArguments);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Error("arguments must be an object");
+    args = parsed as Record<string, unknown>;
+  } catch {
+    return JSON.stringify({ error: { code: "invalid_arguments", message: "Tool arguments must be valid JSON object arguments." } });
+  }
+  const expectedKeys = new Set(["attraction_id_a", "attraction_id_b", "question"]);
+  for (const key of Object.keys(args)) if (!expectedKeys.has(key)) return JSON.stringify({ error: { code: "invalid_arguments", message: `ask_user_tradeoff contains unsupported field ${key}` } });
+  const aId = typeof args.attraction_id_a === "string" && args.attraction_id_a.trim() ? args.attraction_id_a.trim() : "";
+  const bId = typeof args.attraction_id_b === "string" && args.attraction_id_b.trim() ? args.attraction_id_b.trim() : "";
+  const question = typeof args.question === "string" && args.question.trim() ? args.question.trim() : "";
+  if (!aId || !bId || !question) return JSON.stringify({ error: { code: "invalid_arguments", message: "attraction_id_a, attraction_id_b, question must be non-empty strings" } });
+  if (aId === bId) return JSON.stringify({ error: { code: "invalid_tradeoff_pair", message: "attraction IDs must be distinct" } });
+  const a = state.known_attractions.get(aId);
+  const b = state.known_attractions.get(bId);
+  if (!a || !b) {
+    return JSON.stringify({ error: { code: "unknown_attraction", message: "Both attractions must be retrieved first via query_attractions/get_attractions_by_ids before asking tradeoff." } });
+  }
+  const qLower = question.toLowerCase();
+  const includesA = qLower.includes(a.name.toLowerCase()) || qLower.includes(aId.toLowerCase());
+  const includesB = qLower.includes(b.name.toLowerCase()) || qLower.includes(bId.toLowerCase());
+  if (!includesA || !includesB) {
+    return JSON.stringify({ error: { code: "invalid_question", message: `Question must include both attraction names: ${a.name} and ${b.name}.` } });
+  }
+  try {
+    const remaining = state.deadline - Date.now();
+    if (remaining <= 0) throw new Error("ask_user_tradeoff exceeded the run timeout");
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error("ask_user_tradeoff exceeded the run timeout")), remaining);
+    });
+    const choiceRaw = await Promise.race([state.options.askUserTradeoff!({ attraction_id_a: aId, attraction_id_b: bId, question }), timeout]).finally(() => { if (timer) clearTimeout(timer); });
+    const choice = typeof choiceRaw === "string" ? choiceRaw.trim() : String(choiceRaw ?? "").trim();
+    if (!choice) return JSON.stringify({ error: { code: "invalid_choice", message: "User reply was empty." } });
+    state.tradeoff_history.push({ question, attraction_id_a: aId, attraction_id_b: bId, choice });
+    (state as { tradeoff_calls: number }).tradeoff_calls += 1;
+    return JSON.stringify({ choice, question, attraction_id_a: aId, attraction_id_b: bId, tradeoff_calls_used: state.tradeoff_calls, tradeoff_calls_remaining: MAX_TRADEOFF_CALLS - state.tradeoff_calls });
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("exceeded the run timeout")) throw error;
+    return JSON.stringify({ error: { code: "tradeoff_failed", message: "Tradeoff resolver failed without exposing details." } });
+  }
+}
+
 export type CandidateDesignMode = "trip_route" | "city_day_plan";
 export type DestinationScopeType = "city" | "region" | "country";
 
@@ -255,6 +359,7 @@ export interface CandidateDesignOptions {
   api_url?: string;
   timeout_ms?: number;
   fetcher?: Fetcher;
+  askUserTradeoff?: AskUserTradeoffResolver;
 }
 
 export class CandidateDesignConfigurationError extends Error {
@@ -477,6 +582,8 @@ interface RunState {
   retrieved_rows: number;
   known_cities: Map<string, CityRecord>;
   known_attractions: Map<string, AttractionRecord>;
+  tradeoff_history: TradeoffHistoryEntry[];
+  tradeoff_calls: number;
 }
 
 const SYSTEM_PROMPT = `You are Agent 2, the Candidate Design Agent for Voyager.
@@ -503,6 +610,11 @@ city_day_plan mode:
 - Generate a visit approach for every experience. Duration is a proposal based on retrieved duration fields, not a guarantee.
 - Meal and rest slots must stay generic. A meal may describe flexible timing or dietary needs but must not name a venue or provider.
 - Return 1 clear day plan candidate.
+
+Tradeoff tool (city_day_plan only, when available):
+- Use ask_user_tradeoff only when two retrieved attractions present a real tradeoff that changes the plan (e.g. crowd vs intimacy, heritage vs nature, duration vs coverage). Do not waste calls. Max 3 per run.
+- You must have queried both attractions first. Call with their stable attraction IDs and a natural question that includes both attraction names and contrasting highlights. Vary framing each time; never feel templated, but ensure the comparison is clear.
+- The backend shows the question on the frontend and returns the user's choice (an attraction name/id, or 'neither'). Treat the choice as context: favor the chosen attraction, and if 'neither' exclude both. Never ask city-vs-city, only attraction-vs-attraction even if attractions are in different cities.
 
 The final JSON contains candidate bundles, not a final plan or ranking.`;
 
@@ -663,7 +775,7 @@ function cityIdsForInput(input: CandidateDesignInput): Set<string> {
   return new Set(input.hard_constraint_guardrails.allowed_city_ids);
 }
 
-function buildToolSchemas(input: CandidateDesignInput): unknown[] {
+function buildToolSchemas(input: CandidateDesignInput, options: CandidateDesignOptions): unknown[] {
   const searchCities = {
     type: "function",
     function: {
@@ -729,8 +841,13 @@ function buildToolSchemas(input: CandidateDesignInput): unknown[] {
       },
     },
   };
-  // ponytail: expose all tools to avoid Groq 400 "tool not in request.tools" on hallucinated calls; runtime still enforces mode via executeTool
-  return [searchCities, getCity, queryAttractions, getAttractionsByIds];
+  const tools: unknown[] = [searchCities, getCity, queryAttractions, getAttractionsByIds];
+  // ponytail: tradeoff tool separate file, only when resolver wired and city_day_plan (attraction vs attraction only)
+  if (input.mode === "city_day_plan" && options.askUserTradeoff) {
+    tools.push(buildAskUserTradeoffToolSchema());
+  }
+  // ponytail: expose all retrieval tools to avoid Groq 400 "tool not in request.tools" on hallucinated calls; runtime still enforces mode via executeTool
+  return tools;
 }
 
 function buildUserMessage(input: CandidateDesignInput, preloadedCity: CityRecord | null): string {
@@ -806,8 +923,13 @@ async function executeTool(state: RunState, name: string, rawArguments: string):
   } catch {
     return JSON.stringify({ error: { code: "invalid_arguments", message: "Tool arguments must be valid JSON object arguments." } });
   }
-  const allowed = input.mode === "trip_route" ? ["search_cities", "get_city"] : ["query_attractions", "get_attractions_by_ids"];
+  const baseAllowed = input.mode === "trip_route" ? ["search_cities", "get_city"] : ["query_attractions", "get_attractions_by_ids"];
+  const allowed = [...baseAllowed, ...(input.mode === "city_day_plan" && state.options.askUserTradeoff ? ["ask_user_tradeoff"] : [])];
   if (!allowed.includes(name)) return JSON.stringify({ error: { code: "tool_not_allowed", message: `Tool ${name} is not available in ${input.mode}.` } });
+  if (name === "ask_user_tradeoff") {
+    // ponytail: full execution lives in separate file ai/src/tools/askUserTradeoff.ts
+    return executeAskUserTradeoffTool(state as unknown as Parameters<typeof executeAskUserTradeoffTool>[0], rawArguments);
+  }
   try {
     if (name === "search_cities") {
       exactKeys(args, ["region", "destination_types", "climate_types", "tourism_popularity"], "search_cities arguments");
@@ -1277,6 +1399,8 @@ export async function processCandidateDesign(input: CandidateDesignInput, option
     retrieved_rows: 0,
     known_cities: new Map(),
     known_attractions: new Map(),
+    tradeoff_history: [],
+    tradeoff_calls: 0,
   };
   if (input.mode === "city_day_plan" && input.route_context) {
     for (const stop of input.route_context.stops) state.known_cities.set(stop.city_id, { city_id: stop.city_id, city_name: stop.city_name ?? stop.city_id });
@@ -1354,8 +1478,8 @@ export async function processCandidateDesign(input: CandidateDesignInput, option
       // fall through to LLM path if deterministic fails
     }
   }
-  // ponytail: deterministic grounded day plan — now for any rev (LLM-free)
-  if (input.mode === "city_day_plan" && input.city_context && input.route_context) {
+  // ponytail: deterministic grounded day plan — LLM-free, but skip when tradeoff resolver wired so AI can ask user
+  if (input.mode === "city_day_plan" && input.city_context && input.route_context && !options.askUserTradeoff) {
     try {
       const cityId = input.city_context.city_id;
       const allocated = input.city_context.allocated_days;
@@ -1440,7 +1564,7 @@ export async function processCandidateDesign(input: CandidateDesignInput, option
     { role: "system", content: SYSTEM_PROMPT },
     { role: "user", content: buildUserMessage(input, preloadedCity) },
   ];
-  const tools = buildToolSchemas(input);
+  const tools = buildToolSchemas(input, state.options);
   let candidates: CandidateBundle[] | null = null;
   let repairAttempts = 0;
   while (candidates === null) {
