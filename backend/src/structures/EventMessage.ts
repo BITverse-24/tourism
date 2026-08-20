@@ -1,7 +1,7 @@
 import { z } from "zod";
-import { BaseMessageEnvelopeSchema } from "./MessageEnvelope";
 import { DiscoveryAnsSelectionModes, DiscoveryFreeTextModes, PlanningPhases, PlanningStatus, ProfileSnapshotStates, WorkflowOutcomes, WorkflowStates } from "./enums";
 import { TravelerProfileSchema } from "./TravelerProfile";
+import { BaseMessageEnvelopeSchema } from "./BaseMessageEnvelope";
 
 const BaseEventMessageSchema = BaseMessageEnvelopeSchema.extend({
     kind: z.literal("event"),

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { BaseMessageEnvelopeSchema } from "./MessageEnvelope";
+import { BaseMessageEnvelopeSchema } from "./BaseMessageEnvelope";
 
 const CommandMessageEnvelopeSchema = BaseMessageEnvelopeSchema.extend({
     kind: z.literal("command"),

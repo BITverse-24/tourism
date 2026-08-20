@@ -1,22 +1,5 @@
 import { Events, MessageKinds } from "../structures/enums";
 import { DecisionRequestMessage, DiscoveryQuestionMessage, PlanningStatusMessage, ProfileReadyMessage, ProfileSnapshotMessage, SessionExpiredMessage, SessionReadyMessage, WorkflowCompletedMessage } from "../structures/EventMessage";
-import { BaseMessageEnvelope } from "../structures/MessageEnvelope";
-
-export function createBaseMessageEnvelope({
-    message_id,
-    session_id,
-    run_id,
-    command_id,
-    occurred_at,
-}: BaseMessageEnvelope): BaseMessageEnvelope {
-    return {
-        message_id,
-        session_id,
-        run_id,
-        command_id,
-        occurred_at,
-    };
-}
 
 export function createSessionReadyMessage({
     message_id,

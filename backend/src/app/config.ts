@@ -3,9 +3,9 @@ import { z } from 'zod';
 const envSchema = z.object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
     HTTPPORT: z.coerce.number().int().min(1).max(65535).default(3000),
-    WSPORT: z.coerce.number().int().min(1).max(65535).default(3000),
-    MONGO_URI: z.string().trim().min(1, 'MONGO_URI is required'),
-    DB_NAME: z.string().trim().min(1).default('api'),
+    WSPORT: z.coerce.number().int().min(1).max(65535).default(3001),
+    // MONGO_URI: z.string().trim().min(1, 'MONGO_URI is required'),
+    // DB_NAME: z.string().trim().min(1).default('api'),
     // ADMIN_API_TOKEN: z.string().trim().min(16, 'ADMIN_API_TOKEN must be at least 16 characters'),
     // ADMIN_USERNAME: z.string().trim().min(1).default('admin'),
     CORS_ORIGIN: z.string().trim().default(''),
@@ -19,8 +19,8 @@ export interface AppConfig {
     nodeEnv: 'development' | 'test' | 'production';
     httpPort: number;
     wsPort: number;
-    mongoUri: string;
-    dbName: string;
+    // mongoUri: string;
+    // dbName: string;
     // adminApiToken: string;
     // adminUsername: string;
     allowedOrigins: string[];
@@ -54,8 +54,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
         nodeEnv: data.NODE_ENV,
         httpPort: data.HTTPPORT,
         wsPort: data.WSPORT,
-        mongoUri: data.MONGO_URI,
-        dbName: data.DB_NAME,
+        // mongoUri: data.MONGO_URI,
+        // dbName: data.DB_NAME,
         // adminApiToken: data.ADMIN_API_TOKEN,
         // adminUsername: data.ADMIN_USERNAME,
         allowedOrigins: parseAllowedOrigins(data.CORS_ORIGIN),

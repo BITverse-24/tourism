@@ -8,7 +8,7 @@
         "build": "tsc --project tsconfig.json",
         "typecheck": "tsc --project tsconfig.json --noEmit",
         "test": "npm run build && node --test dist/test/**/*.test.js",
-        "start": "node dist/src/index.js",
+        "start": "node dist/backend/src/index.js",
         "format": "prettier . --write",
         "check": "npm run typecheck && npm test",
         "dev": "nodemon --watc \"src/**\" --ext \"ts\" --exec \"npx tsx src/index.ts\""

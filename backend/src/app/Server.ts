@@ -2,13 +2,13 @@ import type { Server as HttpServer } from 'node:http';
 import dotenv from 'dotenv';
 import { join } from 'node:path';
 import { loadConfig, type AppConfig } from './config';
-import Database from './database';
+// import Database from './database';
 import { createExpressApp } from './express';
 import { logger, serializeError } from '../modules/logger';
 import { createWebsocket } from './socketio';
 
 class Server {
-    private readonly database = new Database();
+    // private readonly database = new Database();
     private readonly config: AppConfig;
     private httpServer?: HttpServer;
     private ready = false;
@@ -88,7 +88,7 @@ class Server {
             });
         });
 
-        await this.database.stop();
+        // await this.database.stop();
         logger.info('Server shutdown complete', {
             reason,
         });

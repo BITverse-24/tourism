@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { BaseMessageEnvelopeSchema } from "./MessageEnvelope";
 import { RejectionCodes, WorkflowStates } from "./enums";
+import { BaseMessageEnvelopeSchema } from "./BaseMessageEnvelope";
 
 const BaseAckMessageSchema = BaseMessageEnvelopeSchema.extend({
     kind: z.literal('ack'),

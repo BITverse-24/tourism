@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { BaseMessageEnvelopeSchema } from "./MessageEnvelope";
+import { BaseMessageEnvelopeSchema } from "./BaseMessageEnvelope";
 
 const BaseErrorMessageSchema = BaseMessageEnvelopeSchema.extend({
     kind: z.literal('error'),
