@@ -6,9 +6,10 @@ import { sessionCloseService, sessionStartService } from '../services/SessionSer
 import { ServiceResult } from '../structures/types';
 import { currentWorkflowState, nextSequence } from '../services/StateServices';
 import { AckMessage } from '../structures/AckMessage';
-import { buildAckMsg } from '../factory/Ack';
 import { checkBaseCommandRejections } from './BaseValidation';
 import { NewSessionMessageSchema } from '../structures/NewSessionMessage';
+import { createCommandAcceptedMessage } from '../factory/Ack';
+import { generateUUID } from '../modules/util';
 
 export async function sessionStartHandler(socket: Socket, data: SessionStartMessage) {
     logger.debug('recieved session.start', { socketid: socket.id, data: data });
@@ -16,15 +17,21 @@ export async function sessionStartHandler(socket: Socket, data: SessionStartMess
     const newSessMsgCheckRes = NewSessionMessageSchema.safeParse(data)
     const isNewSessionMsg = newSessMsgCheckRes.success
 
-    if (!isNewSessionMsg && !checkBaseCommandRejections(socket, data, SessionStartSchema)) return;
-    
-    const ackmsg: AckMessage = buildAckMsg(
-        data,
-        await nextSequence(data.run_id),
-        true,
-        await currentWorkflowState(data.session_id),
-        false,
-    )
+    if (!isNewSessionMsg) {
+        const baseValid = await checkBaseCommandRejections(socket, data, SessionStartSchema)
+        if (!baseValid) return;
+    }
+
+    const ackmsg: AckMessage = createCommandAcceptedMessage({
+        message_id: `msg_${generateUUID()}`,
+        session_id: data.session_id,
+        run_id: data.run_id,
+        command_id: data.command_id,
+        occurred_at: new Date().toISOString(),
+        workflow_state: await currentWorkflowState(data.session_id),
+        sequence: await nextSequence(data.run_id),
+        deduplicated: false,
+    })
     socket.emit(Acks.COMMAND_ACCEPTED, ackmsg)
 
     const reses: ServiceResult[] = await sessionStartService(data, isNewSessionMsg)
@@ -38,13 +45,16 @@ export async function sessionCloseHandler(socket: Socket, data: SessionCloseMess
 
     if (!checkBaseCommandRejections(socket, data, SessionStartSchema)) return;
 
-    const ackmsg: AckMessage = buildAckMsg(
-        data,
-        await nextSequence(data.run_id),
-        true,
-        await currentWorkflowState(data.session_id),
-        false,
-    )
+    const ackmsg: AckMessage = createCommandAcceptedMessage({
+        message_id: `msg_${generateUUID()}`,
+        session_id: data.session_id,
+        run_id: data.run_id,
+        command_id: data.command_id,
+        occurred_at: new Date().toISOString(),
+        workflow_state: await currentWorkflowState(data.session_id),
+        sequence: await nextSequence(data.run_id),
+        deduplicated: false,
+    })
     socket.emit(Acks.COMMAND_ACCEPTED, ackmsg)
 
     const reses: ServiceResult[] = await sessionCloseService(data)

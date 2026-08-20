@@ -1,5 +1,6 @@
 import { DecisionRespondMessage, DiscoveryAnswerMessage, ProfileConfirmMessage, ProfileRequestChangesMessage, RunCancelMessage, SessionCloseMessage, SessionStartMessage } from "../structures/CommandMessage";
 import { Commands, MessageKinds } from "../structures/enums";
+import { NewSessionMessage } from "../structures/NewSessionMessage";
 
 export function createSessionStartMessage({
     message_id,
@@ -17,6 +18,22 @@ export function createSessionStartMessage({
         occurred_at,
         kind: MessageKinds.COMMAND,
         type: Commands.SESSION_START,
+        payload,
+    };
+}
+
+export function createNewSessionMessage({
+    message_id,
+    command_id,
+    occurred_at,
+    payload,
+}: Omit<NewSessionMessage, "kind" | "type">): NewSessionMessage {
+    return {
+        message_id,
+        kind: MessageKinds.COMMAND,
+        type: Commands.SESSION_START,
+        command_id,
+        occurred_at,
         payload,
     };
 }

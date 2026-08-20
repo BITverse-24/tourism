@@ -5,23 +5,28 @@ import { DecisionRespondMessage, DecisionRespondSchema, SessionStartSchema } fro
 import { decisionRespondService } from '../services/DecisionServices';
 import { checkBaseCommandRejections } from './BaseValidation';
 import { AckMessage } from '../structures/AckMessage';
-import { buildAckMsg } from '../factory/Ack';
+import { createCommandAcceptedMessage } from '../factory/Ack';
 import { currentWorkflowState, nextSequence } from '../services/StateServices';
 import { ServiceResult } from '../structures/types';
+import { generateUUID } from '../modules/util';
 
 export async function decisionRespondHandler(socket: Socket, data: DecisionRespondMessage) {
     logger.debug('socket sent decision.respond', { socketid: socket.id, data: data });
 
-    if (!checkBaseCommandRejections(socket, data, DecisionRespondSchema)) return;
+    const baseValid = await checkBaseCommandRejections(socket, data, DecisionRespondSchema)
+    if (!baseValid) return;
     // make sure is valid decision question id and answer id
 
-    const ackmsg: AckMessage = buildAckMsg(
-        data,
-        await nextSequence(data.run_id),
-        true,
-        await currentWorkflowState(data.session_id),
-        false,
-    )
+    const ackmsg: AckMessage = createCommandAcceptedMessage({
+        message_id: `msg_${generateUUID()}`,
+        session_id: data.session_id,
+        run_id: data.run_id,
+        command_id: data.command_id,
+        occurred_at: new Date().toISOString(),
+        workflow_state: await currentWorkflowState(data.session_id),
+        sequence: await nextSequence(data.run_id),
+        deduplicated: false,
+    })
     socket.emit(Acks.COMMAND_ACCEPTED, ackmsg)
 
     const reses: ServiceResult[] = await decisionRespondService(data)

@@ -2,12 +2,12 @@ import { z } from "zod";
 import { Commands, RejectionCodes, WorkflowStates } from "../structures/enums";
 import { MessageEnvelope } from "../structures/MessageEnvelope";
 import { CommandRejectedMessage } from "../structures/AckMessage";
-import { isValidCommandType } from "../modules/util";
-import { buildAckMsg } from "../factory/Ack";
+import { generateUUID, isValidCommandType } from "../modules/util";
 import { getValidSessionIds } from "../models/data";
 import { currentWorkflowState, nextSequence } from "./StateServices";
 import { SessionStartSchema } from "../structures/CommandMessage";
 import { logger } from "../modules/logger";
+import { createCommandRejectedMessage } from "../factory/Ack";
 
 export function isValidCommandForWorkflow(type: Commands, workflow: WorkflowStates): boolean {
     switch (workflow) {
@@ -81,32 +81,37 @@ export function validateCommandDataFormat<T extends z.ZodObject>(
 
     const parseRes = schema.safeParse(data)
 
+
+    let ret = {
+        valid: false,
+        ack: 
+            createCommandRejectedMessage({
+                message_id: `msg_${generateUUID()}`,
+                session_id: data.session_id,
+                run_id: data.run_id,
+                command_id: data.command_id,
+                occurred_at: new Date().toISOString(),
+                workflow_state: workflow_state,
+                sequence: sequence,
+                code: RejectionCodes.RUN_CANCELLED,
+                message: `invalid envelope format for message type ${data.type}`,
+                retryable: false,
+                recovery: {}
+            })
+    }
     if (!parseRes.success) {
+        ret.ack.recovery = JSON.parse(parseRes.error.message)
+        return ret;
+    }
 
-        let ret = {
-            valid: false,
-            ack: buildAckMsg(
-                data,
-                sequence,
-                false,
-                workflow_state,
-                undefined,
-                RejectionCodes.INVALID_ENVELOPE,
-                `invalid envelope format for message type ${data.type}`,
-                true,
-                {}
-            ) as CommandRejectedMessage
-        }
-
-        if (!isValidCommandType(data.type)) {
-            ret.ack.code = RejectionCodes.UNSUPPORTED_MESSAGE_TYPE
-            ret.ack.message = `${data.type} is not a valid message type`
-        }
-        else if (!isValidCommandForWorkflow(data.type, workflow_state)) {
-            ret.ack.code = RejectionCodes.INVALID_WORKFLOW_STATE
-            ret.ack.message = `not a valid command in current workflow state: ${workflow_state}`
-        }
-
+    if (!isValidCommandType(data.type)) {
+        ret.ack.code = RejectionCodes.UNSUPPORTED_MESSAGE_TYPE
+        ret.ack.message = `${data.type} is not a valid message type`
+        return ret;
+    }
+    else if (!isValidCommandForWorkflow(data.type, workflow_state)) {
+        ret.ack.code = RejectionCodes.INVALID_WORKFLOW_STATE
+        ret.ack.message = `not a valid command in current workflow state: ${workflow_state}`
         return ret;
     }
 

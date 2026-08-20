@@ -36,8 +36,9 @@ const SequenceNumbers: Record<string, number> = {
 
 
 export async function getNextSequence(run_id: string): Promise<number> {
-    if (!SequenceNumbers[run_id]) SequenceNumbers[run_id] = 1;
-    return SequenceNumbers[run_id]++;
+    if (!SequenceNumbers[run_id]) SequenceNumbers[run_id] = 0;
+    SequenceNumbers[run_id] = SequenceNumbers[run_id]+1;
+    return SequenceNumbers[run_id];
 }
 
 
@@ -90,6 +91,7 @@ export async function setNewRunIdForSession(session_id: string, run_id: string) 
 
 export async function getNewRunId(session_id: string): Promise<string> {
     const run_id = `run_${generateUUID()}`;
+    CommandIds[run_id] = new Set()
     RunIds[session_id] = run_id
     return run_id
 }
@@ -103,10 +105,12 @@ export async function unsetRunId(session_id: string) {
 
 
 export async function getCommandIdsForRun(run_id: string): Promise<Set<string>> {
+    if (CommandIds[run_id] == undefined) CommandIds[run_id] = new Set()
     return CommandIds[run_id];
 }
 
 export async function addCommandIdToRun(run_id: string, command_id: string) {
+    if (CommandIds[run_id] == undefined) CommandIds[run_id] = new Set()
     CommandIds[run_id].add(command_id)
 }
 

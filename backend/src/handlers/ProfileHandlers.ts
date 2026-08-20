@@ -4,15 +4,17 @@ import { ProfileConfirmMessage, ProfileConfirmSchema, ProfileRequestChangesMessa
 import { profileConfirmService, profileRequestChangesService } from '../services/ProfileServices';
 import { Acks } from '../structures/enums';
 import { checkBaseCommandRejections } from './BaseValidation';
-import { buildAckMsg } from '../factory/Ack';
+import { createCommandAcceptedMessage } from '../factory/Ack';
 import { AckMessage } from '../structures/AckMessage';
 import { currentWorkflowState, nextSequence } from '../services/StateServices';
 import { ServiceResult } from '../structures/types';
+import { generateUUID } from '../modules/util';
 
 export async function profileConfirmHandler(socket: Socket, data: ProfileConfirmMessage) {
     logger.debug('socket sent profile.confirm', { socketid: socket.id, data: data });
 
-    if (!checkBaseCommandRejections(socket, data, ProfileConfirmSchema)) return;
+    const baseValid = await checkBaseCommandRejections(socket, data, ProfileConfirmSchema)
+    if (!baseValid) return;
 
     // check if provided profile revision version is latest snapshot
     // if not send rejected ack profile revision conflict
@@ -20,13 +22,16 @@ export async function profileConfirmHandler(socket: Socket, data: ProfileConfirm
     // check if the profile has any blocking unkowns
     // if it does send rejected ack error profile not ready
 
-    const ackmsg: AckMessage = buildAckMsg(
-        data,
-        await nextSequence(data.run_id),
-        true,
-        await currentWorkflowState(data.session_id),
-        false,
-    )
+    const ackmsg: AckMessage = createCommandAcceptedMessage({
+        message_id: `msg_${generateUUID()}`,
+        session_id: data.session_id,
+        run_id: data.run_id,
+        command_id: data.command_id,
+        occurred_at: new Date().toISOString(),
+        workflow_state: await currentWorkflowState(data.session_id),
+        sequence: await nextSequence(data.run_id),
+        deduplicated: false,
+    })
     socket.emit(Acks.COMMAND_ACCEPTED, ackmsg)
 
     const reses: ServiceResult[] = await profileConfirmService(data)
@@ -41,15 +46,19 @@ export async function profileRequestChangesHandler(
 ) {
     logger.debug('socket sent profile.request_changes', { socketid: socket.id, data: data });
 
-    if (!checkBaseCommandRejections(socket, data, ProfileConfirmSchema)) return;
+    const baseValid = await checkBaseCommandRejections(socket, data, ProfileRequestChangesSchema)
+    if (!baseValid) return;
 
-    const ackmsg: AckMessage = buildAckMsg(
-        data,
-        await nextSequence(data.run_id),
-        true,
-        await currentWorkflowState(data.session_id),
-        false,
-    )
+    const ackmsg: AckMessage = createCommandAcceptedMessage({
+        message_id: `msg_${generateUUID()}`,
+        session_id: data.session_id,
+        run_id: data.run_id,
+        command_id: data.command_id,
+        occurred_at: new Date().toISOString(),
+        workflow_state: await currentWorkflowState(data.session_id),
+        sequence: await nextSequence(data.run_id),
+        deduplicated: false,
+    })
     socket.emit(Acks.COMMAND_ACCEPTED, ackmsg)
 
     const reses: ServiceResult[] = await profileRequestChangesService(data)

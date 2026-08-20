@@ -21,7 +21,7 @@ export const CommandRejectedSchema = BaseAckMessageSchema.extend({
     code: z.enum(RejectionCodes),
     message: z.string(),
     retryable: z.boolean(),
-    recovery: z.record(z.string(), z.unknown()),
+    recovery: z.unknown(),
 })
 export type CommandRejectedMessage = z.infer<typeof CommandRejectedSchema>;
 
