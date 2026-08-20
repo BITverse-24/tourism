@@ -1,0 +1,8 @@
+#+title: datasets
+
+* City Knowledgebase
+- TYPE: CSV
+** Table Header:
+
+| city_id | city_name | state | region | latitude | longitude | elevation_m | climate_type | destination_type | tourism_popularity | primary_airport | primary_airport_iata | primary_railway_station | primary_railway_station_code | recommended_days_min | recommended_days_max |
+|---------+-----------+-------+--------+----------+-----------+-------------+--------------+------------------+--------------------+-----------------+----------------------+-------------------------+------------------------------+----------------------+----------------------|

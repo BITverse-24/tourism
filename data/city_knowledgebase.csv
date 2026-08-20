@@ -1,0 +1,76 @@
+city_id,city_name,state,region,latitude,longitude,elevation_m,climate_type,destination_type,tourism_popularity,primary_airport,primary_airport_iata,primary_railway_station,primary_railway_station_code,recommended_days_min,recommended_days_max
+IND001,New Delhi,Delhi,North,28.6139,77.2090,216,Humid Subtropical,Heritage / Metro,High,Indira Gandhi International Airport,DEL,New Delhi Railway Station,NDLS,2,4
+IND002,Mumbai,Maharashtra,West,19.0760,72.8777,14,Tropical Wet and Dry,Coastal / Metro,High,Chhatrapati Shivaji Maharaj International Airport,BOM,Chhatrapati Shivaji Maharaj Terminus,CSMT,2,4
+IND003,Bengaluru,Karnataka,South,12.9716,77.5946,920,Tropical Savanna,Metro / IT Hub,Medium,Kempegowda International Airport,BLR,KSR Bengaluru City Junction,SBC,2,3
+IND004,Kolkata,West Bengal,East,22.5726,88.3639,9,Tropical Wet and Dry,Cultural / Metro,High,Netaji Subhash Chandra Bose International Airport,CCU,Howrah Junction,HWH,2,4
+IND005,Chennai,Tamil Nadu,South,13.0827,80.2707,6,Tropical Wet and Dry,Coastal / Cultural,Medium,Chennai International Airport,MAA,Chennai Central,MAS,2,3
+IND006,Jaipur,Rajasthan,North,26.9124,75.7873,431,Hot Semi-Arid,Heritage / Cultural,High,Jaipur International Airport,JAI,Jaipur Junction,JP,2,3
+IND007,Varanasi,Uttar Pradesh,North,25.3176,82.9739,81,Humid Subtropical,Spiritual / Heritage,High,Lal Bahadur Shastri International Airport,VNS,Varanasi Junction,BSB,2,3
+IND008,Panaji,Goa,West,15.4909,73.8278,7,Tropical Monsoon,Coastal / Beach,High,Manohar International Airport,GOX,Madgaon Junction,MAO,3,6
+IND009,Srinagar,Jammu and Kashmir,North,34.0837,74.7973,1585,Humid Subtropical,Hill Station / Nature,High,Sheikh ul-Alam International Airport,SXR,Srinagar Railway Station,SINA,3,5
+IND010,Shimla,Himachal Pradesh,North,31.1048,77.1734,2276,Subtropical Highland,Hill Station,High,Shimla Airport,SLV,Shimla Railway Station,SML,2,4
+IND011,Agra,Uttar Pradesh,North,27.1767,78.0081,171,Hot Semi-Arid,Heritage,High,Agra Airport,AGR,Agra Cantt,AGC,1,2
+IND012,Kochi,Kerala,South,9.9312,76.2673,0,Tropical Monsoon,Coastal / Heritage,High,Cochin International Airport,COK,Ernakulam Junction,ERS,2,3
+IND013,Udaipur,Rajasthan,West,24.5854,73.7125,598,Hot Semi-Arid,Heritage / Lakes,High,Maharana Pratap Airport,UDR,Udaipur City Railway Station,UDZ,2,4
+IND014,Hyderabad,Telangana,South,17.3850,78.4867,542,Tropical Wet and Dry,Heritage / Metro,Medium,Rajiv Gandhi International Airport,HYD,Secunderabad Junction,SC,2,3
+IND015,Amritsar,Punjab,North,31.6340,74.8723,234,Hot Semi-Arid,Pilgrimage / Heritage,High,Sri Guru Ram Dass Jee International Airport,ATQ,Amritsar Junction,ASR,1,2
+IND016,Guwahati,Assam,Northeast,26.1445,91.7362,55,Humid Subtropical,Nature / Gateway,Medium,Lokpriya Gopinath Bordoloi International Airport,GAU,Guwahati Railway Station,GHY,2,3
+IND017,Rishikesh,Uttarakhand,North,30.0869,78.2676,372,Humid Subtropical,Spiritual / Adventure,High,Jolly Grant Airport,DED,Yog Nagari Rishikesh,YNRK,2,4
+IND018,Mysuru,Karnataka,South,12.2958,76.6394,763,Tropical Savanna,Heritage / Cultural,High,Mysore Airport,MYQ,Mysore Junction,MYS,2,3
+IND019,Madurai,Tamil Nadu,South,9.9252,78.1198,101,Hot Semi-Arid,Pilgrimage / Heritage,Medium,Madurai Airport,IXM,Madurai Junction,MDU,1,2
+IND020,Ahmedabad,Gujarat,West,23.0225,72.5714,53,Hot Semi-Arid,Heritage / Commercial,Medium,Sardar Vallabhbhai Patel International Airport,AMD,Ahmedabad Junction,ADI,2,3
+IND021,Bhubaneswar,Odisha,East,20.2961,85.8245,45,Tropical Wet and Dry,Heritage / Pilgrimage,Medium,Biju Patnaik International Airport,BBI,Bhubaneswar Railway Station,BBS,2,3
+IND022,Gangtok,Sikkim,Northeast,27.3389,88.6065,1650,Subtropical Highland,Hill Station / Nature,High,Pakyong Airport,PYG,Siliguri Junction,SGU,3,5
+IND023,Leh,Ladakh,North,34.1526,77.5771,3524,Cold Desert,Adventure / High-Altitude,High,Kushok Bakula Rimpochee Airport,IXL,Jammu Tawi,JAT,4,7
+IND024,Port Blair,Andaman and Nicobar Islands,South,11.6234,92.7265,16,Tropical Monsoon,Island / Beach,High,Veer Savarkar International Airport,IXZ,None,NONE,3,5
+IND025,Indore,Madhya Pradesh,Central,22.7196,75.8577,553,Tropical Wet and Dry,Commercial / Food,Medium,Devi Ahilyabai Holkar Airport,IDR,Indore Junction,INDB,1,2
+IND026,Lucknow,Uttar Pradesh,North,26.8467,80.9462,123,Humid Subtropical,Heritage / Cultural,High,Chaudhary Charan Singh International Airport,LKO,Lucknow Charbagh, LKO,2,3
+IND027,Pune,Maharashtra,West,18.5204,73.8567,560,Tropical Wet and Dry,Metro / Cultural,High,Pune International Airport,PNQ,Pune Junction,PUNE,2,3
+IND028,Surat,Gujarat,West,21.1702,72.8311,13,Tropical Wet and Dry,Commercial / Food,Medium,Surat Airport,STV,Surat Railway Station,ST,1,2
+IND029,Nagpur,Maharashtra,West,21.1458,79.0882,310,Tropical Wet and Dry,Metro / Heritage,Medium,Dr. Babasaheb Ambedkar International Airport,NAG,Nagpur Junction,NGP,1,2
+IND030,Nashik,Maharashtra,West,19.9975,73.7898,586,Tropical Wet and Dry,Heritage / Wine,High,Nashik Airport,ISK,Nashik Road Railway Station,ISK,2,3
+IND031,Chandigarh,Chandigarh,North,30.7333,76.7794,321,Humid Subtropical,Planned City / Cultural,Medium,Chandigarh International Airport,IXC,Chandigarh Railway Station,CDG,1,2
+IND032,Dehradun,Uttarakhand,North,30.3165,78.0322,640,Humid Subtropical,Gateway / Nature,Medium,Jolly Grant Airport,DED,Dehradun Railway Station,DDN,2,3
+IND033,Haridwar,Uttarakhand,North,29.9457,78.1642,314,Humid Subtropical,Spiritual / Pilgrimage,High,Jolly Grant Airport,DED,Haridwar Junction,HW,1,2
+IND034,Nainital,Uttarakhand,North,29.3919,79.4542,2084,Subtropical Highland,Hill Station / Lakes,High,Pantnagar Airport,PANT,Kathgodam Railway Station,KGM,2,3
+IND035,Mussoorie,Uttarakhand,North,30.4598,78.0644,2005,Subtropical Highland,Hill Station / Nature,High,Jolly Grant Airport,DED,Dehradun Railway Station,DDN,2,3
+IND036,Jodhpur,Rajasthan,West,26.2389,73.0243,231,Hot Semi-Arid,Heritage / Fort,High,Jodhpur Airport,JDV,Jodhpur Junction,JU,2,3
+IND037,Jaisalmer,Rajasthan,West,26.9157,70.9083,225,Hot Desert,Heritage / Desert,High,Jaisalmer Airport,JSA,Jaisalmer Railway Station,JSM,2,3
+IND038,Bikaner,Rajasthan,West,28.0229,73.3119,242,Hot Desert,Heritage / Desert,Medium,Jaisalmer Airport,JSA,Bikaner Junction,BKN,1,2
+IND039,Pushkar,Rajasthan,West,26.4890,74.5511,510,Hot Semi-Arid,Pilgrimage / Cultural,High,Jaipur International Airport,JAI,Ajmer Junction, AII,1,2
+IND040,Kota,Rajasthan,West,25.2138,75.8648,271,Hot Semi-Arid,Education / Heritage,Medium,Jaipur International Airport,JAI,Kota Junction,KOTA,1,2
+IND041,Ajmer,Rajasthan,West,26.4499,74.6399,486,Hot Semi-Arid,Pilgrimage / Heritage,High,Jaipur International Airport,JAI,Ajmer Junction,AII,1,2
+IND042,Vadodara,Gujarat,West,22.3072,73.1812,39,Tropical Wet and Dry,Heritage / Cultural,Medium,Vadodara Airport,BDQ,Vadodara Junction,BRC,1,2
+IND043,Rajkot,Gujarat,West,22.3039,70.8022,134,Semi-Arid,Commercial / Cultural,Medium,Rajkot International Airport,HSR,Rajkot Junction,RJT,1,2
+IND044,Bhuj,Gujarat,West,23.2420,69.6669,110,Hot Semi-Arid,Heritage / Desert,Medium,Bhuj Airport,BHJ,Bhuj Railway Station,BHUJ,2,3
+IND045,Dwarka,Gujarat,West,22.2442,68.9685,4,Hot Semi-Arid,Pilgrimage / Coastal,High,Jamnagar Airport,JGA,Dwarka Railway Station,DWK,1,2
+IND046,Somnath,Gujarat,West,20.8880,70.4012,15,Tropical Wet and Dry,Pilgrimage / Coastal,High,Diu Airport,DIU,Veraval Railway Station,VRL,1,2
+IND047,Bhopal,Madhya Pradesh,Central,23.2599,77.4126,527,Tropical Wet and Dry,Heritage / Lakes,Medium,Raja Bhoj Airport,BHO,Bhopal Junction,BPL,2,3
+IND048,Gwalior,Madhya Pradesh,Central,26.2183,78.1828,196,Hot Semi-Arid,Heritage / Fort,Medium,Rajmata Vijaya Raje Scindia Airport,GWL,Gwalior Junction,GWL,1,2
+IND049,Jabalpur,Madhya Pradesh,Central,23.1815,79.9864,411,Tropical Wet and Dry,Nature / Heritage,Medium,Jabalpur Airport,JLR,Jabalpur Junction,JBP,1,2
+IND050,Khajuraho,Madhya Pradesh,Central,24.8318,79.9199,283,Tropical Wet and Dry,Heritage / UNESCO,High,Khajuraho Airport,HJR,Khajuraho Railway Station, KURJ,2,3
+IND051,Patna,Bihar,East,25.5941,85.1376,53,Humid Subtropical,Heritage / Metro,Medium,Jay Prakash Narayan International Airport,PAT,Patna Junction,PNBE,1,2
+IND052,Bodh Gaya,Bihar,East,24.6961,84.9910,113,Humid Subtropical,Spiritual / Buddhist,High,Gaya Airport,GAY,Gaya Junction,GAYA,2,3
+IND053,Ranchi,Jharkhand,East,23.3441,85.3096,651,Tropical Wet and Dry,Nature / Waterfalls,Medium,Birsa Munda Airport,IXR,Ranchi Junction,RNC,2,3
+IND054,Jamshedpur,Jharkhand,East,22.8046,86.2029,159,Tropical Wet and Dry,Industrial / Nature,Medium,Birsa Munda Airport,IXR,Tatanagar Junction,TATA,1,2
+IND055,Rourkela,Odisha,East,22.2604,84.8536,219,Tropical Wet and Dry,Industrial / Nature,Medium,Rourkela Airport,RRK,Rourkela Junction,ROU,1,2
+IND056,Puri,Odisha,East,19.8135,85.8312,0,Tropical Wet and Dry,Pilgrimage / Beach,High,Biju Patnaik International Airport,BBI,Puri Railway Station,PURI,2,3
+IND057,Konark,Odisha,East,19.8876,86.0945,4,Tropical Wet and Dry,Heritage / Coastal,High,Biju Patnaik International Airport,BBI,Puri Railway Station,PURI,1,2
+IND058,Visakhapatnam,Andhra Pradesh,South,17.6868,83.2185,45,Tropical Wet and Dry,Coastal / Metro,High,Visakhapatnam International Airport,VTZ,Visakhapatnam Junction,VSKP,2,3
+IND059,Vijayawada,Andhra Pradesh,South,16.5062,80.6480,11,Tropical Wet and Dry,Commercial / Pilgrimage,Medium,Vijayawada International Airport,VGA,Vijayawada Junction,BZA,1,2
+IND060,Tirupati,Andhra Pradesh,South,13.6288,79.4192,161,Tropical Wet and Dry,Pilgrimage,High,Tirupati Airport,TIR,Tirupati Railway Station,TPTY,1,2
+IND061,Mangaluru,Karnataka,South,12.9141,74.8560,22,Tropical Monsoon,Coastal / Heritage,High,Mangalore International Airport,IXE,Mangaluru Central,MAQ,2,3
+IND062,Hampi,Karnataka,South,15.3350,76.4600,467,Tropical Semi-Arid,Heritage / UNESCO,High,Jindal Vijayanagar Airport,VDY, Hospet Junction, HPT,2,3
+IND063,Coimbatore,Tamil Nadu,South,11.0168,76.9558,411,Tropical Wet and Dry,Metro / Nature,Medium,Coimbatore International Airport,CJB,Coimbatore Junction,CBE,2,3
+IND064,Ooty,Tamil Nadu,South,11.4064,76.6932,2240,Subtropical Highland,Hill Station / Nature,High,Coimbatore International Airport,CJB,Udagamandalam Railway Station,UAM,2,3
+IND065,Tiruchirappalli,Tamil Nadu,South,10.7905,78.7047,88,Tropical Wet and Dry,Heritage / Pilgrimage,Medium,Tiruchirappalli International Airport,TRZ,Tiruchirappalli Junction,TPJ,1,2
+IND066,Thanjavur,Tamil Nadu,South,10.7870,79.1378,57,Tropical Wet and Dry,Heritage / Temple,High,Tiruchirappalli International Airport,TRZ,Thanjavur Junction,TJ,1,2
+IND067,Puducherry,Puducherry,South,11.9416,79.8083,3,Tropical Wet and Dry,Coastal / Heritage,High,Puducherry Airport,PNY,Puducherry Railway Station,PDY,2,3
+IND068,Kanyakumari,Tamil Nadu,South,8.0883,77.5385,30,Tropical Wet and Dry,Coastal / Pilgrimage,High,Trivandrum International Airport,TRV,Kanyakumari Railway Station,CAPE,1,2
+IND069,Shillong,Meghalaya,Northeast,25.5788,91.8933,1496,Subtropical Highland,Hill Station / Nature,High,Shillong Airport,SHL,Guwahati Railway Station,GHY,2,4
+IND070,Cherrapunji,Meghalaya,Northeast,25.2637,91.7222,1484,Subtropical Highland,Nature / Waterfalls,High,Shillong Airport,SHL,Guwahati Railway Station,GHY,2,3
+IND071,Agartala,Tripura,Northeast,23.8315,91.2868,12,Tropical Monsoon,Heritage / Nature,Medium,Maharaja Bir Bikram Airport,IXA,Agartala Railway Station,AGTL,2,3
+IND072,Aizawl,Mizoram,Northeast,23.7271,92.7176,1132,Subtropical Highland,Hill Station / Nature,Medium,Lengpui Airport,AJL,None,NONE,2,3
+IND073,Imphal,Manipur,Northeast,24.8170,93.9368,786,Humid Subtropical,Cultural / Nature,Medium,Imphal International Airport,IMF,None,NONE,2,3
+IND074,Kohima,Nagaland,Northeast,25.6751,94.1086,1444,Subtropical Highland,Hill Station / Cultural,Medium,Dimapur Airport,DMU,Dimapur Railway Station,DMV,2,3
+IND075,Itanagar,Arunachal Pradesh,Northeast,27.0844,93.6053,350,Humid Subtropical,Nature / Cultural,Medium,Donyi Polo Airport,HGI,Naharlagun Railway Station,NHLN,2,4
