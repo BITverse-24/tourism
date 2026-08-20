@@ -1,4 +1,13 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
+import { getWsClient } from "../ws/index";
+import { PlanningLifecycleStore } from "../ws/planning";
+import {
+  initialDecisionPlanState,
+  handleDecisionRequest,
+  validateDecisionRespond,
+  applyDecisionRespond,
+  type DecisionPlanState,
+} from "../ws/decisionPlan";
 
 /**
  * Consultation — Voyager Consultation (One screen, three states)
@@ -82,6 +91,248 @@ const DEFAULT_DECISION: DecisionRequest = {
   ],
 };
 
+function isMockEnabled(): boolean {
+  try {
+    const env = (import.meta as unknown as { env?: Record<string, string | undefined> })?.env;
+    if (!env) return true;
+    const v = env["VITE_WS_MOCK"];
+    if (v === undefined) return true;
+    return String(v) !== "false";
+  } catch {
+    return true;
+  }
+}
+
+function mapDecisionPayloadToRequest(payload: { decision_id: string; prompt: string; reason?: string; options: DecisionOption[] }): DecisionRequest {
+  return {
+    decision_id: payload.decision_id,
+    prompt: payload.prompt,
+    reason: payload.reason,
+    sequenceLabel: "01  ·  TRADE-OFF",
+    kicker: "A CHOICE IS NEEDED",
+    options: payload.options.map((o) => ({ option_id: o.option_id, label: o.label, tradeoff: o.tradeoff })),
+  };
+}
+
+function useLiveConsultation() {
+  const [connected, setConnected] = useState(false);
+  const [liveStages, setLiveStages] = useState<Stage[]>(() =>
+    STAGE_DEFS.map((d) => ({ ...d, status: "queued" as StageStatus, summary: undefined }))
+  );
+  const [livePlanningMessage, setLivePlanningMessage] = useState<string | null>(null);
+  const [liveLastSeq, setLiveLastSeq] = useState<number>(() => Date.now());
+  const [liveDecision, setLiveDecision] = useState<DecisionRequest | null>(null);
+  const [decisionPlanState, setDecisionPlanState] = useState<DecisionPlanState>(() => initialDecisionPlanState("planning"));
+  const storeRef = useRef<PlanningLifecycleStore | null>(null);
+  const wsRef = useRef<ReturnType<typeof getWsClient> | null>(null);
+  const seqRef = useRef<number>(Date.now());
+
+  // init store
+  if (!storeRef.current) {
+    storeRef.current = new PlanningLifecycleStore({
+      onStagesChanged: (stages) => {
+        setLiveStages(
+          stages.map((s) => ({
+            key: s.key,
+            label: s.label,
+            status: s.status as StageStatus,
+            summary: s.summary,
+          }))
+        );
+      },
+      onPlanningStatusChanged: (latest) => {
+        if (latest?.message) setLivePlanningMessage(latest.message);
+      },
+      onDiagnostics: () => {},
+    });
+    const init = storeRef.current.getStages();
+    setLiveStages(
+      init.map((s) => ({
+        key: s.key,
+        label: s.label,
+        status: s.status as StageStatus,
+        summary: s.summary,
+      }))
+    );
+  }
+
+  useEffect(() => {
+    let unsub: (() => void) | null = null;
+    let poll: ReturnType<typeof setInterval> | null = null;
+    let ws: ReturnType<typeof getWsClient> | null = null;
+    try {
+      ws = getWsClient();
+      wsRef.current = ws;
+      // ensure connected — attempt connect if idle/closed and not already connecting
+      const snapshot = ws.snapshot();
+      setConnected(!!snapshot.connected);
+      if (!snapshot.connected) {
+        const connState = ws.getConnectionState();
+        if (connState === "idle" || connState === "closed") {
+          try {
+            ws.connect();
+          } catch {
+            // fallback to mock
+          }
+        }
+      }
+      unsub = ws.subscribe((env: unknown) => {
+        const envelope = env as { type: string; kind: string; payload: unknown; sequence?: number };
+        const seq = typeof envelope.sequence === "number" ? envelope.sequence : null;
+        if (seq !== null) {
+          const now = Date.now();
+          seqRef.current = now;
+          setLiveLastSeq(now);
+        } else if (envelope.type === "agent.lifecycle" || envelope.type === "planning.status" || envelope.type === "decision.request") {
+          const now = Date.now();
+          seqRef.current = now;
+          setLiveLastSeq(now);
+        }
+
+        const store = storeRef.current;
+        if (!store) return;
+
+        if (envelope.type === "agent.lifecycle" && envelope.kind === "event") {
+          store.handleAgentLifecycle(envelope.payload);
+        } else if (envelope.type === "planning.status" && envelope.kind === "event") {
+          store.handlePlanningStatus(envelope.payload);
+          const p = envelope.payload as Record<string, unknown>;
+          if (typeof p.message === "string" && p.message.trim().length > 0) {
+            setLivePlanningMessage(p.message as string);
+          } else if (typeof p.phase === "string") {
+            // fallback handled inside store but ensure message
+          }
+        } else if (envelope.type === "decision.request" && envelope.kind === "event") {
+          // Use functional update to avoid stale closure on decisionPlanState
+          setDecisionPlanState((prev) => {
+            const res = handleDecisionRequest(prev, envelope.payload, { workflowState: "decision_required" });
+            if (res.valid) {
+              const dec = res.state.currentDecision;
+              if (dec) {
+                setLiveDecision(mapDecisionPayloadToRequest(dec as unknown as DecisionRequest & { reason?: string }));
+              }
+              return res.state;
+            }
+            // invalid decision.request — keep previous state
+            return prev;
+          });
+        } else if (envelope.type === "workflow.completed" || envelope.type === "plan.snapshot") {
+          // planning may return to working; clear decision if workflow moved out of decision_required via ack
+          // we rely on decisionPlanState workflowState but also clear liveDecision when planning resumes with new lifecycle events
+        }
+
+        // also keep connected snapshot fresh
+        try {
+          const snap = ws!.snapshot();
+          setConnected(!!snap.connected);
+        } catch {
+          // ignore
+        }
+      });
+
+      // poll connected state (handles open/close without envelope)
+      poll = setInterval(() => {
+        try {
+          const snap = ws!.snapshot();
+          setConnected(!!snap.connected);
+        } catch {
+          // ignore
+        }
+      }, 750);
+
+      // initial snapshot check
+      try {
+        const snap = ws.snapshot();
+        setConnected(!!snap.connected);
+      } catch {}
+    } catch {
+      setConnected(false);
+    }
+
+    return () => {
+      if (unsub) unsub();
+      if (poll) clearInterval(poll);
+    };
+  }, []);
+
+  const sendDecisionRespond = useCallback(
+    (decisionId: string, optionId: string): { sent: boolean; stale?: boolean; duplicate?: boolean; noSideEffect?: boolean; error?: string } => {
+      const ws = wsRef.current;
+      if (!ws) return { sent: false, error: "no ws" };
+      // must be in decision_required — check live store workflow
+      try {
+        const snap = ws.snapshot();
+        const wf = snap.workflowState;
+        if (wf !== "decision_required" && decisionPlanState.workflowState !== "decision_required") {
+          return { sent: false, stale: true, noSideEffect: true };
+        }
+      } catch {
+        // fallback to decisionPlanState
+        if (decisionPlanState.workflowState !== "decision_required") {
+          return { sent: false, stale: true, noSideEffect: true };
+        }
+      }
+
+      // freshness: decision_id must match currentDecision
+      const currentId = liveDecision?.decision_id ?? decisionPlanState.currentDecision?.decision_id ?? null;
+      if (!currentId || decisionId !== currentId) {
+        return { sent: false, stale: true, noSideEffect: true };
+      }
+
+      const v = validateDecisionRespond(decisionPlanState, { decision_id: decisionId, option_id: optionId });
+      if (!v.valid || !v.accepted) {
+        if (v.noSideEffect) return { sent: false, stale: true, noSideEffect: true, error: v.error };
+        // allow stale handling
+        if (v.code === "invalid_workflow_state" || v.code === "invalid_envelope") {
+          return { sent: false, stale: true, noSideEffect: !!v.noSideEffect, error: v.error };
+        }
+        return { sent: false, error: v.error, noSideEffect: !!v.noSideEffect };
+      }
+
+      // send via WsClient — only in decision_required
+      try {
+        ws.sendDecisionRespond(decisionId, optionId);
+      } catch (e) {
+        return { sent: false, error: String(e) };
+      }
+
+      // locally apply to prevent duplicate and to allow stale/duplicate no-op on next click
+      setDecisionPlanState((prev) => applyDecisionRespond(prev, { decision_id: decisionId, option_id: optionId }));
+      setLiveDecision(null);
+      return { sent: true };
+    },
+    [decisionPlanState, liveDecision]
+  );
+
+  const clearLiveDecisionForResuming = useCallback(() => {
+    setLiveDecision(null);
+    // keep decisionPlanState hasReturnedToPlanning — already handled in send
+  }, []);
+
+  // expose helper to reset decisionPlanState when server indicates planning resumed without decision
+  useEffect(() => {
+    // if ws connected and workflowState returns to planning without decision.request, clear stale decision
+    if (!connected) return;
+    if (decisionPlanState.workflowState === "planning" && liveDecision) {
+      // decision still shows but workflow already planning — could happen if server cleared decision_required via ack
+      // keep showing until user responds? But spec says after respond server returns to planning — we already cleared on send.
+      // So no auto-clear here; only clear when send succeeded.
+    }
+  }, [connected, decisionPlanState.workflowState, liveDecision]);
+
+  return {
+    connected,
+    stages: liveStages,
+    planningMessage: livePlanningMessage,
+    lastSeq: liveLastSeq,
+    decision: liveDecision,
+    decisionPlanState,
+    sendDecisionRespond,
+    clearLiveDecisionForResuming,
+    ws: wsRef.current,
+  };
+}
+
 export type ConsultationProps = {
   stages?: Stage[];
   planningMessage?: string | null;
@@ -122,22 +373,37 @@ export default function Consultation({
   const [resuming, setResuming] = useState(false);
   const [decisionFadingOut, setDecisionFadingOut] = useState(false);
 
-  const stages = externalStages ?? internalStages;
-  const usesMock = externalStages === undefined;
+  const live = useLiveConsultation();
+  const wsConnected = live.connected;
+  const mockFallbackEnabled = isMockEnabled();
 
-  // Determine if we have an active decision
+  // When ws is connected, mock is disabled entirely; otherwise respect VITE_WS_MOCK fallback
+  const usesMock = externalStages === undefined && !wsConnected && mockFallbackEnabled;
+
+  // Effective stages / planningMessage / lastSeq
+  const stages = wsConnected ? live.stages : externalStages ?? internalStages;
+  const usesMockTimer = usesMock;
+
+  // Determine if we have an active decision — live takes precedence when connected
   const hasExternalDecision = externalDecision !== undefined && externalDecision !== null;
-  const activeDecision: DecisionRequest | null = hasExternalDecision
-    ? (externalDecision as DecisionRequest)
-    : mockDecisionVisible
-      ? DEFAULT_DECISION
-      : null;
+  let activeDecision: DecisionRequest | null = null;
+  if (wsConnected) {
+    activeDecision = live.decision;
+  } else if (hasExternalDecision) {
+    activeDecision = externalDecision as DecisionRequest;
+  } else if (mockDecisionVisible) {
+    activeDecision = DEFAULT_DECISION;
+  } else {
+    activeDecision = null;
+  }
 
   const isDecisionRequired = !!activeDecision && !resuming;
   const isResuming = resuming;
   const isWorking = !isDecisionRequired && !isResuming;
 
-  const planningMessage = externalPlanningMessage ?? PLANNING_MESSAGES[planningIdx] ?? PLANNING_MESSAGES[0];
+  const planningMessage = wsConnected
+    ? live.planningMessage ?? PLANNING_MESSAGES[planningIdx] ?? PLANNING_MESSAGES[0]
+    : externalPlanningMessage ?? PLANNING_MESSAGES[planningIdx] ?? PLANNING_MESSAGES[0];
   const lastSummary = (() => {
     for (let i = stages.length - 1; i >= 0; i--) {
       if (stages[i].summary && stages[i].status !== "queued") return stages[i].summary!;
@@ -145,11 +411,11 @@ export default function Consultation({
     return null;
   })();
   const statusLine = planningMessage || lastSummary || "Preparing a thoughtful plan for you.";
-  const lastSeq = externalSeq ?? seqTick;
+  const lastSeq = wsConnected ? live.lastSeq : externalSeq ?? seqTick;
 
-  // Mock timer: progress stages deterministically
+  // Mock timer: progress stages deterministically — disabled when ws.connected
   useEffect(() => {
-    if (!usesMock) return;
+    if (!usesMockTimer) return;
     if (timedOut) return;
     if (isDecisionRequired || isResuming) return; // pause progression during decision
 
@@ -178,23 +444,33 @@ export default function Consultation({
     }, 1400);
 
     return () => window.clearInterval(interval);
-  }, [usesMock, timedOut, isDecisionRequired, isResuming]);
+  }, [usesMockTimer, timedOut, isDecisionRequired, isResuming]);
 
-  // Auto-trigger mock decision after constraint_preference starts
+  // Auto-trigger mock decision after constraint_preference starts — disabled when ws.connected
   useEffect(() => {
+    if (wsConnected) return;
     if (!enableMockDecision) return;
     if (hasExternalDecision) return; // external controls
     if (mockDecisionVisible || resuming) return;
-    if (!usesMock) return;
+    if (!usesMockTimer) return;
     // When second stage becomes started, show decision after short delay
     const constraint = internalStages.find((s) => s.key === "constraint_preference");
     if (constraint && (constraint.status === "started" || constraint.status === "progressed")) {
       const t = window.setTimeout(() => setMockDecisionVisible(true), 900);
       return () => window.clearTimeout(t);
     }
-  }, [internalStages, enableMockDecision, hasExternalDecision, mockDecisionVisible, resuming, usesMock]);
+  }, [internalStages, enableMockDecision, hasExternalDecision, mockDecisionVisible, resuming, usesMockTimer, wsConnected]);
 
-  // Graceful timeout: ~12s without newer sequence event, paused during decision
+  // Keep seqRef synced with live lastSeq when connected
+  useEffect(() => {
+    if (wsConnected) {
+      seqRef.current = live.lastSeq;
+      setElapsed(0);
+      setTimedOut(false);
+    }
+  }, [wsConnected, live.lastSeq]);
+
+  // Graceful timeout: ~12s without newer sequence event, paused during decision — also disabled when ws.connected uses live seq
   useEffect(() => {
     if (timedOut) return;
     if (isDecisionRequired || isResuming) return;
@@ -239,6 +515,38 @@ export default function Consultation({
 
   const handleContinue = useCallback(() => {
     if (!selected || !activeDecision || confirming || resuming) return;
+
+    // Live path: only in decision_required, validate freshness, stale/duplicate no-op
+    if (wsConnected) {
+      const res = live.sendDecisionRespond(activeDecision.decision_id, selected);
+      if (!res.sent) {
+        // stale/duplicate no-op — do not transition, do not call onDecisionSubmit
+        if (res.noSideEffect || res.stale || res.duplicate) {
+          return;
+        }
+        // validation error without stale flag — also no-op
+        return;
+      }
+      // successful live send — show confirming then resuming, then let live planning.status drive working state
+      setConfirming(true);
+      window.setTimeout(() => {
+        setDecisionFadingOut(true);
+        window.setTimeout(() => {
+          setResuming(true);
+          setMockDecisionVisible(false);
+          setDecisionFadingOut(false);
+          setConfirming(false);
+          onDecisionSubmit?.(selected, activeDecision.decision_id);
+          window.setTimeout(() => {
+            setResuming(false);
+            setSelected(null);
+          }, 1800);
+        }, 380);
+      }, 520);
+      return;
+    }
+
+    // Fallback / mock path
     setConfirming(true);
     // show amber outline + check for ~500ms, then dissolve into resuming
     window.setTimeout(() => {
@@ -278,7 +586,7 @@ export default function Consultation({
         }, 1800);
       }, 380);
     }, 520);
-  }, [selected, activeDecision, confirming, resuming, onDecisionSubmit, usesMock]);
+  }, [selected, activeDecision, confirming, resuming, onDecisionSubmit, usesMock, wsConnected, live]);
 
   // Determine which stage is the decision point (constraint_preference by default)
   const decisionStageKey = "constraint_preference";

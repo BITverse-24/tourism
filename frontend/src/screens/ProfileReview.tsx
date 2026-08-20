@@ -1,8 +1,10 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { mockProfile, mockProfileBlocking } from '../data/mockProfile'
+import { useWs } from '../ws/useWs'
+import type { TravelerProfile } from '../types'
+import { mockProfile } from '../data/mockProfile'
 
-type Profile = typeof mockProfile & { profile_revision?: number }
+type Profile = TravelerProfile & { profile_revision?: number }
 
 function formatDate(dateStr?: string) {
   if (!dateStr) return ''
@@ -28,7 +30,6 @@ function formatStrength(s: string) {
 }
 
 export default function ProfileReview() {
-  const [useBlocking, setUseBlocking] = useState(false)
   const [editorOpen, setEditorOpen] = useState(false)
   const [topics, setTopics] = useState<string[]>([])
   const [note, setNote] = useState('')
@@ -36,10 +37,53 @@ export default function ProfileReview() {
   const [notice, setNotice] = useState('')
   const navigate = useNavigate()
 
-  const baseProfile: Profile = useBlocking ? { ...mockProfileBlocking, profile_revision: 7 } : { ...mockProfile, profile_revision: 7 }
-  const p: Profile = baseProfile
-  const hasBlocking = p.unknowns.some((u) => u.impact === 'blocking')
-  const isReady = !hasBlocking
+  // --- Live snapshot consumption (WEBSOCKET_CONTRACT.md) ---
+  // profile.snapshot: { revision, state draft|ready|confirmed, profile }
+  // profile.ready: { profile_revision, blocking_unknowns }
+  const ws = useWs()
+  const liveSnapshot = ws.snapshot
+  const liveReady = ws.ready
+
+  // Fallback to mock only when no live snapshot has arrived yet (dev / initial load).
+  // Once a live snapshot exists, it is the single source of truth; mocks never override live.
+  const hasLiveSnapshot = !!liveSnapshot
+  const rawProfile = liveSnapshot?.profile as unknown as TravelerProfile | null | undefined
+  // Use live profile when available, otherwise show demo placeholder so the UI is not blank.
+  const p: Profile | null = useMemo(() => {
+    if (rawProfile && typeof rawProfile === 'object') {
+      // Ensure profile_id exists; fallback to placeholder if missing
+      const withRev: Profile = {
+        ...(rawProfile as TravelerProfile),
+        profile_revision: liveSnapshot!.revision,
+      } as Profile
+      // Defensive defaults for required nested objects so rendering doesn't crash on partial snapshots
+      if (!withRev.trip_context) withRev.trip_context = mockProfile.trip_context
+      if (!withRev.purpose_and_priorities) withRev.purpose_and_priorities = mockProfile.purpose_and_priorities
+      if (!withRev.preferences) withRev.preferences = mockProfile.preferences
+      if (!withRev.travel_style) withRev.travel_style = mockProfile.travel_style
+      if (!withRev.hard_constraints) withRev.hard_constraints = mockProfile.hard_constraints
+      if (!withRev.unknowns) withRev.unknowns = []
+      if (!withRev.assumptions) withRev.assumptions = []
+      return withRev
+    }
+    return null
+  }, [rawProfile, liveSnapshot])
+
+  // Effective profile for rendering — live when present, otherwise null (shows loading)
+  // We keep mock visible only as a non-interactive placeholder behind the loading state,
+  // but all gating logic uses live signals only.
+  const displayProfile: Profile | null = p
+
+  // Confirm gating — contract: only when snapshot state === 'ready', revision is latest (matches profile.ready),
+  // and no blocking unknowns. Server remains authoritative; this is frontend pre-validation.
+  const isReadyState = liveSnapshot?.state === 'ready'
+  const isLatestRevision = useMemo(() => {
+    if (!liveSnapshot || !liveReady) return false
+    return liveSnapshot.revision === liveReady.profile_revision
+  }, [liveSnapshot, liveReady])
+  const hasNoBlockingUnknowns = (liveReady?.blocking_unknowns.length ?? 0) === 0
+  const canConfirm = isReadyState && isLatestRevision && hasNoBlockingUnknowns && !!displayProfile && !busy && ws.canConfirm
+  // ws.canConfirm already encodes the same checks; we combine for belt-and-braces and to match task wording explicitly.
 
   const requestChangesBtnRef = useRef<HTMLButtonElement>(null)
   const firstChipRef = useRef<HTMLButtonElement>(null)
@@ -53,57 +97,104 @@ export default function ProfileReview() {
     }
   }, [editorOpen])
 
-  const availableTopics = (() => {
+  const availableTopics = useMemo(() => {
     const set = new Set<string>()
-    p.unknowns.forEach((u) => set.add(u.topic))
-    p.assumptions.forEach((a) => set.add(a.topic))
+    if (displayProfile) {
+      displayProfile.unknowns.forEach((u) => set.add(u.topic))
+      displayProfile.assumptions.forEach((a) => set.add(a.topic))
+    }
     if (set.size < 3) {
       ;['Budget scope', 'Walking tolerance', 'Dates', 'Party size', 'Pace', 'Food preferences'].forEach((t) => set.add(t))
     }
     return Array.from(set)
-  })()
+  }, [displayProfile])
 
   const doConfirm = () => {
-    if (hasBlocking || busy) return
-    if (!isReady) {
-      setNotice('The profile is not ready to confirm — please address the open questions above.')
+    if (busy) return
+    if (!liveSnapshot || !liveReady) {
+      setNotice('Profile snapshot not yet available — please wait for the live profile to load.')
+      return
+    }
+    if (!canConfirm) {
+      // Provide contract-aligned message matching planning.validateProfileConfirm
+      if (liveSnapshot.state !== 'ready') {
+        setNotice('The latest profile is not ready for confirmation.')
+      } else if (!isLatestRevision) {
+        setNotice(`The profile was updated (latest revision ${liveReady.profile_revision}). Please review the latest before confirming.`)
+      } else if (!hasNoBlockingUnknowns) {
+        setNotice(`Profile has blocking unknowns (${liveReady.blocking_unknowns.join(', ')}) and cannot be confirmed yet.`)
+      } else {
+        setNotice('The profile cannot be confirmed yet — please address the open questions above.')
+      }
       return
     }
     setBusy(true)
     setNotice('')
-    const correlationId = `corr_${Date.now().toString(36)}`
-    const revision = p.profile_revision ?? 7
-    void correlationId
-    void revision
+    const revision = liveSnapshot.revision
+    const result = ws.sendProfileConfirm(revision)
+    if (!result.ok) {
+      setBusy(false)
+      setNotice(result.error ?? 'Could not confirm the profile. Please try again.')
+      return
+    }
+    // Server will ack and start Planning Controller; navigate to consultation.
+    // In real flow server emits planning.status / agent.lifecycle after ack.
     setTimeout(() => {
-      const stale = false
-      if (stale) {
-        setBusy(false)
-        setNotice('The profile was just updated — please review the latest.')
-        return
-      }
       setBusy(false)
       navigate('/consultation')
-    }, 600)
+    }, 300)
   }
 
   const doRequestChanges = () => {
+    const topicsTrimmed = topics.map((t) => t.trim()).filter(Boolean)
+    const freeTextTrimmed = note.trim()
+    if (topicsTrimmed.length === 0 && !freeTextTrimmed) {
+      setNotice('Provide at least one topic or a note describing the change.')
+      return
+    }
     setBusy(true)
     setNotice('')
-    const correlationId = `corr_${Date.now().toString(36)}`
-    void correlationId
+    const result = ws.sendProfileRequestChanges(topicsTrimmed, freeTextTrimmed || undefined)
+    if (!result.ok) {
+      setBusy(false)
+      setNotice(result.error ?? 'Could not send changes. Please try again.')
+      return
+    }
+    // Contract: backend returns workflow to discovery, asks targeted questions, emits revised snapshot.
     setTimeout(() => {
       setBusy(false)
       setEditorOpen(false)
       navigate('/discovery')
-    }, 500)
+    }, 300)
   }
 
   const toggleTopic = (t: string) => {
     setTopics((s) => (s.includes(t) ? s.filter((x) => x !== t) : [...s, t]))
   }
 
-  const hard = p.hard_constraints
+  // Loading state — no live snapshot yet
+  if (!displayProfile) {
+    return (
+      <main className="profile-review">
+        <div className="pr-eyebrow mono pour" style={{ animationDelay: '0ms' }}>
+          Your dossier &nbsp;·&nbsp; review before we plan
+        </div>
+        <h1 className="serif pr-headline pour" style={{ animationDelay: '40ms' }}>
+          Here&rsquo;s what we&rsquo;ve understood.
+        </h1>
+        <p className="pr-lede pour" style={{ animationDelay: '80ms' }}>
+          Waiting for the live profile snapshot from the concierge…
+        </p>
+        <div className="pr-notice" style={{ marginTop: 24 }}>
+          No profile.snapshot received yet. The server will emit a complete snapshot — the frontend replaces, never patches, the prior snapshot for that revision.
+        </div>
+        {notice ? <div className="pr-notice">{notice}</div> : null}
+        <style>{styles}</style>
+      </main>
+    )
+  }
+
+  const hard = displayProfile.hard_constraints
   const hasHardConstraints =
     hard.must_visit.length > 0 ||
     hard.avoid.length > 0 ||
@@ -113,25 +204,29 @@ export default function ProfileReview() {
     Boolean(hard.maximum_daily_travel) ||
     Boolean(hard.maximum_hotel_changes) ||
     Boolean(hard.budget_ceiling)
-  const hasUnknowns = p.unknowns.length > 0
-  const hasAssumptions = p.assumptions.length > 0
-  const hasPreferences = p.preferences.length > 0
-  const hasTravelStyle = Boolean(p.travel_style)
+  const hasUnknowns = displayProfile.unknowns.length > 0
+  const hasAssumptions = displayProfile.assumptions.length > 0
+  const hasPreferences = displayProfile.preferences.length > 0
+  const hasTravelStyle = Boolean(displayProfile.travel_style)
 
-  const destinationValue = p.trip_context.resolved_destination
-    ? `${p.trip_context.destination_request} · ${p.trip_context.resolved_destination}`
-    : p.trip_context.destination_request
+  const destinationValue = displayProfile.trip_context.resolved_destination
+    ? `${displayProfile.trip_context.destination_request} · ${displayProfile.trip_context.resolved_destination}`
+    : displayProfile.trip_context.destination_request
 
   let datesValue = ''
-  if (p.trip_context.start_date || p.trip_context.end_date) {
-    const s = p.trip_context.start_date ? formatDate(p.trip_context.start_date) : '—'
-    const e = p.trip_context.end_date ? formatDate(p.trip_context.end_date) : '—'
-    if (p.trip_context.start_date && p.trip_context.end_date) datesValue = `${s} — ${e}`
-    else if (p.trip_context.start_date) datesValue = s
+  if (displayProfile.trip_context.start_date || displayProfile.trip_context.end_date) {
+    const s = displayProfile.trip_context.start_date ? formatDate(displayProfile.trip_context.start_date) : '—'
+    const e = displayProfile.trip_context.end_date ? formatDate(displayProfile.trip_context.end_date) : '—'
+    if (displayProfile.trip_context.start_date && displayProfile.trip_context.end_date) datesValue = `${s} — ${e}`
+    else if (displayProfile.trip_context.start_date) datesValue = s
     else datesValue = e
-  } else if (p.trip_context.duration_days) {
-    datesValue = `${p.trip_context.duration_days} days`
+  } else if (displayProfile.trip_context.duration_days) {
+    datesValue = `${displayProfile.trip_context.duration_days} days`
   }
+
+  const revisionLabel = liveSnapshot?.revision ?? displayProfile.profile_revision ?? 7
+  const stateLabel = liveSnapshot?.state ?? '—'
+  const blockingCount = liveReady?.blocking_unknowns.length ?? displayProfile.unknowns.filter((u) => u.impact === 'blocking').length
 
   return (
     <main className="profile-review">
@@ -144,6 +239,11 @@ export default function ProfileReview() {
       <p className="pr-lede pour" style={{ animationDelay: '80ms' }}>
         A concise summary of your journey, preferences and constraints — as your concierge holds it. Please confirm, or tell us what to adjust.
       </p>
+      {hasLiveSnapshot ? (
+        <div className="pr-live-badge mono" style={{ marginTop: 8, fontSize: 10, letterSpacing: '0.08em', color: 'var(--voyager-ink-3)' }}>
+          Live snapshot · revision {revisionLabel} · state {stateLabel} · {liveReady ? `${liveReady.blocking_unknowns.length} blocking` : `${blockingCount} blocking`}
+        </div>
+      ) : null}
 
       <div className="pr-dossier">
         {/* 01 JOURNEY */}
@@ -163,45 +263,45 @@ export default function ProfileReview() {
               <div className="pr-feature">
                 <div className="pr-caption">Dates</div>
                 <div className="serif pr-feature-value">{datesValue}</div>
-                {p.trip_context.date_flexibility ? (
-                  <div className="pr-feature-sub">{p.trip_context.date_flexibility}</div>
+                {displayProfile.trip_context.date_flexibility ? (
+                  <div className="pr-feature-sub">{displayProfile.trip_context.date_flexibility}</div>
                 ) : null}
               </div>
             ) : null}
             <div className="pr-feature">
               <div className="pr-caption">Budget</div>
-              <div className="serif pr-feature-value">{p.trip_context.budget ? formatBudget(p.trip_context.budget) : '—'}</div>
+              <div className="serif pr-feature-value">{displayProfile.trip_context.budget ? formatBudget(displayProfile.trip_context.budget) : '—'}</div>
             </div>
             <div className="pr-feature">
               <div className="pr-caption">Party</div>
               <div className="serif pr-feature-value">
-                {p.trip_context.party_size} {p.trip_context.party_size === 1 ? 'traveler' : 'travelers'}
+                {displayProfile.trip_context.party_size} {displayProfile.trip_context.party_size === 1 ? 'traveler' : 'travelers'}
               </div>
-              {p.trip_context.party_notes ? <div className="pr-feature-sub">{p.trip_context.party_notes}</div> : null}
+              {displayProfile.trip_context.party_notes ? <div className="pr-feature-sub">{displayProfile.trip_context.party_notes}</div> : null}
             </div>
           </div>
 
-          {(p.purpose_and_priorities.primary_purpose || p.purpose_and_priorities.priorities.length > 0 || p.purpose_and_priorities.success_definition) && (
+          {(displayProfile.purpose_and_priorities.primary_purpose || displayProfile.purpose_and_priorities.priorities.length > 0 || displayProfile.purpose_and_priorities.success_definition) && (
             <div className="pr-purpose">
-              {p.purpose_and_priorities.primary_purpose ? (
+              {displayProfile.purpose_and_priorities.primary_purpose ? (
                 <div className="pr-purpose-row">
                   <div className="pr-caption">Purpose</div>
                   <div className="serif pr-purpose-value">
-                    {p.purpose_and_priorities.primary_purpose}
-                    {p.purpose_and_priorities.secondary_purposes && p.purpose_and_priorities.secondary_purposes.length > 0
-                      ? ` · ${p.purpose_and_priorities.secondary_purposes.join(' · ')}`
+                    {displayProfile.purpose_and_priorities.primary_purpose}
+                    {displayProfile.purpose_and_priorities.secondary_purposes && displayProfile.purpose_and_priorities.secondary_purposes.length > 0
+                      ? ` · ${displayProfile.purpose_and_priorities.secondary_purposes.join(' · ')}`
                       : null}
                   </div>
                 </div>
               ) : null}
-              {p.purpose_and_priorities.priorities.length > 0 ? (
+              {displayProfile.purpose_and_priorities.priorities.length > 0 ? (
                 <div className="pr-purpose-row">
                   <div className="pr-caption">Priorities</div>
-                  <div className="serif pr-purpose-value">{p.purpose_and_priorities.priorities.join(' · ')}</div>
+                  <div className="serif pr-purpose-value">{displayProfile.purpose_and_priorities.priorities.join(' · ')}</div>
                 </div>
               ) : null}
-              {p.purpose_and_priorities.success_definition ? (
-                <div className="pr-success-note">“{p.purpose_and_priorities.success_definition}”</div>
+              {displayProfile.purpose_and_priorities.success_definition ? (
+                <div className="pr-success-note">“{displayProfile.purpose_and_priorities.success_definition}”</div>
               ) : null}
             </div>
           )}
@@ -217,7 +317,7 @@ export default function ProfileReview() {
 
           {hasPreferences ? (
             <div className="pr-pref-list">
-              {p.preferences.map((pr, i) => {
+              {displayProfile.preferences.map((pr, i) => {
                 const strength = formatStrength(pr.strength)
                 const showConfidence = (pr.source === 'inferred' || pr.source === 'defaulted') && pr.confidence
                 return (
@@ -243,27 +343,27 @@ export default function ProfileReview() {
               </div>
               <div className="pr-style-grid">
                 <span className="pr-style-pill">
-                  <em className="pr-style-k">Pace</em> {p.travel_style.pace}
+                  <em className="pr-style-k">Pace</em> {displayProfile.travel_style.pace}
                 </span>
                 <span className="pr-style-pill">
-                  <em className="pr-style-k">Walking</em> {p.travel_style.walking_tolerance}
+                  <em className="pr-style-k">Walking</em> {displayProfile.travel_style.walking_tolerance}
                 </span>
                 <span className="pr-style-pill">
-                  <em className="pr-style-k">Crowd</em> {p.travel_style.crowd_tolerance}
+                  <em className="pr-style-k">Crowd</em> {displayProfile.travel_style.crowd_tolerance}
                 </span>
-                {p.travel_style.energy_pattern ? (
+                {displayProfile.travel_style.energy_pattern ? (
                   <span className="pr-style-pill">
-                    <em className="pr-style-k">Energy</em> {p.travel_style.energy_pattern}
+                    <em className="pr-style-k">Energy</em> {displayProfile.travel_style.energy_pattern}
                   </span>
                 ) : null}
-                {p.travel_style.comfort_preference ? (
+                {displayProfile.travel_style.comfort_preference ? (
                   <span className="pr-style-pill">
-                    <em className="pr-style-k">Comfort</em> {p.travel_style.comfort_preference}
+                    <em className="pr-style-k">Comfort</em> {displayProfile.travel_style.comfort_preference}
                   </span>
                 ) : null}
-                {p.travel_style.spontaneity ? (
+                {displayProfile.travel_style.spontaneity ? (
                   <span className="pr-style-pill">
-                    <em className="pr-style-k">Spontaneity</em> {p.travel_style.spontaneity}
+                    <em className="pr-style-k">Spontaneity</em> {displayProfile.travel_style.spontaneity}
                   </span>
                 ) : null}
               </div>
@@ -341,7 +441,7 @@ export default function ProfileReview() {
             </div>
             <p className="pr-notes-intro">A few points we&rsquo;re holding lightly — please confirm or clarify at your leisure.</p>
             <div className="pr-notes-list">
-              {p.unknowns.map((u, i) => (
+              {displayProfile.unknowns.map((u, i) => (
                 <div key={`u-${i}`} className={`pr-note ${u.impact === 'blocking' ? 'pr-note--blocking' : ''}`}>
                   <div className="pr-note-text">— {u.description}</div>
                   <div className="mono pr-note-meta">
@@ -349,7 +449,7 @@ export default function ProfileReview() {
                   </div>
                 </div>
               ))}
-              {p.assumptions.map((a, i) => (
+              {displayProfile.assumptions.map((a, i) => (
                 <div key={`a-${i}`} className="pr-note pr-note--assumption">
                   <div className="pr-note-text">— {a.value}</div>
                   <div className="mono pr-note-meta">
@@ -368,9 +468,20 @@ export default function ProfileReview() {
         <button
           className="pr-btn pr-btn--primary"
           onClick={doConfirm}
-          disabled={hasBlocking || busy}
-          aria-disabled={hasBlocking || busy}
-          style={{ opacity: hasBlocking || busy ? 0.45 : 1 }}
+          disabled={!canConfirm}
+          aria-disabled={!canConfirm}
+          style={{ opacity: !canConfirm ? 0.45 : 1 }}
+          title={
+            !liveSnapshot
+              ? 'Waiting for live snapshot'
+              : !isReadyState
+                ? 'Profile not ready — state must be ready'
+                : !isLatestRevision
+                  ? `Stale revision — latest is ${liveReady?.profile_revision}`
+                  : !hasNoBlockingUnknowns
+                    ? `Blocking unknowns: ${liveReady?.blocking_unknowns.join(', ')}`
+                    : 'Confirm profile and start planning'
+          }
         >
           Confirm &amp; continue
         </button>
@@ -388,14 +499,18 @@ export default function ProfileReview() {
       </div>
 
       <div aria-live="polite" className="pr-notice">
-        {hasBlocking ? 'Please resolve the blocking note above before confirming.' : notice}
+        {!canConfirm && liveReady && liveReady.blocking_unknowns.length > 0
+          ? `Please resolve the blocking topic(s) (${liveReady.blocking_unknowns.join(', ')}) before confirming.`
+          : !canConfirm && liveSnapshot && liveSnapshot.state !== 'ready'
+            ? `Profile state is ${liveSnapshot.state} — confirmation requires state ready.`
+            : !canConfirm && liveSnapshot && liveReady && !isLatestRevision
+              ? `A newer revision (${liveReady.profile_revision}) is available — please review the latest.`
+              : notice}
       </div>
 
       <div className="pr-footer">
-        <span className="mono pr-footer-text">Dossier · {p.profile_id} · revision {p.profile_revision ?? 7}</span>
-        <label className="mono pr-dev-label">
-          <input type="checkbox" checked={useBlocking} onChange={(e) => setUseBlocking(e.target.checked)} /> Simulate blocking
-        </label>
+        <span className="mono pr-footer-text">Dossier · {displayProfile.profile_id} · revision {revisionLabel} · {stateLabel}</span>
+        <span className="mono pr-footer-text" style={{ opacity: 0.7 }}>Live via WS · {hasLiveSnapshot ? 'snapshot+ready' : 'waiting'}</span>
       </div>
 
       {editorOpen && (
@@ -429,24 +544,30 @@ export default function ProfileReview() {
             className="pr-textarea"
           />
           <div className="pr-editor-actions">
-            <button onClick={doRequestChanges} className="pr-btn pr-btn--primary pr-btn--sm">
+            <button onClick={doRequestChanges} className="pr-btn pr-btn--primary pr-btn--sm" disabled={busy}>
               Send changes →
             </button>
-            <button onClick={() => setEditorOpen(false)} className="pr-btn pr-btn--ghost pr-btn--sm">
+            <button onClick={() => setEditorOpen(false)} className="pr-btn pr-btn--ghost pr-btn--sm" disabled={busy}>
               Cancel
             </button>
           </div>
-          <div className="mono pr-editor-hint">Topics and note will be sent; we&rsquo;ll return to discovery for targeted questions.</div>
+          <div className="mono pr-editor-hint">Topics and note will be sent as profile.request_changes — we&rsquo;ll return to discovery for targeted questions. No direct field edits.</div>
         </div>
       )}
 
-      <style>{`
+      <style>{styles}</style>
+    </main>
+  )
+}
+
+const styles = `
         .profile-review{
           width: min(980px, 86vw);
           margin: 0 auto;
           padding: 36px 0 48px;
           background: var(--voyager-bone-0);
         }
+        .pr-live-badge{ margin-bottom: 6px; }
         .pr-eyebrow{
           font-size: 10px;
           letter-spacing: 0.16em;
@@ -856,7 +977,4 @@ export default function ProfileReview() {
           .pr-actions{ flex-direction: column; align-items: stretch; }
           .pr-actions .pr-btn{ width: 100%; justify-content: center; }
         }
-      `}</style>
-    </main>
-  )
-}
+`

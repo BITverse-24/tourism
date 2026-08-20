@@ -1,27 +1,20 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from "react";
+import type {
+  DiscoveryQuestion,
+  DiscoveryOption,
+  SelectionMode,
+  FreeTextMode,
+} from "../ws/discovery";
+import { validateAnswer, generateCommandId } from "../ws/discovery";
+import { getWsClient } from "../ws";
+
+// Re-export for backwards compat — consumers importing from this screen keep working
+export type { DiscoveryQuestion, DiscoveryOption, SelectionMode, FreeTextMode };
 
 // ---------------------------------------------------------------------------
-// Types — mirror docs/WEBSOCKET_CONTRACT.md + TRAVELER_PROFILE_SCHEMA.md
+// Types — server-provided discovery.question payload (docs/WEBSOCKET_CONTRACT.md)
+// No mockQuestions — question comes from useWs() / discovery.question event
 // ---------------------------------------------------------------------------
-
-export type SelectionMode = "single" | "multiple";
-export type FreeTextMode = "disabled" | "optional" | "only_if_no_option" | "required";
-
-export type DiscoveryOption = {
-  option_id: string;
-  label: string;
-  description?: string;
-};
-
-export type DiscoveryQuestion = {
-  question_id: string;
-  prompt: string;
-  selection_mode: SelectionMode;
-  required: boolean;
-  free_text_mode: FreeTextMode;
-  free_text_placeholder?: string;
-  options: DiscoveryOption[];
-};
 
 // Minimal profile shape needed for the rail — full snapshot is accepted.
 export type ProfileSnapshot = {
@@ -68,15 +61,20 @@ export type DiscoveryProps = {
 };
 
 // ---------------------------------------------------------------------------
-// Helpers
+// Helpers — ws-backed, server is truth
 // ---------------------------------------------------------------------------
 
 function genCommandId() {
+  // Delegate to ws/discovery helper for consistent id format; fallback inline
   try {
-    // @ts-ignore
-    if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
-  } catch {}
-  return `cmd_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+    return generateCommandId();
+  } catch {
+    try {
+      // @ts-ignore
+      if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
+    } catch {}
+    return `cmd_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  }
 }
 
 function isEmpty(v: unknown): boolean {
@@ -214,10 +212,12 @@ export default function Discovery({
   const [selected, setSelected] = useState<string[]>([]);
   const [text, setText] = useState("");
   const [showMutualNote, setShowMutualNote] = useState(false);
+  const [localRecoveryFeedback, setLocalRecoveryFeedback] = useState<string | null>(null);
   const promptId = useId();
   const feedbackId = useId();
   const prevQRef = useRef<string | null>(null);
 
+  // Reset selection/text when server pushes a new discovery.question (forward-only)
   useEffect(() => {
     if (!question) return;
     if (prevQRef.current !== question.question_id) {
@@ -225,8 +225,34 @@ export default function Discovery({
       setSelected([]);
       setText("");
       setShowMutualNote(false);
+      // clear stale recovery note once fresh question arrives
+      setLocalRecoveryFeedback(null);
     }
   }, [question?.question_id]);
+
+  // Handle question_not_current recovery — server rejected stale answer, wait for new question
+  useEffect(() => {
+    let unsub: (() => void) | null = null;
+    try {
+      const client = getWsClient();
+      unsub = client.subscribe((env) => {
+        if (env.kind === "ack" && env.type === "command.rejected") {
+          const p = env.payload as Record<string, unknown>;
+          if (p.code === "question_not_current") {
+            setLocalRecoveryFeedback("That question is no longer current — showing the latest one.");
+            // keep busy false so user can answer the new question once it arrives
+            // selection/text will be reset when question_id changes via effect above
+            // recovery payload contains current_question_id if server included it
+          }
+        }
+      });
+    } catch {
+      // WsClient not available in test env — ignore
+    }
+    return () => {
+      if (unsub) unsub();
+    };
+  }, []);
 
   const toggleOption = (optionId: string) => {
     if (!question || busy) return;
@@ -260,46 +286,65 @@ export default function Discovery({
   const hasSelection = selected.length > 0;
   const hasText = text.trim().length > 0;
 
+  // Client-side pre-validation using server contract helpers — server remains truth.
+  // Mirrors docs/WEBSOCKET_CONTRACT.md § discovery.question schema & discovery.answer rules.
+  const validation = useMemo(() => {
+    if (!question) return { valid: false as const, message: "No question" } as const;
+    return validateAnswer(question, selected, text);
+  }, [question, selected, text]);
+
   const isValid = useMemo(() => {
     if (!question) return false;
     if (busy) return false;
-    const req = question.required;
-    const fm = question.free_text_mode;
-    if (fm === "only_if_no_option") {
-      if (hasSelection && hasText) return false;
-      if (req) return hasSelection || hasText;
-      return true;
-    }
-    if (fm === "disabled") {
-      return req ? hasSelection : true;
-    }
-    if (fm === "optional") {
-      return req ? hasSelection || hasText : true;
-    }
-    if (fm === "required") {
-      if (req) return hasText;
-      return hasSelection || hasText;
-    }
-    return true;
-  }, [question, busy, hasSelection, hasText]);
+    // Use validateAnswer result for UX gating; server is final validator
+    return (validation as { valid: boolean }).valid === true;
+  }, [question, busy, validation]);
 
   const canSubmit = isValid && !!question && !busy;
 
   const handleSubmit = () => {
-    if (!question || !canSubmit || !onAnswer) return;
+    if (!question || !canSubmit) return;
+    // Pre-validate again at submit time (UX only) — do not block server truth
+    const v = validateAnswer(question, selected, text);
+    if (!v.valid) return;
+
     const fm = question.free_text_mode;
     let ids = [...selected];
     let ft = text;
-    if (fm === "only_if_no_option" && hasSelection && hasText) {
+    // Normalize per contract: disabled => free_text must be "", only_if_no_option mutual exclusion
+    if (fm === "disabled") ft = "";
+    else if (fm === "only_if_no_option" && hasSelection && hasText) {
+      // Should be invalid per validateAnswer, but defensively drop text if caller forced it
       ft = "";
     }
-    if (fm === "disabled") ft = "";
-    onAnswer({
+
+    const payload = {
       question_id: question.question_id,
       selected_option_ids: ids,
       free_text: ft,
       command_id: genCommandId(),
-    });
+    };
+
+    // Prefer parent-provided onAnswer (which may be wired to useWs().sendAnswer / ws.send),
+    // fallback to direct WsClient send for live WebSocket operation.
+    if (onAnswer) {
+      onAnswer(payload);
+      return;
+    }
+    // No onAnswer — send directly via WsClient (live mode)
+    try {
+      const client = getWsClient();
+      client.sendDiscoveryAnswer(
+        {
+          question_id: payload.question_id,
+          selected_option_ids: payload.selected_option_ids,
+          free_text: payload.free_text,
+        },
+        payload.command_id
+      );
+    } catch {
+      // If WsClient unavailable (e.g., storybook), silently ignore — parent should provide onAnswer
+    }
   };
 
   const railSections: RailSection[] = useMemo(() => {
@@ -550,7 +595,7 @@ export default function Discovery({
                   aria-live="polite"
                   aria-atomic="true"
                 >
-                  {feedback ? <span>{feedback}</span> : null}
+                  {(localRecoveryFeedback ?? feedback) ? <span>{localRecoveryFeedback ?? feedback}</span> : null}
                 </div>
               </div>
             )}

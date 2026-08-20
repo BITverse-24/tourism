@@ -13,6 +13,9 @@ import Replanning from './screens/Replanning'
 import { mockQuestions } from './data/mockQuestions'
 import { mockPlan } from './data/mockPlan'
 import type { ItineraryItem } from './screens/DayCanvas'
+import SessionBanner from './components/SessionBanner'
+import ErrorBanner from './components/ErrorBanner'
+import { useWsBannerState } from './hooks/useWsBannerState'
 
 function AppShell(){
   const loc=useLocation()
@@ -21,6 +24,8 @@ function AppShell(){
   const [detailOpen,setDetailOpen]=useState(false)
   const [detailItem,setDetailItem]=useState<ItineraryItem | null>(null)
   const returnFocusRef = useRef<HTMLElement>(null) as React.RefObject<HTMLElement>
+  // Centralized WS banners — single WebSocket integration surface
+  const { sessionBanner, lastError, clearSessionBanner, clearError, handleStartNewSession, handleCloseSuperseded } = useWsBannerState()
 
   const mockQuestion = mockQuestions[0] ?? null
   const mockProfile = {
@@ -81,6 +86,19 @@ function AppShell(){
 
   return (
     <>
+      {(sessionBanner.kind === 'expired' || sessionBanner.kind === 'superseded' || lastError) && (
+        <div style={{ display:'flex', flexDirection:'column', gap:10, padding:'12px 5vw 0', background:'transparent' }}>
+          {sessionBanner.kind === 'expired' && (
+            <SessionBanner kind="expired" reason={sessionBanner.reason} canStartNewSession={sessionBanner.canStartNewSession} onStartNewSession={handleStartNewSession} onDismiss={clearSessionBanner} />
+          )}
+          {sessionBanner.kind === 'superseded' && (
+            <SessionBanner kind="superseded" replacementRunId={sessionBanner.replacementRunId} onClose={handleCloseSuperseded} onDismiss={clearSessionBanner} />
+          )}
+          {lastError && (
+            <ErrorBanner error={lastError} onDismiss={clearError} onRetry={lastError.retryable ? () => clearError() : undefined} />
+          )}
+        </div>
+      )}
       {!isArrival && !isConsultation && <Header/>}
       <Routes>
         <Route path="/" element={<Arrival/>} />

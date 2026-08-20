@@ -38,6 +38,10 @@ import * as DecisionPlanMod from './decisionPlan';
 // Re-export sibling namespaces for consumers that need fine-grained helpers
 export { EnvelopeMod, TransportMod, SessionMod, DiscoveryMod, PlanningMod, DecisionPlanMod };
 
+// Hook — live profile snapshot consumption (profile.snapshot / profile.ready)
+export { useWs, default as useWsDefault } from './useWs';
+export type { UseWsReturn, HookProfileSnapshot, HookProfileReady } from './useWs';
+
 // Also expose frequently used sibling helpers directly under distinct names
 export const EnvelopeHelpers = {
   validateEnvelope: EnvelopeMod.validateEnvelope,
