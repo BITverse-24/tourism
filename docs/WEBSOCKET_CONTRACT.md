@@ -2,7 +2,7 @@
 
 **Contract role:** Transport and workflow integration contract
 **Document revision:** 1.0
-**Status:** Active MVP contract
+**Status:** Active initial-planning contract; continuous replanning reserved for a later phase
 
 ## Purpose
 
@@ -21,24 +21,28 @@ profile.confirm
   ↓
 Planning, evaluation, optimization, and explanation
   ↓
+Optional typed decision checkpoint
+  ↓
 Draft plan snapshots
   ↓
 Final Trip Plan snapshot
-  ↓
-Typed replanning request ↔ updated plan
 ```
+
+Agent 3 is an internal Narrative/Explanation capability. It is invoked by the in-process Planning Controller after Agent 2 and the available evaluation services have produced one selected result. Agent 3 is not exposed as a WebSocket command or as a public message type.
 
 The protocol is transport-facing. The [Traveler Profile](TRAVELER_PROFILE_SCHEMA.md) and [Final Trip Plan](FINAL_TRIP_PLAN_SCHEMA.md) remain the authoritative definitions of those payloads. This document defines how they are delivered and how workflow commands are exchanged.
 
 ## Scope and principles
 
-- The core product flow uses one JSON WebSocket connection. No HTTP request is required for discovery, planning, or replanning.
+- The core product flow uses one JSON WebSocket connection. No HTTP request is required for discovery or initial planning.
 - The server is authoritative for workflow state, profile inference, validation, and plan revisions.
 - The frontend renders server-provided question schemas rather than hardcoding the adaptive questionnaire.
 - Profile and plan resources are delivered as complete snapshots, not client-applied patches.
 - Client commands are acknowledged immediately; longer work is reported through later events.
 - Agent events expose stable lifecycle information and safe summaries, not hidden reasoning, raw patches, candidate rankings, or provider payloads.
+- The `narrative_explanation` lifecycle key describes an internal rendering capability, not a separate deployment or client-invokable agent.
 - Authentication, persistence, event replay, booking, payments, and user accounts are outside this MVP contract.
+- Continuous replanning is reserved for a later phase and is not part of the initial planning workflow.
 
 ## Transport
 
@@ -62,15 +66,19 @@ The endpoint may be hosted under a deployment-specific origin, but the path and 
 
 ### Run
 
-`run_id` identifies one workflow execution. A new connection after a network disconnect creates a new run from the session's last user-confirmed checkpoint. Events are not replayed into the new run.
+`run_id` identifies one workflow execution. A new connection after a network disconnect creates a new run from the session's latest recovery state. Events are not replayed into the new run.
 
-### Checkpoint
+### Recovery state and Profile confirmation
 
-The resumable checkpoint contains the last user-confirmed Traveler Profile and, when one exists, the most recently completed Final Trip Plan. Work that was still in progress when the connection dropped is discarded.
+The server maintains one recovery state. It is created or updated atomically after every accepted `discovery.answer` and contains the latest normalized Profile draft, Profile revision, active question, and discovery workflow state. A reconnect resumes from this state rather than restarting discovery.
 
-Before the first profile confirmation, there is no user-confirmed checkpoint. A reconnect at that point starts discovery again for the existing in-memory session.
+The session also records a `confirmed_profile_revision` marker. `profile.confirm` sets this marker and starts planning; it does not create a second checkpoint or duplicate the Profile data. The resulting Plan stores or immutably references the exact Profile revision/snapshot used to create it.
 
-During replanning, the accepted change request is not itself a checkpoint. If the connection drops before the updated plan completes, the client must submit the change request again in the new run.
+The server acknowledges a `discovery.answer` only after the corresponding recovery state has been written. Duplicate commands return the original result without creating another state transition.
+
+Recovery state is in-memory in v1. A backend process restart invalidates all sessions and recovery state and emits `session.expired`; this contract does not imply durable persistence.
+
+During future replanning, the accepted change request is not itself recovery state. If the connection drops before the updated plan completes, the client must submit the change request again in the new run.
 
 ### Revision
 
@@ -158,7 +166,7 @@ Unknown fields must be ignored for forward compatibility. Unknown message types 
       {
         "option_id": "balanced",
         "label": "Balanced",
-        "description": "A mix of planned experiences and flexible time."
+        "description": "A mix of planned attraction visits and flexible time."
       },
       {
         "option_id": "fast",
@@ -177,8 +185,9 @@ Unknown fields must be ignored for forward compatibility. Unknown message types 
 | `discovery` | The backend is collecting adaptive answers. | `discovery.answer`, `run.cancel`, `session.close` |
 | `profile_review` | A complete or materially complete Profile is available for review. | `profile.confirm`, `profile.request_changes`, `run.cancel`, `session.close` |
 | `planning` | Planning, evaluation, optimization, or explanation is running. | `run.cancel`, `session.close` |
-| `plan_ready` | A Final Trip Plan is available. | `replan.request`, `run.cancel`, `session.close` |
-| `replanning` | A typed change request is being applied to the current plan. | `run.cancel`, `session.close` |
+| `decision_required` | Planning found a material unresolved tradeoff or no admissible candidate and needs a typed traveler choice. | `decision.respond`, `run.cancel`, `session.close` |
+| `plan_ready` | A Final Trip Plan is available. | `run.cancel`, `session.close` |
+| `replanning` | Reserved for the later continuous-replanning phase; not available in the initial planning workflow. | None in the initial workflow |
 | `cancelled` | The current run was cancelled. | `session.start` on a new connection/run, `session.close` |
 | `expired` | The session is no longer available in backend memory. | Start a new session |
 
@@ -202,8 +211,8 @@ Rules:
 
 - The server assigns `session_id` and `run_id` for a new session.
 - An existing `session_id` never causes event replay.
-- If the session has a checkpoint, the new run starts from that checkpoint.
-- If the session has no checkpoint, discovery starts again.
+- If the session has recovery state, the new run starts from that state and emits the current question/Profile state.
+- If the session has no recovery state, discovery starts again.
 - If the session was lost because the backend restarted, the server emits `session.expired` and does not fabricate state.
 - A retry with the same `command_id` is idempotent.
 
@@ -228,6 +237,7 @@ Rules:
 - `selection_mode: "single"` accepts at most one option; `selection_mode: "multiple"` accepts one or more unless the question explicitly permits none.
 - Free text is optional unless the question says otherwise.
 - The backend normalizes the answer, updates the Profile, and determines the next question.
+- After the answer is accepted, the backend atomically writes recovery state containing the updated Profile draft and next-question state before acknowledging the command.
 - Discovery is forward-only in v1; prior answers cannot be edited directly.
 
 ### `profile.confirm`
@@ -242,7 +252,7 @@ Payload:
 }
 ```
 
-The command is rejected if the supplied revision is not the latest ready Profile, if blocking unknowns remain, or if the workflow is not in `profile_review`.
+The command is rejected if the supplied revision is not the latest ready Profile, if blocking unknowns remain, or if the workflow is not in `profile_review`. On success, the server records `confirmed_profile_revision` and starts planning through the in-process Planning Controller; it does not create a duplicate checkpoint. The Controller invokes Agent 3 only after Agent 2 and the available evaluation services have produced one selected result.
 
 ### `profile.request_changes`
 
@@ -259,9 +269,31 @@ Payload:
 
 The backend returns the workflow to discovery, asks targeted questions, and emits a revised Profile snapshot when ready. This is the v1 correction path; direct JSON field edits are not supported.
 
-### `replan.request`
+### `decision.respond`
 
-Requests a new plan in response to a changed condition.
+Responds to a server-issued planning decision request. This is the only way to resolve a material planning tradeoff during the initial planning workflow.
+
+Payload:
+
+```json
+{
+  "decision_id": "decision_profile7_route_a_route_b",
+  "option_id": "option_a"
+}
+```
+
+Rules:
+
+- The command is accepted only in `decision_required`.
+- `decision_id` must match the current server-issued decision.
+- `option_id` must belong to that decision's typed options.
+- A stale decision or duplicate command cannot mutate workflow state twice.
+- After acceptance, the server returns to `planning` and resumes evaluation or explanation.
+- The client cannot submit an arbitrary Profile or Plan patch as a decision response.
+
+### `replan.request` — reserved
+
+Reserved for the later continuous-replanning phase. The initial planning workflow does not accept this command. Its payload shape is retained below as future compatibility material and is not an active v1 command.
 
 Payload:
 
@@ -288,7 +320,7 @@ Allowed `change_type` values are:
 - `preference_changed`
 - `other`
 
-The request is validated against the current `plan_ready` state. The server retains the existing Final Trip Plan until a replacement plan reaches `final` state.
+When continuous replanning is implemented, the request will be validated against the current `plan_ready` state and the existing Final Trip Plan will remain authoritative until a replacement reaches `final` state.
 
 ### `run.cancel`
 
@@ -399,7 +431,8 @@ Payload:
   "session_id": "sess_01J...",
   "run_id": "run_01J...",
   "workflow_state": "discovery",
-  "has_checkpoint": false
+  "has_recovery_state": false,
+  "confirmed_profile_revision": null
 }
 ```
 
@@ -445,9 +478,9 @@ Payload:
 }
 ```
 
-### `agent.lifecycle`
+### `agent.lifecycle` — legacy event name
 
-Reports safe lifecycle information for a logical planning agent.
+Reports safe lifecycle information for a logical planning stage. The event name remains for client compatibility; the payload keys do not imply independent LLM agents.
 
 Payload:
 
@@ -457,13 +490,13 @@ Payload:
   "stage": "experience_selection",
   "status": "completed",
   "progress": 100,
-  "summary": "Selected experiences aligned with the confirmed profile."
+  "summary": "Selected attractions and visit approaches aligned with the confirmed profile."
 }
 ```
 
 Allowed `status` values are `started`, `progressed`, `completed`, and `failed`. `progress` is an optional integer from `0` to `100`.
 
-Public agent keys are logical modules, not deployment or implementation promises:
+Public lifecycle keys are logical workflow stages, not deployment or implementation promises:
 
 - `discovery`
 - `constraint_preference`
@@ -476,7 +509,11 @@ Public agent keys are logical modules, not deployment or implementation promises
 - `narrative_explanation`
 - `continuous_replanning`
 
+Some lifecycle keys are tool-backed stages rather than LLM agents. In particular, constraint validation, mobility, cost, simulation, and optimization may complete through deterministic code. `continuous_replanning` is reserved and is not emitted during initial planning.
+
 The `summary` must be safe for a traveler to read. It must not contain chain-of-thought, hidden prompts, raw provider responses, internal scores, or unreviewed personal data.
+
+The `narrative_explanation` lifecycle event does not expose Agent 3 input or output artifacts. The Agent 3 draft is internal until the Planning Controller has validated the complete Final Trip Plan and compared its controller-owned structural fields with the selected planning result.
 
 ### `planning.status`
 
@@ -488,12 +525,41 @@ Payload:
 {
   "phase": "optimization",
   "status": "running",
-  "message": "Balancing walking load, cost, and experience fit.",
+  "message": "Balancing walking load, cost, and attraction fit.",
   "progress": 65
 }
 ```
 
-Allowed phases are `profile_validation`, `destination_design`, `experience_selection`, `mobility`, `cost`, `simulation`, `optimization`, `explanation`, and `replanning`. Allowed statuses are `queued`, `running`, `completed`, and `failed`.
+Allowed phases are `profile_validation`, `destination_design`, `experience_selection`, `mobility`, `cost`, `simulation`, `optimization`, `decision_required`, `explanation`, and `replanning`. Allowed statuses are `queued`, `running`, `completed`, and `failed`.
+
+### `decision.request`
+
+Reports that planning requires a typed traveler choice before a final plan can be published.
+
+Payload:
+
+```json
+{
+  "decision_id": "decision_profile7_route_a_route_b",
+  "profile_revision": 7,
+  "reason": "material_tradeoff",
+  "prompt": "Choose whether to prioritize comfort or coverage.",
+  "options": [
+    {
+      "option_id": "option_a",
+      "label": "Prioritize comfort",
+      "tradeoff": "Fewer attraction visits and less movement."
+    },
+    {
+      "option_id": "option_b",
+      "label": "Prioritize coverage",
+      "tradeoff": "More attraction visits and a higher movement burden."
+    }
+  ]
+}
+```
+
+The payload contains no hidden reasoning, raw rankings, internal scores, or provider responses.
 
 ### `plan.snapshot`
 
@@ -528,6 +594,8 @@ Allowed states are `draft` and `final`.
 - A `draft` is an explicitly incomplete or still-changing planning result and must be labeled as such in the UI.
 - A `final` plan must satisfy the [Final Trip Plan](FINAL_TRIP_PLAN_SCHEMA.md) contract and its invariants.
 - The server sends full snapshots; the frontend replaces the prior snapshot for that revision rather than applying a patch.
+- A final snapshot is published only after the Planning Controller validates the Agent 3 draft and confirms that protected route, allocation, place, ordering, timing, movement, cost, accommodation-status, and profile-reference fields are unchanged.
+- If Agent 3 remains invalid after one bounded repair attempt, the server emits a safe `planning.status` message with `status: "failed"` and does not publish a final snapshot.
 - During replanning, the existing final plan remains authoritative until the replacement emits `state: "final"`.
 
 ### `workflow.completed`
@@ -578,9 +646,9 @@ Payload:
 - The server provides at-least-once-safe command handling: a duplicate command returns the original acknowledgement/result and does not repeat the side effect.
 - A reused `command_id` with different payload content is rejected with `command_id_conflict`.
 - The server does not replay missed events after a network disconnect.
-- Reconnecting with a live `session_id` starts a new `run_id` from the checkpoint described above.
+- Reconnecting with a live `session_id` starts a new `run_id` from the latest recovery state described above.
 - A command for an invalid workflow state is rejected with the current `workflow_state` and the recovery information needed by the client.
-- Backend process restart invalidates every session and checkpoint. The client must offer a new-session path after `session.expired`.
+- Backend process restart invalidates every session and recovery state. The client must offer a new-session path after `session.expired`.
 
 ## Error handling
 
@@ -607,7 +675,10 @@ This hackathon contract has no negotiation handshake. Additive fields should rem
 - A client cannot directly mutate a Traveler Profile or Final Trip Plan.
 - A Profile is never considered confirmed unless the matching `profile_revision` was explicitly confirmed.
 - Planning does not begin before profile confirmation.
+- Agent 3 is invoked only after upstream candidate selection and evaluation; it does not select among candidates or resolve `decision_required`.
+- A decision response is accepted only for the current decision ID and one of its typed options.
 - A draft plan is never presented as the final plan.
+- Agent 3 output is never published without schema validation and protected-field comparison.
 - A final plan must obey the Final Trip Plan invariants, including visible assumptions, warnings, unresolved details, and profile traceability.
 - Unknown information remains explicit; the backend must not silently fabricate missing dates, budget, party size, or constraints.
 - Internal agent state is not a public payload.
@@ -621,10 +692,14 @@ This hackathon contract has no negotiation handshake. Additive fields should rem
 3. A multi-select answer is rejected when it violates the question's selection rules.
 4. A text-only answer is accepted only when the question's `free_text_mode` permits it.
 5. When the Discovery Agent decides discovery is complete, the server emits a ready Profile snapshot and `profile.ready`; it does not start planning automatically.
-6. `profile.confirm` with the current revision starts planning and produces status, safe agent lifecycle events, labeled draft snapshots, and one final plan snapshot.
+6. `profile.confirm` with the current revision starts planning through the in-process Planning Controller and produces status, safe lifecycle events, labeled draft snapshots when available, and one final plan snapshot only after the Agent 3 draft passes schema and protected-field validation.
 7. A profile change request returns to targeted discovery and does not accept direct field patches.
 8. A duplicate command ID receives the original result without repeating the workflow side effect.
 9. An answer for a previous question receives `question_not_current` plus the current question recovery state.
-10. A network reconnect creates a new run from the last confirmed checkpoint without replaying old events.
-11. A backend restart causes a resume attempt to emit `session.expired` rather than returning fabricated or stale state.
-12. A typed weather, delay, budget, duration, fatigue, party, or preference change request retains the existing final plan until a replacement final snapshot is ready.
+10. A network reconnect after one or more accepted answers creates a new run from the latest recovery state, restores the current question/Profile state, and does not replay old events.
+11. A network reconnect before the first accepted answer starts discovery with no recovery state.
+12. A backend restart causes a resume attempt to emit `session.expired` rather than returning fabricated or stale state.
+13. A typed weather, delay, budget, duration, fatigue, party, or preference change request is reserved for the future replanning phase and is rejected by the initial workflow.
+14. A material optimizer tradeoff emits `decision.request` and moves the workflow to `decision_required` instead of silently selecting a plan.
+15. A valid `decision.respond` resumes planning and eventually produces one final plan snapshot; a stale or duplicate response has no additional side effect.
+16. If Agent 3 fails validation after one bounded repair attempt, the server emits a safe `planning.status` message with `status: "failed"` and does not publish a final plan snapshot.

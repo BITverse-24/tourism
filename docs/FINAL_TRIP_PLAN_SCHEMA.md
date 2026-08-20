@@ -85,14 +85,14 @@ Each day is ordered by date or by clearly numbered trip day when dates are flexi
 | `date` | Optional | Calendar date when known. |
 | `place` | Yes | Main city or region for the day. |
 | `theme` | Optional | Short description of the day’s focus. |
-| `items` | Yes | Ordered experiences, meals, rest periods, and movement. |
+| `items` | Yes | Ordered attraction visits, meals, rest periods, and movement. |
 | `daily_notes` | Optional | Practical advice or flexibility guidance. |
 
 Each itinerary item uses the following fields:
 
 | Field | Required | Meaning |
 |---|---|---|
-| `type` | Yes | `experience`, `meal`, `rest`, or `movement`. |
+| `type` | Yes | `experience`, `meal`, `rest`, or `movement`. An `experience` item is the visit approach designed by Agent 2 for a selected attraction; it is not a separate knowledge-base entity. |
 | `title` | Yes | Human-readable item name. |
 | `start_time` | Optional | Local start time when useful or known. |
 | `end_time` | Optional | Local end time when useful or known. |
@@ -112,7 +112,7 @@ Movement must be visible when it affects timing, comfort, budget, or feasibility
 | `currency` | Yes | Currency used for the estimates. |
 | `estimated_total` | Yes | Estimated total for the stated scope. |
 | `scope` | Yes | What the total includes and excludes, especially flights and lodging. |
-| `categories` | Yes | Major categories such as accommodation, transport, food, experiences, and other costs. |
+| `categories` | Yes | Major categories such as accommodation, transport, food, attraction fees, and other costs. |
 | `budget_position` | Yes | `within_target`, `near_target`, `above_target`, or `budget_unknown`. |
 | `caveats` | Yes | Factors that can move the estimate, such as seasonality or unconfirmed prices. |
 

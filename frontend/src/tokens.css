@@ -1,0 +1,24 @@
+:root {
+  --voyager-bone-0: #F7F2E9;
+  --voyager-bone-1: #EEE6D8;
+  --voyager-bone-2: #E1D6C5;
+  --voyager-bone-3: #C9BBA5;
+  --voyager-ink-0: #1B252C;
+  --voyager-ink-1: #263239;
+  --voyager-ink-2: #56636A;
+  --voyager-ink-3: #7D878A;
+  --voyager-light-ink: #F2EBDD;
+  --voyager-brass-1: #B38A55;
+  --voyager-brass-2: #D8C19A;
+  --voyager-brass-3: #86633B;
+  --voyager-clay: #B56F62;
+  --voyager-sage: #708A77;
+  --voyager-radius-sm: 6px;
+  --voyager-radius-md: 12px;
+  --voyager-radius-lg: 18px;
+  --voyager-radius-pill: 999px;
+  --voyager-shadow-card: 0 1px 2px rgba(38, 41, 37, .08), 0 12px 28px rgba(38, 41, 37, .08);
+  --voyager-shadow-float: 0 2px 5px rgba(38, 41, 37, .10), 0 20px 44px rgba(38, 41, 37, .12);
+  --voyager-shadow-night-rail: -12px 0 30px rgba(0, 0, 0, .12);
+  --voyager-focus-ring: 0 0 0 3px rgba(216, 193, 154, .72);
+}

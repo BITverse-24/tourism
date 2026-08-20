@@ -6,7 +6,7 @@
 
 ## Purpose
 
-`Traveler Profile` is the complete, normalized result after the adaptive questions are over. It combines the trip the traveler wants to take with the way they want to experience it.
+`Traveler Profile` is the complete, normalized result after the adaptive questions are over. It combines the trip the traveler wants to take with the way they want to experience it. These preferences guide Agent 2 when it selects city-linked attractions and designs the visit approach; they are not experience records in the knowledge base.
 
 It is not a transcript of questions and answers. It contains the decisions, preferences, constraints, assumptions, and uncertainties that the planning process needs.
 
@@ -97,7 +97,7 @@ Only requirements stated by the traveler or explicitly accepted during discovery
 
 | Field | Required | Meaning |
 |---|---|---|
-| `must_visit` | Yes | Places, experiences, people, or events the plan should include. Use an empty list when none were named. |
+| `must_visit` | Yes | Attractions, places, people, or events the plan should include. A natural-language visit request may be captured here and mapped to an attraction by Agent 2. Use an empty list when none were named. |
 | `avoid` | Yes | Places, activities, situations, or conditions the plan must avoid. Use an empty list when none were named. |
 | `dietary_requirements` | Yes | Dietary requirements or restrictions. Use an empty list when none were named. |
 | `accessibility_requirements` | Yes | Mobility, sensory, medical, or other access requirements. Use an empty list when none were named. |

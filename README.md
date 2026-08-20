@@ -1,184 +1,129 @@
 # Agentic Travel Planner
 
-> **Current contracts:** see [docs/SYSTEM_CONTRACT.md](docs/SYSTEM_CONTRACT.md), [Traveler Profile](docs/TRAVELER_PROFILE_SCHEMA.md), [Final Trip Plan](docs/FINAL_TRIP_PLAN_SCHEMA.md), and [WebSocket Core API](docs/WEBSOCKET_CONTRACT.md).
-
 ## 1. Core Idea
 
 An **agentic, human-centric travel planning system** that plans trips around the traveler rather than merely around the destination.
 
-Traditional AI travel planners primarily perform destination discovery, search, routing, and itinerary generation. Our system instead builds a model of **how the traveler wants to experience the trip** and uses that model to generate, simulate, optimize, and dynamically replan the itinerary.
+Traditional travel planners focus on destination search, routing, and lists of popular attractions. This product builds a model of **how the traveler wants to experience the trip**, then uses that model to generate, simulate, and optimize a personalized itinerary.
 
 The core principle is:
 
 > **Do not optimize only for where the traveler should go. Optimize for how the traveler wants to experience the journey.**
 
-The system considers:
+The system may consider:
 
-* Personality and travel style
-* Trip purpose
-* Budget
-* Energy levels
-* Walking tolerance
-* Food preferences
-* Photography interest
-* Culture interest
-* Nature interest
-* Nightlife interest
-* Crowd tolerance
-* Preferred pace
-* Accommodation preferences
-* Must-visit places
-* Places to avoid
-* Comfort vs exploration preferences
-* Desired spontaneity
-* Regret associated with missing important experiences
+- personality and travel style;
+- trip purpose;
+- budget and comfort;
+- energy levels and walking tolerance;
+- food, photography, culture, nature, nightlife, and shopping;
+- crowd tolerance and preferred pace;
+- accommodation preferences;
+- must-visit places and places to avoid;
+- comfort versus exploration;
+- desired spontaneity; and
+- regret associated with missing important experiences.
 
-The final itinerary is therefore not simply a list of attractions. It is a personalized sequence of experiences optimized for the individual traveler.
+The final itinerary is not simply a list of attractions. It is a personalized sequence of experiences optimized for the individual traveler.
 
----
+## 2. MVP
 
-# 2. MVP
+The initial MVP contains two primary capabilities. Continuous replanning is a planned later capability, not part of the first vertical slice.
 
-The MVP contains **three primary capabilities**.
-
-## Feature 1: Personalized Trip Generation
+### Personalized Trip Generation
 
 The system interactively understands the traveler and generates a personalized itinerary.
 
-### Input
+Inputs include:
 
-* Destination or country
-* Travel dates / duration
-* Budget
-* Number of travelers
-* Trip purpose
-* Preferences
-* Constraints
+- destination or country;
+- travel dates or duration;
+- budget;
+- number of travelers;
+- trip purpose;
+- preferences; and
+- constraints.
 
-The Discovery Agent uses an adaptive questionnaire rather than asking a fixed list of questions.
+Discovery uses an adaptive questionnaire rather than a fixed list of questions. For example:
 
-Example:
+> Estimated budget: ₹1.8L. What matters more?
 
-> Estimated budget: ₹1.8L
-> What matters more?
+- Better hotels
+- Better food
+- More cities
+- More shopping
 
-* Better hotels
-* Better food
-* More cities
-* More shopping
+The next question depends on previous answers. The result is a structured [Traveler Profile](docs/TRAVELER_PROFILE_SCHEMA.md).
 
-The next question depends on previous answers.
+The planner then determines:
 
-The result is a structured **Traveler Profile**.
+- which cities or regions to visit;
+- how many days to allocate to each;
+- how to travel between them;
+- which experiences to include; and
+- how to sequence activities within each day.
 
-The system then determines:
+The result is a complete personalized [Final Trip Plan](docs/FINAL_TRIP_PLAN_SCHEMA.md).
 
-* Which cities/regions to visit
-* How many days to allocate to each
-* How to travel between them
-* Which experiences to include
-* How to sequence activities within each day
+### Simulation and Human-Centric Optimization
 
-The result is a complete personalized itinerary.
+The generated itinerary is not accepted immediately. It is evaluated using the traveler’s profile for:
 
----
+- preference alignment;
+- fatigue and walking load;
+- schedule feasibility and travel time;
+- budget;
+- crowd exposure;
+- weather and closure risk;
+- transfer complexity;
+- experience quality;
+- regret risk; and
+- overall comfort.
 
-# Feature 2: Simulation + Human-Centric Optimization
-
-The generated itinerary is not accepted immediately.
-
-The system simulates the trip using the traveler's profile and evaluates the itinerary for:
-
-* Preference alignment
-* Fatigue
-* Walking load
-* Schedule feasibility
-* Travel time
-* Budget
-* Crowd exposure
-* Weather risk
-* Transfer complexity
-* Experience quality
-* Regret risk
-* Overall comfort
-
-The system identifies weaknesses and automatically optimizes the itinerary.
+The planner identifies weaknesses and improves the itinerary through explicit tradeoffs.
 
 Example:
 
 ### Before optimization
 
-* Walking: 14.2 km/day
-* Preference fit: 78/100
-* Fatigue risk: High
-* Budget: ₹1.87L
-* Regret risk: 18%
+- Walking: 14.2 km/day
+- Preference fit: 78/100
+- Fatigue risk: High
+- Budget: ₹1.87L
+- Regret risk: 18%
 
 ### After optimization
 
-* Walking: 8.1 km/day
-* Preference fit: 87/100
-* Fatigue risk: Low
-* Budget: ₹1.82L
-* Regret risk: 11%
+- Walking: 8.1 km/day
+- Preference fit: 87/100
+- Fatigue risk: Low
+- Budget: ₹1.82L
+- Regret risk: 11%
 
-The optimizer should make explicit tradeoffs rather than simply rejecting an itinerary.
-
-For example:
+Example tradeoff:
 
 > Replacing the central hotel with one 10 minutes farther from the station saves ₹12,000 but increases daily transit by 35 minutes.
 
-The system can decide whether that tradeoff is worthwhile based on the traveler's priorities.
+The value of that tradeoff depends on the traveler’s priorities rather than on a universal ranking.
 
----
+### Future capability: Continuous Replanning
 
-# Feature 3: Dynamic Replanning
+Later versions may adapt an itinerary after conditions change, such as:
 
-The itinerary remains adaptable after generation.
+- a delayed flight;
+- heavy rain;
+- an attraction closure;
+- a reduced or increased budget;
+- traveler fatigue;
+- a shortened trip;
+- an additional traveler; or
+- a changed activity preference.
 
-The user can introduce a changed condition such as:
+A future replanning flow should identify affected parts of the itinerary, find alternatives, reevaluate logistics and cost, simulate the revised plan, and preserve unaffected high-value experiences. It should reuse the initial planning workflow rather than introduce a second planning authority.
 
-* Flight delayed
-* Heavy rain
-* Attraction closed
-* Budget reduced
-* Budget increased
-* User becomes tired
-* Trip shortened by one day
-* Additional traveler added
-* User wants more/less activity
+## 3. Destination Model
 
-The system identifies affected portions of the itinerary and replans while preserving the traveler's overall objectives.
-
-Example:
-
-> Heavy rain expected tomorrow.
-
-The system:
-
-1. Identifies outdoor activities affected by rain.
-2. Calculates which activities can be moved.
-3. Finds suitable alternatives from the Experience Knowledge Base.
-4. Recalculates logistics and cost.
-5. Simulates the revised itinerary.
-6. Optimizes it.
-7. Presents the updated plan and explains the changes.
-
-The same replanning engine powers "What If?" scenarios such as:
-
-> What if my budget decreases by 20%?
-
-or:
-
-> What if I lose one day?
-
----
-
-# 3. Destination Model
-
-The planner must support both **city-based** and **country-based** trip requests.
-
-The underlying knowledge base should therefore be hierarchical.
+The planner supports both **city-based** and **country-based** trip requests. Destination knowledge is hierarchical, with attractions linked to their city by `city_id`:
 
 ```text
 Country
@@ -189,10 +134,10 @@ City
     ↓
 Neighborhood
     ↓
-Experience / Activity / Restaurant / Attraction
+Attraction (`city_id` → City)
 ```
 
-For country-level planning, the system first performs **trip-level optimization**:
+For a country-level request, the product first makes trip-level decisions:
 
 ```text
 Japan
@@ -203,115 +148,77 @@ Osaka: 2 days
 Hiroshima: 1 day
 ```
 
-It then performs **city-level optimization**:
+It then makes city-level decisions:
 
 ```text
 Kyoto
     ↓
 Day 1
     ↓
-Experiences
+Selected attractions
     ↓
-Activities
+Agent 2 visit design
     ↓
-Optimal sequence
+Daily sequence
 ```
 
-Therefore, the system operates at two levels:
+### Trip-level planning
 
-### Trip-level optimization
+Trip-level planning determines:
 
-Determines:
+- which cities to visit;
+- number of days per city;
+- city ordering;
+- inter-city transportation;
+- hotel changes;
+- regional clustering; and
+- budget allocation.
 
-* Which cities to visit
-* Number of days per city
-* City ordering
-* Inter-city transportation
-* Hotel changes
-* Regional clustering
-* Budget allocation
+### City-level planning
 
-### City-level optimization
+City-level planning determines:
 
-Determines:
+- attractions to consider and how Agent 2 should frame each visit;
+- meals when required by the itinerary;
+- timing;
+- activity sequence;
+- walking load;
+- rest periods;
+- crowd exposure; and
+- local transportation.
 
-* Experiences
-* Attractions
-* Restaurants
-* Timing
-* Activity sequence
-* Walking load
-* Rest periods
-* Crowd exposure
-* Local transportation
+## 4. City and Attraction Knowledge
 
----
+The MVP uses a structured **City Knowledge Base** and **Attraction Knowledge Base** rather than relying entirely on an LLM’s latent knowledge. The attraction dataset is the only place-focused knowledge base for places to visit; it is mapped to the city dataset through `city_id`.
 
-# 4. Experience Knowledge Base
+The City Knowledge Base contains destination identity and geography. The Attraction Knowledge Base contains the canonical places that Agent 2 may select. An attraction is a real-world place, not a pre-authored experience or itinerary activity.
 
-The MVP should maintain a structured **Experience Knowledge Base** rather than relying entirely on an LLM's latent knowledge.
+Agent 2 (the Candidate Design Agent) decides which attractions fit the traveler and how each selected attraction should be experienced: timing, duration, visit framing, sequencing, pace, and nearby activity context. Those visit decisions are generated during planning and are not stored as separate experience records.
 
-The database contains:
+### Attraction record
 
-* Countries
-* Regions
-* Cities
-* Neighborhoods
-* Attractions
-* Restaurants
-* Activities
-* Experiences
-* Transportation connections
-* Relevant metadata
-
-The atomic unit should preferably be an **experience**, not merely an attraction.
-
-For example:
-
-Instead of only:
-
-> Fushimi Inari Shrine
-
-the database can contain:
-
-> Sunrise photography at Fushimi Inari
-
-These can have different attributes despite sharing the same physical location.
-
----
-
-## Experience Schema
-
-Each experience should contain structured fields such as:
+An attraction record should support structured fields such as:
 
 ```json
 {
-  "id": "fushimi_inari_sunrise",
-  "name": "Sunrise Photography at Fushimi Inari",
+  "attraction_id": "attraction_fushimi_inari",
+  "city_id": "city_kyoto",
+  "name": "Fushimi Inari Shrine",
   "country": "Japan",
   "region": "Kansai",
   "city": "Kyoto",
   "neighborhood": "Fushimi",
-
   "location": {
     "latitude": 34.9671,
     "longitude": 135.7727
   },
-
-  "categories": [
-    "culture",
-    "photography",
-    "nature"
-  ],
-
-  "duration_hours": 2.0,
+  "categories": ["culture", "photography", "nature"],
+  "typical_visit_duration_hours": 2.0,
   "estimated_cost": 0,
-
   "opening_hours": {
     "open": "06:00",
     "close": "18:00"
   },
-
   "preference_scores": {
     "photography": 0.98,
     "culture": 0.90,
@@ -320,47 +227,34 @@ Each experience should contain structured fields such as:
     "nightlife": 0.00,
     "shopping": 0.00
   },
-
-  "experience_attributes": {
+  "attraction_attributes": {
     "authenticity": 0.75,
     "uniqueness": 0.85,
-    "regret_score": 0.90,
     "crowd_level": 0.20,
     "walking_intensity": 0.80,
     "comfort": 0.55
   },
-
-  "best_times": [
-    "06:00-08:00"
-  ],
-
+  "best_times": ["06:00-08:00"],
   "weather_suitability": {
     "clear": 1.0,
     "cloudy": 0.9,
     "rain": 0.2
   },
-
-  "accessibility": 0.40
+  "accessibility": 0.40,
+  "source": "curated",
+  "observed_at": "2026-08-19T00:00:00Z",
+  "fresh_until": "2026-11-19T00:00:00Z",
+  "confidence": 0.90
 }
 ```
 
-The exact schema should be refined during implementation.
+The exact City and Attraction Knowledge Base schemas are separate data contracts and should be refined during implementation. The important boundary is that the attraction record is keyed by `attraction_id`, linked to exactly one `city_id`, and contains facts about the place; Agent 2 owns the generated visit experience.
 
----
+## 5. Knowledge Base Layers
 
-# 5. Knowledge Base Layers
+### Geography
 
-## Layer 1: Geography
-
-Contains:
-
-* Country
-* Region
-* City
-* Neighborhood
-* Coordinates
-
-Example:
+Contains country, region, city, neighborhood, and coordinate relationships.
 
 ```text
 Japan
@@ -375,33 +269,29 @@ Japan
       └── Osaka
 ```
 
----
+### Cities
 
-## Layer 2: Experiences
+Contains canonical city records, geography, region and country relationships, and the `city_id` values used by attraction records.
 
-Contains:
+### Attractions
 
-* Attractions
-* Activities
-* Restaurants
-* Cultural experiences
-* Scenic locations
-* Photography locations
-* Nightlife
-* Shopping
-* Nature
-* Hidden gems
-* Local experiences
+Contains canonical attractions linked to a city with `city_id`. Records expose facts that support traveler-fit scoring and planning constraints, such as categories, location, typical duration, access, opening hours, cost, weather suitability, crowd level, walking intensity, and provenance.
 
-Each item has structured attributes that agents can score and optimize.
+The knowledge base does not contain separate records for “sunrise photography at Fushimi Inari,” “a relaxed visit to Fushimi Inari,” or other experience variants. Agent 2 creates those visit approaches from the attraction facts and Traveler Profile.
 
----
+### Connections
 
-## Layer 3: Connections
+Contains movement options at multiple levels:
 
-Contains inter-location transportation.
+```text
+Hotel → Attraction
+Neighborhood → Neighborhood
+City → City
+City → Airport
+Airport → Hotel
+```
 
-Example:
+For example:
 
 ```text
 Tokyo → Kyoto
@@ -418,448 +308,97 @@ Tokyo → Kyoto
     Comfort: ...
 ```
 
-Connections can exist at multiple levels:
+## 6. Data Sources
+
+The City and Attraction Knowledge Bases may be constructed from:
+
+- public datasets;
+- maps and places APIs;
+- tourism datasets;
+- transportation APIs;
+- weather APIs;
+- web research;
+- curated information; and
+- LLM-assisted data enrichment.
+
+LLMs may help convert unstructured information into standardized city or attraction records, but important structured attributes must be validated rather than regenerated arbitrarily for every traveler. LLMs may generate visit approaches during planning, but those approaches are not added to the knowledge base.
+
+Curated knowledge is primary for the MVP. External maps, places, weather, and transport APIs are secondary data facts and should carry `source`, `observed_at`, `fresh_until`, and `confidence`. Stale data is acceptable only when hard feasibility remains verifiable.
+
+The MVP does not need worldwide coverage. A limited number of well-covered destinations is preferable to shallow global coverage.
+
+## 7. Product Experience Flow
+
+The product experience has four user-visible steps:
+
+1. **Understand the traveler** — capture trip context, priorities, preferences, constraints, and unknowns.
+2. **Shape the trip** — select attractions and form a personalized route and daily visit plan from the Traveler Profile and city-linked attraction knowledge. Agent 2 decides how the traveler should experience each selected attraction.
+3. **Test and improve the plan** — evaluate feasibility, cost, fatigue, comfort, risk, and preference fit, then expose important tradeoffs.
+4. **Explain the result** — present a complete Final Trip Plan with daily activities, movement, costs, fit explanations, assumptions, warnings, and unresolved details.
 
 ```text
-Hotel → Attraction
-Neighborhood → Neighborhood
-City → City
-City → Airport
-Airport → Hotel
-```
-
----
-
-# 6. Data Sources
-
-The Experience Knowledge Base can be constructed using a combination of:
-
-* Public datasets
-* Maps / places APIs
-* Tourism datasets
-* Transportation APIs
-* Weather APIs
-* Web research
-* Curated information
-* LLM-assisted data enrichment
-
-LLMs can help convert unstructured information into the standardized schema, but important structured attributes should be validated rather than regenerated arbitrarily for every user.
-
-The MVP does not need worldwide coverage.
-
-A limited number of well-covered destinations is preferable to shallow global coverage.
-
-> **Implementation (D2, Final — 2026-08-13):** Curated Experience Knowledge Base is primary (Aishwarya); external maps/places/weather/transport APIs are secondary `data_facts` with `source`/`observed_at`/`fresh_until`/`confidence`. Stale allowed only when hard feasibility remains verifiable.
-
----
-
-# 7. Ten-Agent Architecture
-
-The MVP retains the **10-agent architecture**, but the agents are logical specialized components rather than ten completely independent products.
-
-> **Architecture boundary:** The 10 agents are logical modules in the planning workflow. Detailed orchestration and runtime contracts are deferred while the core product contracts are being finalized. The management orchestrator under `mgmt/orchestrator/` remains a separate Python, recommendation-only GitHub Issues analyzer.
-
-## Agent 1: Discovery Agent
-
-The interviewer.
-
-Responsibilities:
-
-* Understand traveler personality
-* Infer travel style
-* Identify trip purpose
-* Run adaptive questionnaire
-* Identify preferences
-* Identify soft constraints
-* Build Traveler Profile
-
-Output:
-
-```text
+Traveler conversation
+        ↓
 Traveler Profile
+        ↓
+Personalized candidate plans
+        ↓
+Feasibility, cost, simulation, and optimization
+        ↓
+Final Trip Plan
 ```
 
----
-
-## Agent 2: Constraint & Preference Agent
-
-The rule keeper and source of truth.
-
-Maintains:
-
-### Hard constraints
-
-* Budget ceiling
-* Travel dates
-* Duration
-* Dietary restrictions
-* Accessibility requirements
-* Must-visit locations
-* Places to avoid
-* Accommodation requirements
-* Maximum travel time
-* Maximum hotel changes
-
-### Soft preferences
-
-* Food
-* Photography
-* Culture
-* Nature
-* Nightlife
-* Shopping
-* Crowds
-* Walking
-* Comfort
-* Spontaneity
-* Exploration
-
-Every other agent receives the relevant constraints and preferences.
-
----
-
-## Agent 3: Experience Designer Agent
-
-Determines what the traveler should actually experience.
-
-Responsibilities:
-
-* Generate candidate experiences
-* Select attractions
-* Find restaurants
-* Find hidden gems
-* Find scenic locations
-* Find cultural experiences
-* Find seasonal experiences
-* Find photography opportunities
-* Rank experiences according to traveler preferences
-
-It should use the Experience Knowledge Base rather than relying entirely on free-form LLM generation.
-
----
-
-## Agent 4: Mobility & Logistics Agent
-
-Determines whether the proposed itinerary is physically and temporally feasible.
-
-Responsibilities:
-
-* Walking
-* Public transportation
-* Trains
-* Buses
-* Flights
-* Taxis
-* Ferries
-* Transfers
-* Travel times
-* Check-in/check-out
-* Opening hours
-* Geographic clustering
-* Inter-city travel
-
-This agent should rely heavily on deterministic calculations and external APIs rather than LLM reasoning alone.
-
----
-
-## Agent 5: Cost Optimization Agent
-
-Keeps the trip financially realistic.
-
-Responsibilities:
-
-* Accommodation costs
-* Transportation costs
-* Food costs
-* Activity costs
-* Miscellaneous costs
-* Budget allocation
-* Cost forecasting
-* Cost reduction
-* Tradeoff analysis
-
-Instead of simply rejecting an over-budget itinerary, it should propose alternatives.
-
-Example:
-
-```text
-Current cost: ₹1,92,000
-
-Cheaper hotel:
--₹14,000
-Preference impact: -3
-
-Cheaper transport:
--₹7,000
-Preference impact: -1
-
-Remove Osaka day:
--₹27,000
-Preference impact: -14
-```
-
----
-
-## Agent 6: Local Intelligence Agent
-
-Provides destination-specific context.
-
-Responsibilities:
-
-* Local customs
-* Etiquette
-* Cultural awareness
-* Payment methods
-* Scams
-* Safety considerations
-* Local food
-* Useful phrases
-* Local recommendations
-* Cultural context
-
-For MVP, this should remain an enrichment layer rather than becoming a separate conversational travel assistant.
-
----
-
-## Agent 7: Simulation & Risk Agent
-
-Simulates the proposed trip before finalization.
-
-Responsibilities:
-
-* Fatigue
-* Walking load
-* Energy levels
-* Crowd exposure
-* Weather risk
-* Schedule feasibility
-* Delays
-* Closure risk
-* Budget risk
-* Transfer complexity
-* Overall experience quality
-
-The system maintains a structured traveler state, for example:
-
-```json
-{
-  "energy": 0.72,
-  "fatigue": 0.31,
-  "walking_tolerance": 0.35,
-  "crowd_tolerance": 0.20,
-  "food_interest": 0.91,
-  "photography_interest": 0.88
-}
-```
-
-Activities modify this state during simulation.
-
----
-
-## Agent 8: Optimization Agent
-
-The master decision-maker.
-
-Other agents generate proposals, evaluations, constraints, and alternatives.
-
-The Optimization Agent determines the best overall itinerary.
-
-It balances:
-
-* Preference satisfaction
-* Experience quality
-* Comfort
-* Feasibility
-* Cost
-* Fatigue
-* Regret
-* Authenticity
-* Logistics
-
-Conceptually:
-
-```text
-Candidate Experiences
-        ↓
-Mobility Evaluation
-        ↓
-Cost Evaluation
-        ↓
-Simulation
-        ↓
-Optimization
-        ↓
-Final Itinerary
-```
-
-The optimization should use a structured scoring/objective system rather than asking an LLM to arbitrarily decide which itinerary "feels best."
-
----
-
-## Agent 9: Narrative & Explanation Agent
-
-Converts the structured optimized itinerary into a human-readable plan.
-
-Responsibilities:
-
-* Daily itinerary writing
-* Experience descriptions
-* Decision explanations
-* Tradeoff explanations
-* "Why this hotel?"
-* "Why this activity?"
-* "Why was this removed?"
-* Summarize optimization decisions
-
-Example:
-
-> This hotel costs ₹2,800 more per night, but reduces average daily transit by 46 minutes and places you closer to your preferred photography districts.
-
----
-
-## Agent 10: Continuous Replanning Agent
-
-Handles changes after the initial itinerary has been created.
-
-Triggers:
-
-* Flight delay
-* Weather change
-* Attraction closure
-* Budget change
-* Trip duration change
-* User fatigue
-* User preference change
-* Additional traveler
-* Removed traveler
-
-Process:
-
-```text
-Existing Itinerary
-        ↓
-Changed Condition
-        ↓
-Identify Affected Components
-        ↓
-Generate Alternatives
-        ↓
-Mobility / Cost Evaluation
-        ↓
-Simulation
-        ↓
-Optimization
-        ↓
-Updated Itinerary
-```
-
-The replanner should preserve high-value experiences and avoid unnecessary changes to unaffected parts of the trip.
-
----
-
-# 8. Core System Flow
-
-```text
-USER
-  ↓
-DISCOVERY AGENT
-  ↓
-TRAVELER PROFILE
-  ↓
-CONSTRAINT & PREFERENCE AGENT
-  ↓
-DESTINATION / COUNTRY PLANNING
-  ↓
-CITY ALLOCATION
-  ↓
-EXPERIENCE DESIGNER
-  ↓
-MOBILITY + COST + LOCAL INTELLIGENCE
-  ↓
-CANDIDATE ITINERARY
-  ↓
-SIMULATION & RISK
-  ↓
-OPTIMIZATION
-  ↓
-NARRATIVE & EXPLANATION
-  ↓
-FINAL PERSONALIZED ITINERARY
-```
-
-For changes:
-
-```text
-FINAL ITINERARY
-      ↓
-NEW CONDITION
-      ↓
-CONTINUOUS REPLANNING AGENT
-      ↓
-AFFECTED ACTIVITIES
-      ↓
-ALTERNATIVES
-      ↓
-SIMULATION
-      ↓
-OPTIMIZATION
-      ↓
-UPDATED ITINERARY
-```
-
----
-
-# 9. Core Philosophy
+## 8. Core Philosophy
 
 The system should optimize for:
 
-> **The quality of the traveler's experience, not simply the number of places visited.**
+> **The quality of the traveler’s experience, not simply the number of places visited.**
 
 The planner should answer:
 
-> "Given this particular traveler, their constraints, their preferences, their energy, their budget, and the current conditions, what itinerary maximizes the value of this trip?"
+> Given this traveler, their constraints, preferences, energy, budget, and current conditions, what itinerary maximizes the value of the trip?
 
-rather than:
+It should not merely answer:
 
-> "What are the most popular attractions in this destination?"
+> What are the most popular attractions in this destination?
 
-The final goal is for two people visiting the same destination with the same budget and duration to potentially receive substantially different itineraries because their **Traveler Profiles and optimization objectives are different**.
+Two people visiting the same destination with the same budget and duration should be able to receive substantially different itineraries because their Traveler Profiles and priorities differ.
 
----
+## 9. Explicitly Out of MVP Scope
 
-# 10. Explicitly Out of MVP Scope
+The following are not initial MVP features:
 
-The following are not independent MVP features:
+- travel movie or cinematic preview;
+- smart packing list;
+- full conversational Local Guide;
+- full language-learning assistant;
+- booking system;
+- payment processing;
+- social travel network;
+- hotel booking platform;
+- flight booking platform;
+- comprehensive worldwide destination coverage;
+- fully autonomous interaction with every external travel service; and
+- continuous replanning.
 
-* Travel Movie / cinematic preview
-* Smart packing list
-* Full conversational Local Guide
-* Full language-learning assistant
-* Booking system
-* Payment processing
-* Social travel network
-* Hotel booking platform
-* Flight booking platform
-* Comprehensive worldwide destination coverage
-* Fully autonomous interaction with every external travel service
-
-They may be added later, but the MVP is centered on:
+The initial MVP is centered on:
 
 1. **Personalized Trip Generation**
 2. **Simulation + Human-Centric Optimization**
-3. **Dynamic Replanning**
 
-with the **10-agent architecture** operating underneath these three capabilities.
+Continuous replanning is a future capability that should reuse the same planning pipeline.
 
----
+## 10. Documentation Map
 
-# 11. Current Documentation Contracts
+This README is the detailed product overview. Architecture, workflow contracts, and project-management material live in the documentation set:
 
-The active implementation guidance is intentionally narrow while the product foundation is being built:
+- [Traveler Profile](docs/TRAVELER_PROFILE_SCHEMA.md) — normalized planning input.
+- [Final Trip Plan](docs/FINAL_TRIP_PLAN_SCHEMA.md) — user-facing planning result.
+- [WebSocket Core API](docs/WEBSOCKET_CONTRACT.md) — frontend/backend transport and workflow behavior.
+- [Three-Agent, Ten-Stage Architecture](docs/AGENT_ARCHITECTURE.md) — actual runtime agents, logical stages, deterministic services, and orchestration.
+- [System Contract](docs/SYSTEM_CONTRACT.md) — product boundaries and phased contract authority.
+- [Documentation Index](docs/README.md) — canonical product and workflow documents.
+- [Project Knowledge](mgmt/knowledge/project.md) — objectives, priorities, milestones, and project scope.
+- [Team Responsibilities](TEAM.md) — ownership and collaboration responsibilities.
 
-- **Planning input:** [Traveler Profile](docs/TRAVELER_PROFILE_SCHEMA.md), the normalized result after discovery.
-- **Planning output:** [Final Trip Plan](docs/FINAL_TRIP_PLAN_SCHEMA.md), the user-facing itinerary and explanation.
-- **Frontend/backend transport:** [WebSocket Core API](docs/WEBSOCKET_CONTRACT.md), the command and event contract for discovery, planning, and replanning.
-- **Architecture boundary:** [docs/SYSTEM_CONTRACT.md](docs/SYSTEM_CONTRACT.md), which defines the transformation from discovery to final plan and the later documentation phases.
-
-Runtime, persistence, public API, deployment, provider selection, agent interfaces, and exact optimization weights remain separate implementation decisions until adopted in the active contract set.
+The separate [management orchestrator](mgmt/orchestrator/README.md) analyzes project work and does not execute the travel-planning runtime.
