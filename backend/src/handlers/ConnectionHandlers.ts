@@ -1,7 +1,7 @@
 import { Socket, Server } from 'socket.io';
 import { logger } from '../modules/logger';
 import { runEvents } from '../events/RunEvents';
-import { profileEvents } from '../events/PlanningEvents';
+import { profileEvents } from '../events/ProfileEvents';
 import { decisionEvents } from '../events/DecisionEvents';
 import { discoveryEvents } from '../events/DiscoveryEvents';
 import { replanEvents } from '../events/ReplanEvents';

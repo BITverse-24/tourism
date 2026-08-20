@@ -6,7 +6,7 @@ import { discoveryAnswerService } from '../services/DiscoveryServices';
 import { checkBaseCommandRejections } from './BaseValidation';
 import { AckMessage } from '../structures/AckMessage';
 import { buildAckMsg } from '../factory/Ack';
-import { currentWorkflowState, getNextSequence } from '../services/StateServices';
+import { currentWorkflowState, nextSequence } from '../services/StateServices';
 import { ServiceResult } from '../structures/types';
 
 export async function discoveryAnswerHandler(socket: Socket, data: DiscoveryAnswerMessage) {
@@ -20,7 +20,7 @@ export async function discoveryAnswerHandler(socket: Socket, data: DiscoveryAnsw
 
     const ackmsg: AckMessage = buildAckMsg(
         data,
-        await getNextSequence(data.run_id),
+        await nextSequence(data.run_id),
         true,
         await currentWorkflowState(data.session_id),
         false,

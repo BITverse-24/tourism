@@ -1,9 +1,10 @@
+import { getNextSequence, getWorkflowState } from "../models/data";
 import { WorkflowStates } from "../structures/enums";
 
 export async function currentWorkflowState(session_id: string): Promise<WorkflowStates> {
-    return WorkflowStates.DISCOVERY;
+    return getWorkflowState(session_id);
 }
 
-export async function getNextSequence(run_id: string): Promise<number> {
-    return -1;
+export async function nextSequence(run_id: string): Promise<number> {
+    return getNextSequence(run_id)
 }

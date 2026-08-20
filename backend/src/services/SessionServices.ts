@@ -8,7 +8,7 @@ import { ProfileSnapshotMessage, SessionReadyMessage } from "../structures/Event
 import { NewSessionMessage, NewSessionMessageSchema } from "../structures/NewSessionMessage";
 import { ServiceResult } from "../structures/types";
 import { discoveryAnswerService, newDiscoveryQuestionService } from "./DiscoveryServices";
-import { getNextSequence } from "./StateServices";
+import { nextSequence } from "./StateServices";
 
 export async function sessionStartService(
     data: SessionStartMessage | NewSessionMessage,
@@ -26,7 +26,7 @@ export async function sessionStartService(
             run_id: newRunId,
             command_id: data.command_id,
             occurred_at: new Date().toISOString(),
-            sequence: await getNextSequence(newSessionId),
+            sequence: await nextSequence(newSessionId),
             payload:{
                 session_id: newSessionId,
                 run_id: newRunId,
@@ -62,7 +62,7 @@ export async function sessionStartService(
                 run_id: newRunId,
                 command_id: data.command_id,
                 occurred_at: new Date().toISOString(),
-                sequence: await getNextSequence(data.session_id),
+                sequence: await nextSequence(data.session_id),
                 payload: {
                     session_id: data.session_id,
                     run_id: newRunId,
@@ -80,7 +80,7 @@ export async function sessionStartService(
                     run_id: newRunId,
                     command_id: data.command_id,
                     occurred_at: new Date().toISOString(),
-                    sequence: await getNextSequence(data.session_id),
+                    sequence: await nextSequence(data.session_id),
                     payload: snapshot
                 })
                 res.push({ event: Events.PROFILE_SNAPSHOT, data: profSnapMsg })
@@ -109,7 +109,7 @@ export async function sessionStartService(
                 run_id: newRunId,
                 command_id: data.command_id,
                 occurred_at: new Date().toISOString(),
-                sequence: await getNextSequence(data.session_id),
+                sequence: await nextSequence(data.session_id),
                 payload: {
                     session_id: data.session_id,
                     run_id: newRunId,

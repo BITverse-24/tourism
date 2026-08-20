@@ -6,7 +6,7 @@ import { Acks } from '../structures/enums';
 import { checkBaseCommandRejections } from './BaseValidation';
 import { buildAckMsg } from '../factory/Ack';
 import { AckMessage } from '../structures/AckMessage';
-import { currentWorkflowState, getNextSequence } from '../services/StateServices';
+import { currentWorkflowState, nextSequence } from '../services/StateServices';
 import { ServiceResult } from '../structures/types';
 
 export async function profileConfirmHandler(socket: Socket, data: ProfileConfirmMessage) {
@@ -22,7 +22,7 @@ export async function profileConfirmHandler(socket: Socket, data: ProfileConfirm
 
     const ackmsg: AckMessage = buildAckMsg(
         data,
-        await getNextSequence(data.run_id),
+        await nextSequence(data.run_id),
         true,
         await currentWorkflowState(data.session_id),
         false,
@@ -45,7 +45,7 @@ export async function profileRequestChangesHandler(
 
     const ackmsg: AckMessage = buildAckMsg(
         data,
-        await getNextSequence(data.run_id),
+        await nextSequence(data.run_id),
         true,
         await currentWorkflowState(data.session_id),
         false,

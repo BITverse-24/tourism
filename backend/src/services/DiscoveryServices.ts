@@ -6,7 +6,7 @@ import { Events, ProfileSnapshotStates, WorkflowStates } from "../structures/enu
 import { DiscoveryQuestionMessage, ProfileSnapshotMessage } from "../structures/EventMessage";
 import { generateUUID } from "../modules/util";
 import { createDiscoveryQuestionMessage, createProfileSnapshotMessage } from "../factory/Event";
-import { getNextSequence } from "./StateServices";
+import { nextSequence } from "./StateServices";
 
 export async function discoveryAnswerService(
     data: DiscoveryAnswerMessage
@@ -46,7 +46,7 @@ export async function discoveryAnswerService(
                 run_id: data.run_id,
                 command_id: data.command_id,
                 occurred_at: new Date().toISOString(),
-                sequence: await getNextSequence(data.session_id),
+                sequence: await nextSequence(data.session_id),
                 payload: discoveryRes.next_question
             })
         res.push({event: Events.DISCOVERY_QUESTION, data: discoveryQuestionMsg})
@@ -80,7 +80,7 @@ export async function discoveryAnswerService(
         run_id: data.run_id,
         command_id: data.command_id,
         occurred_at: new Date().toISOString(),
-        sequence: await getNextSequence(data.session_id),
+        sequence: await nextSequence(data.session_id),
         payload: snapshot
     })
     res.push({ event: Events.PROFILE_SNAPSHOT, data: profSnapMsg })
@@ -120,7 +120,7 @@ export async function newDiscoveryQuestionService(
                 run_id: run_id,
                 command_id: command_id,
                 occurred_at: new Date().toISOString(),
-                sequence: await getNextSequence(session_id),
+                sequence: await nextSequence(session_id),
                 payload: discoveryRes.next_question
             })
         res.push({event: Events.DISCOVERY_QUESTION, data: discoveryQuestionMsg})
@@ -154,7 +154,7 @@ export async function newDiscoveryQuestionService(
         run_id: run_id,
         command_id: command_id,
         occurred_at: new Date().toISOString(),
-        sequence: await getNextSequence(session_id),
+        sequence: await nextSequence(session_id),
         payload: snapshot
     })
     res.push({ event: Events.PROFILE_SNAPSHOT, data: profSnapMsg })

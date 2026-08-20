@@ -1,7 +1,6 @@
 import { Router, type Request, type Response } from 'express';
 import type { AppConfig } from './config';
 import { NotFoundError } from './errors';
-import type User from '../structures/User';
 
 interface CreateRouterOptions {
   config: AppConfig;

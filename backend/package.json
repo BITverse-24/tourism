@@ -14,6 +14,7 @@
         "dev": "nodemon --watc \"src/**\" --ext \"ts\" --exec \"npx tsx src/index.ts\""
     },
     "dependencies": {
+        "@google/genai": "^2.18.0",
         "compression": "^1.8.1",
         "cors": "^2.8.6",
         "dotenv": "^17.4.2",

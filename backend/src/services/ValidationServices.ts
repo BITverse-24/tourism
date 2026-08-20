@@ -5,7 +5,7 @@ import { CommandRejectedMessage } from "../structures/AckMessage";
 import { isValidCommandType } from "../modules/util";
 import { buildAckMsg } from "../factory/Ack";
 import { getValidSessionIds } from "../models/data";
-import { currentWorkflowState, getNextSequence } from "./StateServices";
+import { currentWorkflowState, nextSequence } from "./StateServices";
 import { SessionStartSchema } from "../structures/CommandMessage";
 import { logger } from "../modules/logger";
 
@@ -120,10 +120,10 @@ Promise<{
     validSessions: string[] 
 }> {
 
-    const validSessionIds: string[] = await getValidSessionIds()
-    const ret = { valid: true, validSessions: validSessionIds }
+    const validSessionIds: Set<string> = await getValidSessionIds()
+    const ret = { valid: true, validSessions: [...validSessionIds] }
 
-    if (!validSessionIds.includes(session_id))
+    if (!validSessionIds.has(session_id))
         ret.valid = false;
 
     return ret;

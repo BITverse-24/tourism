@@ -1,8 +1,5 @@
 import mongoose from 'mongoose';
 import { logger, serializeError } from '../modules/logger';
-import Users from '../schemas/UserSchema';
-import User from '../structures/User';
-import type { RawUserData } from '../structures/types';
 import type { AppConfig } from './config';
 
 class Database {

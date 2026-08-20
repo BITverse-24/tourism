@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 import { config as loadEnv } from "dotenv";
 import { GoogleGenAI } from "@google/genai";
 import * as z from "zod";
-import { DiscoveryAnsSelectionModes, DiscoveryFreeTextModes } from "../backend/src/structures/enums";
+import { DiscoveryAnsSelectionModes, DiscoveryFreeTextModes } from "../backend/src/structures/enums.js";
 
 loadEnv({ path: resolve(dirname(fileURLToPath(import.meta.url)), ".env") });
 

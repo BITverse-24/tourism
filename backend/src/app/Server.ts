@@ -5,7 +5,6 @@ import { loadConfig, type AppConfig } from './config';
 import Database from './database';
 import { createExpressApp } from './express';
 import { logger, serializeError } from '../modules/logger';
-import User from '../structures/User';
 import { createWebsocket } from './socketio';
 
 class Server {

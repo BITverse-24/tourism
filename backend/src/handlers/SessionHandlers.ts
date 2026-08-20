@@ -4,7 +4,7 @@ import { SessionCloseMessage, SessionStartMessage, SessionStartSchema } from '..
 import { Acks } from '../structures/enums';
 import { sessionCloseService, sessionStartService } from '../services/SessionServices';
 import { ServiceResult } from '../structures/types';
-import { currentWorkflowState, getNextSequence } from '../services/StateServices';
+import { currentWorkflowState, nextSequence } from '../services/StateServices';
 import { AckMessage } from '../structures/AckMessage';
 import { buildAckMsg } from '../factory/Ack';
 import { checkBaseCommandRejections } from './BaseValidation';
@@ -20,7 +20,7 @@ export async function sessionStartHandler(socket: Socket, data: SessionStartMess
     
     const ackmsg: AckMessage = buildAckMsg(
         data,
-        await getNextSequence(),
+        await nextSequence(data.run_id),
         true,
         await currentWorkflowState(data.session_id),
         false,
@@ -40,7 +40,7 @@ export async function sessionCloseHandler(socket: Socket, data: SessionCloseMess
 
     const ackmsg: AckMessage = buildAckMsg(
         data,
-        await getNextSequence(data.run_id),
+        await nextSequence(data.run_id),
         true,
         await currentWorkflowState(data.session_id),
         false,

@@ -6,7 +6,6 @@ import type { AppConfig } from './config';
 import { errorMiddleware } from './errors';
 import { createRouter } from './router';
 import { buildCorsOptions, createRateLimiter } from '../modules/util';
-import type User from '../structures/User';
 
 interface CreateExpressOptions {
   config: AppConfig;

@@ -6,7 +6,7 @@ import { Events, ProfileSnapshotStates, WorkflowStates } from "../structures/enu
 import { ProfileSnapshotMessage } from "../structures/EventMessage";
 import { CheckpointType, ProfileSnapshot, ServiceResult } from "../structures/types";
 import { newDiscoveryQuestionService } from "./DiscoveryServices";
-import { getNextSequence } from "./StateServices";
+import { nextSequence } from "./StateServices";
 
 export async function profileConfirmService(
     data: ProfileConfirmMessage
@@ -34,7 +34,7 @@ export async function profileConfirmService(
         run_id: data.run_id,
         command_id: data.command_id,
         occurred_at: new Date().toISOString(),
-        sequence: await getNextSequence(data.session_id),
+        sequence: await nextSequence(data.session_id),
         payload: snapshot
     })
     res.push({ event: Events.PROFILE_SNAPSHOT, data: profSnapMsg })

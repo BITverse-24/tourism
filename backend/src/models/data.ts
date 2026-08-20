@@ -27,9 +27,18 @@ const SessionProfiles: Record<string, TravelerProfile> = {
 const DiscoveryQuestions: Record<string, DiscoveryQuestion[]> = {
 }
 
+const SequenceNumbers: Record<string, number> = {
+}
 
 
 
+
+
+
+export async function getNextSequence(run_id: string): Promise<number> {
+    if (!SequenceNumbers[run_id]) SequenceNumbers[run_id] = 1;
+    return SequenceNumbers[run_id]++;
+}
 
 
 

@@ -1,12 +1,12 @@
 import { z } from "zod";
-import { currentWorkflowState, getNextSequence } from "../services/StateServices";
+import { currentWorkflowState, nextSequence } from "../services/StateServices";
 import { MessageEnvelope } from "../structures/MessageEnvelope";
 import { isValidSession, validateCommandDataFormat } from "../services/ValidationServices";
 import { buildAckMsg } from "../factory/Ack";
 import { logger } from "../modules/logger";
 import { Acks, RejectionCodes } from "../structures/enums";
 import { Socket } from "socket.io";
-import { getCommandIdsForRun, getCurrentRunIdForSession } from "../models/data";
+import { getCommandIdsForRun, getCurrentRunIdForSession, getWorkflowState } from "../models/data";
 
 export async function checkBaseCommandRejections<T extends z.ZodObject>(
     socket: Socket,
@@ -14,14 +14,14 @@ export async function checkBaseCommandRejections<T extends z.ZodObject>(
     schema: T,
 ): Promise<boolean> {
 
-    const curr_workflow_state = await currentWorkflowState();
+    const curr_workflow_state = await currentWorkflowState(data.session_id);
     const curr_run_id = await getCurrentRunIdForSession(data.session_id);
 
     const formatValidationRes = validateCommandDataFormat(
         data,
         schema,
-        await currentWorkflowState(),
-        await getNextSequence(data.run_id)
+        curr_workflow_state,
+        await nextSequence(data.run_id)
     ) 
     const sessionIdValidRes = await isValidSession(data.session_id);
     if (!formatValidationRes.valid) {
@@ -40,7 +40,7 @@ export async function checkBaseCommandRejections<T extends z.ZodObject>(
             Acks.COMMAND_REJECTED,
             buildAckMsg(
                 data,
-                await getNextSequence(data.run_id),
+                await nextSequence(data.run_id),
                 false,
                 curr_workflow_state,
                 undefined,
@@ -58,7 +58,7 @@ export async function checkBaseCommandRejections<T extends z.ZodObject>(
             Acks.COMMAND_REJECTED,
             buildAckMsg(
                 data,
-                await getNextSequence(data.run_id),
+                await nextSequence(data.run_id),
                 false,
                 curr_workflow_state,
                 undefined,
@@ -76,7 +76,7 @@ export async function checkBaseCommandRejections<T extends z.ZodObject>(
             Acks.COMMAND_REJECTED,
             buildAckMsg(
                 data,
-                await getNextSequence(data.run_id),
+                await nextSequence(data.run_id),
                 false,
                 curr_workflow_state,
                 undefined,
