@@ -3,3 +3,5 @@
 *
 !.gitignore
 !discovery.ts
+!candidate-design.ts
+!askUserTradeoff.ts
