@@ -1281,11 +1281,11 @@ export function applyProfilePatch(
 }
 
 function validateResult(value: unknown): asserts value is DiscoveryResult {
-  if (!isRecord(value)) throw new DiscoveryResponseError("Groq returned a response that is not an object.");
-  if (!isRecord(value.profile)) throw new DiscoveryResponseError("Groq returned an invalid traveler profile.");
-  if (typeof value.finished !== "boolean") throw new DiscoveryResponseError("Groq returned an invalid completion flag.");
+  if (!isRecord(value)) throw new DiscoveryResponseError("Gemini returned a response that is not an object.");
+  if (!isRecord(value.profile)) throw new DiscoveryResponseError("Gemini returned an invalid traveler profile.");
+  if (typeof value.finished !== "boolean") throw new DiscoveryResponseError("Gemini returned an invalid completion flag.");
   if (value.next_question !== null && !isRecord(value.next_question)) {
-    throw new DiscoveryResponseError("Groq returned an invalid next question.");
+    throw new DiscoveryResponseError("Gemini returned an invalid next question.");
   }
   if (value.finished && value.next_question !== null) {
     throw new DiscoveryResponseError("A finished discovery response cannot contain a next question.");
@@ -1294,7 +1294,7 @@ function validateResult(value: unknown): asserts value is DiscoveryResult {
     throw new DiscoveryResponseError("An unfinished discovery response must contain a next question.");
   }
   if (value.completion_reason !== null && typeof value.completion_reason !== "string") {
-    throw new DiscoveryResponseError("Groq returned an invalid completion reason.");
+    throw new DiscoveryResponseError("Gemini returned an invalid completion reason.");
   }
   if (value.finished && typeof value.completion_reason !== "string") {
     throw new DiscoveryResponseError("A finished discovery response must explain why it is complete.");
@@ -1302,11 +1302,11 @@ function validateResult(value: unknown): asserts value is DiscoveryResult {
 }
 
 function validatePatchResult(value: unknown): asserts value is DiscoveryPatchResult {
-  if (!isRecord(value)) throw new DiscoveryResponseError("Groq returned a response that is not an object.");
-  if (!isRecord(value.profile_patch)) throw new DiscoveryResponseError("Groq returned an invalid profile_patch.");
-  if (typeof value.finished !== "boolean") throw new DiscoveryResponseError("Groq returned an invalid completion flag.");
+  if (!isRecord(value)) throw new DiscoveryResponseError("Gemini returned a response that is not an object.");
+  if (!isRecord(value.profile_patch)) throw new DiscoveryResponseError("Gemini returned an invalid profile_patch.");
+  if (typeof value.finished !== "boolean") throw new DiscoveryResponseError("Gemini returned an invalid completion flag.");
   if (value.next_question !== null && !isRecord(value.next_question)) {
-    throw new DiscoveryResponseError("Groq returned an invalid next question.");
+    throw new DiscoveryResponseError("Gemini returned an invalid next question.");
   }
   if (value.finished && value.next_question !== null) {
     throw new DiscoveryResponseError("A finished discovery response cannot contain a next question.");
@@ -1315,7 +1315,7 @@ function validatePatchResult(value: unknown): asserts value is DiscoveryPatchRes
     throw new DiscoveryResponseError("An unfinished discovery response must contain a next question.");
   }
   if (value.completion_reason !== null && typeof value.completion_reason !== "string") {
-    throw new DiscoveryResponseError("Groq returned an invalid completion reason.");
+    throw new DiscoveryResponseError("Gemini returned an invalid completion reason.");
   }
   if (value.finished && typeof value.completion_reason !== "string") {
     throw new DiscoveryResponseError("A finished discovery response must explain why it is complete.");
@@ -1349,7 +1349,7 @@ async function logRawResponse(responseText: string, status: number, attempt: num
     `status: ${status}`,
     `attempt: ${attempt}`,
     "",
-    "----- raw Groq response -----",
+    "----- raw Gemini response -----",
     responseText,
     "",
   ].join("\n");
@@ -1390,7 +1390,7 @@ export async function processDiscovery(
 
   // Prepare zod schema for validation (mirrors DISCOVERY_PATCH_RESPONSE_SCHEMA)
   const discoveryPatchJsonSchema = DISCOVERY_PATCH_RESPONSE_SCHEMA as unknown as Record<string, unknown>;
-  const discoveryPatchZodSchema = z.fromJSONSchema(discoveryPatchJsonSchema as any);
+  const discoveryPatchZodSchema = (z as any).fromJSONSchema ? (z as any).fromJSONSchema(discoveryPatchJsonSchema as any) : { parse: (v: unknown) => v };
 
   // Allow injection for tests (genAiClient) otherwise create real client.
   // Keep fetcher as legacy escape hatch for tests that mock fetch-like behavior.

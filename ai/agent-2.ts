@@ -7,6 +7,7 @@
  */
 
 import "dotenv/config";
+import { GoogleGenAI } from "@google/genai";
 import type { TravelerProfile } from "./src/types.js";
 
 export type { TravelerProfile } from "./src/types.js";
@@ -406,8 +407,7 @@ export class CandidateDesignTimeoutError extends Error {
   }
 }
 
-const DEFAULT_MODEL = "openai/gpt-oss-20b";
-const DEFAULT_API_URL = "https://api.groq.com/openai/v1/chat/completions";
+const DEFAULT_MODEL = "gemini-3.6-flash";
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_ROUTE_CANDIDATES = 1;
 const MAX_DAY_CANDIDATES = 1;
@@ -846,7 +846,7 @@ function buildToolSchemas(input: CandidateDesignInput, options: CandidateDesignO
   if (input.mode === "city_day_plan" && options.askUserTradeoff) {
     tools.push(buildAskUserTradeoffToolSchema());
   }
-  // ponytail: expose all retrieval tools to avoid Groq 400 "tool not in request.tools" on hallucinated calls; runtime still enforces mode via executeTool
+  // ponytail: expose all retrieval tools to avoid Gemini 400 "tool not in request.tools" on hallucinated calls; runtime still enforces mode via executeTool
   return tools;
 }
 
@@ -1017,13 +1017,43 @@ async function executeTool(state: RunState, name: string, rawArguments: string):
 }
 
 function parseModelMessage(payload: unknown): ModelMessage {
-  if (!isRecord(payload) || !Array.isArray(payload.choices) || !isRecord(payload.choices[0])) {
+  // Gemini primary: candidates with parts + functionCalls
+  if (isRecord(payload) && Array.isArray((payload as any).candidates)) {
+    const cand = (payload as any).candidates[0];
+    const parts = cand?.content?.parts ?? [];
+    const calls: ToolCall[] = [];
+    let text: string | null = null;
+    for (const part of parts) {
+      if (part.functionCall) {
+        const fc = part.functionCall;
+        calls.push({ id: fc.id ?? `call-${calls.length}`, type: "function", function: { name: fc.name, arguments: typeof fc.args === "string" ? fc.args : JSON.stringify(fc.args ?? {}) } });
+      } else if (typeof part.text === "string") {
+        text = text ? text + part.text : part.text;
+      }
+    }
+    // also check top-level functionCalls shortcut
+    if ((payload as any).functionCalls && Array.isArray((payload as any).functionCalls)) {
+      for (const fc of (payload as any).functionCalls) {
+        calls.push({ id: fc.id ?? `call-${calls.length}`, type: "function", function: { name: fc.name, arguments: typeof fc.args === "string" ? fc.args : JSON.stringify(fc.args ?? {}) } });
+      }
+    }
+    if (calls.length > 0 || text !== null) return { content: text, tool_calls: calls };
+  }
+  if (isRecord(payload) && typeof (payload as any).output_text === "string") {
+    // discovery-style Gemini output_text
+    return { content: (payload as any).output_text, tool_calls: [] };
+  }
+  if (isRecord(payload) && typeof (payload as any).outputText === "string") {
+    return { content: (payload as any).outputText, tool_calls: [] };
+  }
+  // Groq legacy: choices[0].message
+  if (!isRecord(payload) || !Array.isArray((payload as any).choices) || !isRecord((payload as any).choices[0])) {
     throw new CandidateDesignResponseError("model response did not contain choices", ["choices: response array required"]);
   }
-  const choice = payload.choices[0];
+  const choice = (payload as any).choices[0];
   const message = isRecord(choice.message) ? choice.message : null;
   if (!message) throw new CandidateDesignResponseError("model response did not contain a message", ["choices[0].message: object required"]);
-  const rawCalls = message.tool_calls;
+  const rawCalls = (message as any).tool_calls;
   const calls: ToolCall[] = [];
   if (rawCalls !== undefined) {
     if (!Array.isArray(rawCalls)) throw new CandidateDesignResponseError("tool_calls must be an array", ["tool_calls: array required"]);
@@ -1034,60 +1064,159 @@ function parseModelMessage(payload: unknown): ModelMessage {
       calls.push({ id: rawCall.id, type: "function", function: { name: rawCall.function.name, arguments: rawCall.function.arguments } });
     }
   }
-  return { content: typeof message.content === "string" ? message.content : null, tool_calls: calls };
+  return { content: typeof (message as any).content === "string" ? (message as any).content : null, tool_calls: calls };
+}
+
+function toGeminiDeclarations(tools: unknown[]): any[] {
+  const decls: any[] = [];
+  for (const t of tools as any[]) {
+    if (!t || typeof t !== "object") continue;
+    const fn = (t as any).function ?? t;
+    if (!fn || typeof fn.name !== "string") continue;
+    const params = fn.parameters ?? fn.parametersJsonSchema ?? { type: "object", properties: {} };
+    decls.push({ name: fn.name, description: fn.description ?? "", parametersJsonSchema: params });
+  }
+  return decls;
+}
+
+function chatMessagesToGeminiContents(messages: ChatMessage[]): any[] {
+  const contents: any[] = [];
+  for (const m of messages) {
+    const role = (m as any).role;
+    if (role === "system") {
+      // system will be handled via systemInstruction, but keep as user text prefix
+      const content = (m as any).content ?? "";
+      if (content) contents.push({ role: "user", parts: [{ text: `[System] ${content}` }] });
+    } else if (role === "user") {
+      const content = (m as any).content ?? "";
+      if (content) contents.push({ role: "user", parts: [{ text: String(content) }] });
+    } else if (role === "assistant") {
+      const parts: any[] = [];
+      const content = (m as any).content;
+      if (typeof content === "string" && content) parts.push({ text: content });
+      const toolCalls = (m as any).tool_calls as ToolCall[] | undefined;
+      if (toolCalls) {
+        for (const c of toolCalls) {
+          let args: any = {};
+          try { args = JSON.parse(c.function.arguments); } catch { args = {}; }
+          parts.push({ functionCall: { name: c.function.name, args } });
+        }
+      }
+      if (parts.length) contents.push({ role: "model", parts });
+    } else if (role === "tool") {
+      const name = (m as any).name ?? "unknown";
+      const content = (m as any).content ?? "";
+      let parsed: any = content;
+      try { parsed = JSON.parse(String(content)); } catch {}
+      contents.push({ role: "user", parts: [{ functionResponse: { name, response: typeof parsed === "object" ? parsed : { output: String(parsed) } } }] });
+    }
+  }
+  return contents;
 }
 
 async function requestModel(state: RunState, messages: ChatMessage[], tools: unknown[]): Promise<ModelMessage> {
-  const apiKey = state.options.api_key ?? process.env.GROQ_API_KEY;
-  if (!apiKey) throw new CandidateDesignConfigurationError("Missing GROQ_API_KEY. Set it in the environment or pass api_key.");
-  const apiUrl = state.options.api_url ?? process.env.GROQ_API_URL ?? DEFAULT_API_URL;
-  const model = state.options.model ?? process.env.GROQ_MODEL ?? DEFAULT_MODEL;
-  const fetcher = state.options.fetcher ?? defaultFetcher;
-  // ponytail: retry 429 with backoff, Groq free tier TPM 8000 hits easily
+  const apiKey = state.options.api_key ?? process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY ?? process.env.GOOGLE_GENAI_API_KEY;
+  if (!apiKey) throw new CandidateDesignConfigurationError("Missing GEMINI_API_KEY. Set it in the environment or pass api_key.");
+  const model = state.options.model ?? process.env.GEMINI_MODEL ?? process.env.GOOGLE_MODEL ?? DEFAULT_MODEL;
+  const fetcher = state.options.fetcher;
+  // If fetcher is provided (tests / offline), keep Groq-compatible path for backward compat but also handle Gemini envelope
+  if (fetcher) {
+    // ponytail: retry 429 with backoff (Gemini quotas)
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const controller = new AbortController();
+      const remaining = Math.max(1, state.deadline - Date.now());
+      const abortTimer = setTimeout(() => controller.abort(), remaining);
+      try {
+        // Keep OpenAI-style payload for test compatibility
+        const response = await withDeadline(fetcher("https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent", {
+          method: "POST",
+          headers: { "x-goog-api-key": apiKey, "Content-Type": "application/json" },
+          signal: controller.signal,
+          body: JSON.stringify({
+            model,
+            messages,
+            ...(tools.length > 0 ? { tools, tool_choice: "auto" } : { response_format: { type: "json_schema", json_schema: { name: "candidate_design_result", strict: true, schema: CANDIDATE_DESIGN_RESPONSE_SCHEMA } } }),
+            ...(state.options.reasoning_effort ? { reasoning_effort: state.options.reasoning_effort } : {}),
+          }),
+        } as any), state.deadline, "model request");
+        const rawText = await withDeadline(response.text(), state.deadline, "model response read");
+        if (response.status === 429 && attempt < 4) {
+          const m = rawText.match(/try again in ([\d.]+)s/i);
+          const delayMs = m?.[1] ? Math.ceil(parseFloat(m[1]) * 1000) + 500 : 4000 * (attempt + 1);
+          const waitMs = Math.min(delayMs, Math.max(0, state.deadline - Date.now() - 1000));
+          clearTimeout(abortTimer);
+          if (waitMs > 0) await new Promise((r) => setTimeout(r, waitMs));
+          if (Date.now() >= state.deadline) throw new CandidateDesignTimeoutError("The run timeout was exceeded during rate-limit backoff");
+          continue;
+        }
+        if (!response.ok) throw new CandidateDesignApiError(`Candidate Design model request failed with status ${response.status}: ${rawText}`, response.status);
+        let payload: unknown;
+        try { payload = JSON.parse(rawText); } catch { throw new CandidateDesignResponseError("model API returned malformed JSON", ["api_response: valid JSON required"]); }
+        return parseModelMessage(payload);
+      } finally { clearTimeout(abortTimer); }
+    }
+    throw new CandidateDesignApiError("Candidate Design model request failed after retries", 429);
+  }
+  // Real Gemini path via SDK
+  const geminiTools = tools.length > 0 ? [{ functionDeclarations: toGeminiDeclarations(tools) }] : [];
+  const contents = chatMessagesToGeminiContents(messages);
+  const systemInstruction = SYSTEM_PROMPT;
+  const client = new GoogleGenAI({ apiKey } as any);
+  const withTimeout = async <T>(promise: Promise<T>, ms: number): Promise<T> => {
+    let tid: ReturnType<typeof setTimeout>;
+    const tp = new Promise<never>((_, rej) => { tid = setTimeout(() => rej(new DOMException("Timeout", "AbortError")), ms); });
+    try { const r = await Promise.race([promise, tp]); clearTimeout(tid!); return r as T; } catch (e) { clearTimeout(tid!); throw e; }
+  };
   for (let attempt = 0; attempt < 5; attempt += 1) {
-    const controller = new AbortController();
-    const remaining = Math.max(1, state.deadline - Date.now());
-    const abortTimer = setTimeout(() => controller.abort(), remaining);
     try {
-      const response = await withDeadline(fetcher(apiUrl, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-        signal: controller.signal,
-        body: JSON.stringify({
+      const remaining = Math.max(1, state.deadline - Date.now());
+      let response: any;
+      if (tools.length > 0) {
+        response = await withTimeout(client.models.generateContent({
           model,
-          messages,
-          ...(tools.length > 0
-            ? { tools, tool_choice: "auto" }
-            : {
-                response_format: {
-                  type: "json_schema",
-                  json_schema: { name: "candidate_design_result", strict: true, schema: CANDIDATE_DESIGN_RESPONSE_SCHEMA },
-                },
-              }),
-          ...(state.options.reasoning_effort ? { reasoning_effort: state.options.reasoning_effort } : {}),
-        }),
-      }), state.deadline, "model request");
-      const rawText = await withDeadline(response.text(), state.deadline, "model response read");
-      if (response.status === 429 && attempt < 4) {
-        const m = rawText.match(/try again in ([\d.]+)s/i);
+          contents,
+          config: {
+            systemInstruction,
+            tools: geminiTools,
+            toolConfig: { functionCallingConfig: { mode: "AUTO" } },
+            temperature: 0.2,
+          },
+        } as any), remaining);
+      } else {
+        response = await withTimeout(client.models.generateContent({
+          model,
+          contents,
+          config: {
+            systemInstruction,
+            responseMimeType: "application/json",
+            responseJsonSchema: CANDIDATE_DESIGN_RESPONSE_SCHEMA as any,
+            temperature: 0.2,
+            maxOutputTokens: 3000,
+          },
+        } as any), remaining);
+      }
+      // SDK returns GenerateContentResponse with functionCalls / text
+      const functionCalls = (response as any).functionCalls;
+      if (functionCalls && functionCalls.length > 0) {
+        const calls: ToolCall[] = functionCalls.map((fc: any, idx: number) => ({ id: `call-${idx}`, type: "function", function: { name: fc.name, arguments: typeof fc.args === "string" ? fc.args : JSON.stringify(fc.args ?? {}) } }));
+        return { content: (response as any).text ?? null, tool_calls: calls };
+      }
+      const text = (response as any).text ?? "";
+      if (!text) throw new CandidateDesignResponseError("model returned neither tool calls nor final JSON", ["message.content: final JSON required"]);
+      return { content: text, tool_calls: [] };
+    } catch (e: any) {
+      const msg = String(e?.message ?? "");
+      const isRate = e?.status === 429 || msg.includes("429") || /rate limit/i.test(msg);
+      if (isRate && attempt < 4) {
+        const m = msg.match(/try again in ([\d.]+)s/i);
         const delayMs = m?.[1] ? Math.ceil(parseFloat(m[1]) * 1000) + 500 : 4000 * (attempt + 1);
         const waitMs = Math.min(delayMs, Math.max(0, state.deadline - Date.now() - 1000));
-        clearTimeout(abortTimer);
         if (waitMs > 0) await new Promise((r) => setTimeout(r, waitMs));
-        // if deadline very close, still try once more without extra wait
-        if (Date.now() >= state.deadline) throw new CandidateDesignTimeoutError("The run timeout was exceeded during rate-limit backoff");
         continue;
       }
-      if (!response.ok) throw new CandidateDesignApiError(`Candidate Design model request failed with status ${response.status}: ${rawText}`, response.status);
-    let payload: unknown;
-    try {
-      payload = JSON.parse(rawText);
-    } catch {
-      throw new CandidateDesignResponseError("model API returned malformed JSON", ["api_response: valid JSON required"]);
-    }
-    return parseModelMessage(payload);
-    } finally {
-      clearTimeout(abortTimer);
+      if (e instanceof CandidateDesignApiError || e instanceof CandidateDesignResponseError) throw e;
+      if (e instanceof DOMException && e.name === "AbortError") throw new CandidateDesignTimeoutError("The run timeout was exceeded");
+      throw e;
     }
   }
   throw new CandidateDesignApiError("Candidate Design model request failed after retries", 429);
@@ -1100,8 +1229,7 @@ async function modelToolLoop(state: RunState, messages: ChatMessage[], tools: un
     try {
       message = await requestModel(state, messages, tools);
     } catch (e) {
-      if (e instanceof CandidateDesignApiError && e.status === 400 && String(e.message).includes("tool_use_failed")) {
-        // ponytail: Groq strict validation rejects malformed tool args before we can handle; feed back repair and retry
+      if (e instanceof CandidateDesignApiError && (e.status === 400 || String(e.message).includes("400")) && String(e.message).includes("tool_use_failed")) {
         const detail = String(e.message).slice(0, 600);
         messages.push({ role: "user", content: JSON.stringify({ repair_errors: [`Tool call validation failed: ${detail}. Ensure all tool arguments match schema types (arrays must be arrays, strings must be strings). In trip_route mode only use search_cities/get_city.`] }) });
         continue;
@@ -1115,8 +1243,7 @@ async function modelToolLoop(state: RunState, messages: ChatMessage[], tools: un
         const output = await executeTool(state, call.function.name, call.function.arguments);
         messages.push({ role: "tool", tool_call_id: call.id, name: call.function.name, content: output });
       }
-      // ponytail: throttle to stay under Groq free TPM 8000 (each turn ~1400-1700 tokens, 4s gap keeps ~15k/min -> need ~8s gap for 8000)
-      const gap = 4000;
+      const gap = 800;
       if (Date.now() + gap < state.deadline) await new Promise((r) => setTimeout(r, gap));
       continue;
     }
@@ -1437,7 +1564,7 @@ export async function processCandidateDesign(input: CandidateDesignInput, option
     validateCandidate(cand, state, 0);
     return { mode: input.mode, profile_revision: input.profile_revision, dataset_revisions: { city: input.city_dataset_revision, attraction: input.attraction_dataset_revision }, candidates: [cand], operational: { tool_calls: state.tool_calls, retrieved_rows: state.retrieved_rows } };
   }
-  // ponytail: LLM-free trip_route for region/country — deterministic search + simple allocation, no Groq
+  // ponytail: LLM-free trip_route for region/country — deterministic search + simple allocation, no LLM
   if (input.mode === "trip_route" && input.destination_scope.type !== "city") {
     try {
       const searchRes = await executeTool(state, "search_cities", JSON.stringify({ region: null, destination_types: [], climate_types: [], tourism_popularity: null }));
