@@ -9,7 +9,7 @@ const CommandMessageEnvelopeSchema = BaseMessageEnvelopeSchema.extend({
 export const SessionStartSchema = CommandMessageEnvelopeSchema.extend({
     type: z.literal("session.start"),
     payload: z.object({
-        session_id: z.null(),
+        session_id: z.string().nullable(),
     }),
 })
 export type SessionStartMessage = z.infer<typeof SessionStartSchema>;
@@ -21,7 +21,7 @@ export const DiscoveryAnswerSchema = CommandMessageEnvelopeSchema.extend({
         question_id: z.string(),
         selected_option_ids: z.array(z.string()),
         free_text: z.string(),
-    }),
+    }).nullable(),
 })
 export type DiscoveryAnswerMessage = z.infer<typeof DiscoveryAnswerSchema>;
 

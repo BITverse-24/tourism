@@ -23,11 +23,11 @@ export type SessionReadyMessage = z.infer<typeof SessionReadySchema>;
 
 const QuestionOptionsSchema = z.object({
     option_id: z.string(),
-    option_label: z.string(),
-    option_description: z.string().optional(),
+    label: z.string(),
+    description: z.string(),
 })
-export const DeliveryQuestionSchema = BaseEventMessageSchema.extend({
-    type: z.literal("delivery.question"),
+export const DiscoveryQuestionSchema = BaseEventMessageSchema.extend({
+    type: z.literal("discovery.question"),
     payload: z.object({
         question_id: z.string(),
         prompt: z.string(),
@@ -35,10 +35,10 @@ export const DeliveryQuestionSchema = BaseEventMessageSchema.extend({
         required: z.boolean(),
         options: z.array(QuestionOptionsSchema),
         free_text_mode: z.enum(DiscoveryFreeTextModes),
-        free_text_placeholder: z.string().optional(),
+        free_text_placeholder: z.string().nullable(),
     }),
 })
-export type DeliveryQuestionMessage = z.infer<typeof DeliveryQuestionSchema>;
+export type DiscoveryQuestionMessage = z.infer<typeof DiscoveryQuestionSchema>;
 
 
 export const ProfileSnapshotSchema = BaseEventMessageSchema.extend({
@@ -141,7 +141,7 @@ export type SessionSupersededMessage = z.infer<typeof SessionSupersededSchema>;
 
 export const EventSchemas = [
     SessionReadySchema,
-    DeliveryQuestionSchema,
+    DiscoveryQuestionSchema,
     ProfileSnapshotSchema,
     ProfileReadySchema,
     AgentLifecycleSchema,

@@ -1,3 +1,4 @@
+import { createDiscoveryAnswerMessage } from "../factory/Command";
 import { createProfileSnapshotMessage, createSessionReadyMessage } from "../factory/Event";
 import { getNewRunId, getNewSessionId, getSessionCheckpoint, getValidSessionIds, moveSessionIdToExpired, setWorkflowState } from "../models/data";
 import { generateUUID } from "../modules/util";
@@ -6,6 +7,7 @@ import { Events, WorkflowStates } from "../structures/enums";
 import { ProfileSnapshotMessage, SessionReadyMessage } from "../structures/EventMessage";
 import { NewSessionMessage, NewSessionMessageSchema } from "../structures/NewSessionMessage";
 import { ServiceResult } from "../structures/types";
+import { discoveryAnswerService, newDiscoveryQuestionService } from "./DiscoveryServices";
 import { getNextSequence } from "./StateServices";
 
 export async function sessionStartService(
@@ -36,10 +38,16 @@ export async function sessionStartService(
 
         res.push({event: Events.SESSION_READY, data: sessReadyMsg})
 
-        // do agent staff get discovery question
-        // add discovery.question to res
-
         setWorkflowState(newSessionId, WorkflowStates.DISCOVERY)
+
+        res.concat(
+            await newDiscoveryQuestionService(
+                newSessionId,
+                newRunId,
+                data.command_id
+            )
+        )
+
     }
 
     else if ("session_id" in data) {
@@ -80,8 +88,13 @@ export async function sessionStartService(
 
             // do checkpoint next service
             if (checkpoint.workflow_state === WorkflowStates.DISCOVERY) {
-                // agent 1 stuff
-                // get discovery question and add to res
+                res.concat(
+                    await newDiscoveryQuestionService(
+                        data.session_id,
+                        newRunId,
+                        data.command_id
+                    )
+                )
             }
 
             // other states do if time have
@@ -105,12 +118,16 @@ export async function sessionStartService(
                     confirmed_profile_revision: null,
                 }
             })
+
             res.push({ event: Events.SESSION_READY, data: sessReadyMsg })
 
-            // agent 1 stuff
-            // get new discovery question
-            // add discovery.question to res
-
+            res.concat(
+                await newDiscoveryQuestionService(
+                    data.session_id,
+                    newRunId,
+                    data.command_id
+                )
+            )
             await setWorkflowState(data.session_id, WorkflowStates.DISCOVERY)
         }
     }

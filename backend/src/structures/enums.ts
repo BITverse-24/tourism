@@ -16,7 +16,7 @@ export enum Events {
     PLANNING_STATUS = 'planning.status',
     PROFILE_READY = 'profile.ready',
     PROFILE_SNAPSHOT = 'profile.snapshot',
-    DELIVERY_QUESTION = 'delivery.question',
+    DISCOVERY_QUESTION = 'discovery.question',
     SESSION_READY = 'session.ready',
 }
 

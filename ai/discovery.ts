@@ -12,6 +12,7 @@ import { fileURLToPath } from "node:url";
 import { config as loadEnv } from "dotenv";
 import { GoogleGenAI } from "@google/genai";
 import * as z from "zod";
+import { DiscoveryAnsSelectionModes, DiscoveryFreeTextModes } from "../backend/src/structures/enums";
 
 loadEnv({ path: resolve(dirname(fileURLToPath(import.meta.url)), ".env") });
 
@@ -23,8 +24,8 @@ export type PreferenceStrength =
   | "unknown";
 
 export type InferenceConfidence = "high" | "medium" | "low";
-export type QuestionSelectionMode = "single" | "multiple";
-export type FreeTextMode = "disabled" | "optional" | "only_if_no_option" | "required";
+// export type QuestionSelectionMode = "single" | "multiple";
+// export type FreeTextMode = "disabled" | "optional" | "only_if_no_option" | "required";
 
 export interface Budget {
   amount: number | null;
@@ -113,10 +114,10 @@ export interface QuestionOption {
 export interface DiscoveryQuestion {
   question_id: string;
   prompt: string;
-  selection_mode: QuestionSelectionMode;
+  selection_mode: DiscoveryAnsSelectionModes;
   required: boolean;
   options: QuestionOption[];
-  free_text_mode: FreeTextMode;
+  free_text_mode: DiscoveryFreeTextModes;
   free_text_placeholder: string | null;
 }
 

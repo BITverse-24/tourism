@@ -6,8 +6,7 @@ export async function decisionRespondService(
 ): Promise<ServiceResult[]> {
     const res: ServiceResult[] = []
 
-    // make sure is valid decision question id and answer id
-    // give agent the response
+    // give agent 2 the response
     // thats it no response here i think
 
     return res;

@@ -1,5 +1,5 @@
 import { Events, MessageKinds } from "../structures/enums";
-import { DecisionRequestMessage, DeliveryQuestionMessage, PlanningStatusMessage, ProfileReadyMessage, ProfileSnapshotMessage, SessionExpiredMessage, SessionReadyMessage, WorkflowCompletedMessage } from "../structures/EventMessage";
+import { DecisionRequestMessage, DiscoveryQuestionMessage, PlanningStatusMessage, ProfileReadyMessage, ProfileSnapshotMessage, SessionExpiredMessage, SessionReadyMessage, WorkflowCompletedMessage } from "../structures/EventMessage";
 import { BaseMessageEnvelope } from "../structures/MessageEnvelope";
 
 export function createBaseMessageEnvelope({
@@ -40,7 +40,7 @@ export function createSessionReadyMessage({
     };
 }
 
-export function createDeliveryQuestionMessage({
+export function createDiscoveryQuestionMessage({
     message_id,
     session_id,
     run_id,
@@ -48,7 +48,7 @@ export function createDeliveryQuestionMessage({
     occurred_at,
     sequence,
     payload,
-}: Omit<DeliveryQuestionMessage, "kind" | "type">): DeliveryQuestionMessage {
+}: Omit<DiscoveryQuestionMessage, "kind" | "type">): DiscoveryQuestionMessage {
     return {
         message_id,
         session_id,
@@ -57,7 +57,7 @@ export function createDeliveryQuestionMessage({
         occurred_at,
         kind: MessageKinds.EVENT,
         sequence,
-        type: Events.DELIVERY_QUESTION,
+        type: Events.DISCOVERY_QUESTION,
         payload,
     };
 }

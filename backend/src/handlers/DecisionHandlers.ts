@@ -13,6 +13,7 @@ export async function decisionRespondHandler(socket: Socket, data: DecisionRespo
     logger.debug('socket sent decision.respond', { socketid: socket.id, data: data });
 
     if (!checkBaseCommandRejections(socket, data, DecisionRespondSchema)) return;
+    // make sure is valid decision question id and answer id
 
     const ackmsg: AckMessage = buildAckMsg(
         data,

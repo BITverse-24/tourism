@@ -1,5 +1,12 @@
 #+title: Backend - Tourism
 
+* Todo [0/5] [0%]
+1. [ ] add agent 1 calls
+2. [ ] add agent 2 calls
+3. [ ] discovery answer - question id, answer selection validation
+4. [ ] profile request changes - give request topics to agent 1 somehow
+5. [ ] profile confirm - revision number, blocking unknowns validation
+
 * General flow with associated workflow states
 #+begin_src
 

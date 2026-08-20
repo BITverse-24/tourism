@@ -1,5 +1,6 @@
 import { generateUUID } from "../modules/util";
 import { WorkflowStates } from "../structures/enums";
+import { TravelerProfile } from "../structures/TravelerProfile";
 import { CheckpointType } from "../structures/types";
 
 const SessionIds: Record<string, Set<string>> = {
@@ -19,8 +20,19 @@ const SessionWorkflowState: Record<string, WorkflowStates> = {
 const SessionCheckpoints: Record<string, CheckpointType> = {
 }
 
+const SessionProfiles: Record<string, TravelerProfile> = {
+}
 
 
+
+
+
+export async function getSessionProfile(session_id: string): Promise < TravelerProfile > {
+    return SessionProfiles[session_id]
+}
+export async function setSessionProfile(session_id: string, prof: TravelerProfile) {
+    SessionProfiles[session_id] = prof
+}
 
 
 
@@ -34,7 +46,7 @@ export async function setSessionCheckpoint(session_id: string, checkpoint: Check
 
 
 
-export async function getWorkflowState(session_id: string): Promise<string> {
+export async function getWorkflowState(session_id: string): Promise<WorkflowStates> {
     return SessionWorkflowState[session_id]
 }
 
