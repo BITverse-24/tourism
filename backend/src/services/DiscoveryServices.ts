@@ -1,7 +1,7 @@
 import { DiscoveryAnswerMessage } from "../structures/CommandMessage";
 import { CheckpointType, ProfileSnapshot, ServiceResult } from "../structures/types";
-import { DiscoveryQuestion, DiscoveryResult } from "../../../ai/discovery";
-import { getSessionCheckpoint, getWorkflowState, setSessionCheckpoint, setSessionProfile, setWorkflowState } from "../models/data";
+import { DiscoveryInput, DiscoveryQuestion, DiscoveryResult, processDiscovery } from "../../../ai/discovery";
+import { getDiscoveryQuestionById, getSessionCheckpoint, getSessionProfile, getWorkflowState, setSessionCheckpoint, setSessionProfile, setWorkflowState } from "../models/data";
 import { Events, ProfileSnapshotStates, WorkflowStates } from "../structures/enums";
 import { DiscoveryQuestionMessage, ProfileSnapshotMessage } from "../structures/EventMessage";
 import { generateUUID } from "../modules/util";
@@ -13,9 +13,22 @@ export async function discoveryAnswerService(
 ): Promise<ServiceResult[]> {
     const res: ServiceResult[] = []
 
+    const prof = await getSessionProfile(data.session_id);
+    const discoveryQ = await getDiscoveryQuestionById(data.run_id, data.payload?.question_id!)
+    const discoveryInput: DiscoveryInput = {
+        profile: prof,
+        answer: {
+            question_id: data.payload?.question_id!,
+            question: discoveryQ,
+            selected_option_ids: data.payload?.selected_option_ids!,
+            free_text: data.payload?.free_text!,
+        }
+    }
     // give agent answer
-    // const discoveryRes: DiscoveryResult = getDiscoveryRes();
-    let discoveryRes: DiscoveryResult;
+    const discoveryRes: DiscoveryResult = await processDiscovery(
+        discoveryInput,
+        {}
+    )
     // update profile given by agent
     setSessionProfile(data.session_id, discoveryRes.profile)
 
@@ -76,15 +89,20 @@ export async function discoveryAnswerService(
 }
 
 export async function newDiscoveryQuestionService(
-        session_id: string,
-        run_id: string,
-        command_id: string
+    session_id: string,
+    run_id: string,
+    command_id: string
 ): Promise<ServiceResult[]> {
     const res: ServiceResult[] = []
 
-    // give agent answer
-    // const discoveryRes: DiscoveryResult = getDiscoveryRes();
-    let discoveryRes: DiscoveryResult;
+    const discoveryInput: DiscoveryInput = {
+        answer: null,
+        profile: null,
+    }
+    const discoveryRes: DiscoveryResult = await processDiscovery(
+        discoveryInput,
+        {}
+    )
     // update profile given by agent
     setSessionProfile(session_id, discoveryRes.profile)
 

@@ -1,3 +1,4 @@
+import { DiscoveryQuestion } from "../../../ai/discovery";
 import { generateUUID } from "../modules/util";
 import { WorkflowStates } from "../structures/enums";
 import { TravelerProfile } from "../structures/TravelerProfile";
@@ -23,7 +24,21 @@ const SessionCheckpoints: Record<string, CheckpointType> = {
 const SessionProfiles: Record<string, TravelerProfile> = {
 }
 
+const DiscoveryQuestions: Record<string, DiscoveryQuestion[]> = {
+}
 
+
+
+
+
+
+
+export async function getDiscoveryQuestionById(run_id: string, q_id: string): Promise<DiscoveryQuestion> {
+    return DiscoveryQuestions[run_id].find((it) => it.question_id === q_id)!
+}
+export async function addDiscoveryQuestion(run_id: string, q: DiscoveryQuestion) {
+    DiscoveryQuestions[run_id].push(q)
+}
 
 
 
@@ -71,6 +86,8 @@ export async function getNewRunId(session_id: string): Promise<string> {
 }
 
 export async function unsetRunId(session_id: string) {
+    delete DiscoveryQuestions[RunIds[session_id]]
+    delete CommandIds[RunIds[session_id]]
     delete RunIds[session_id]
 }
 
