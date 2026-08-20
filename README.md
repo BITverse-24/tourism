@@ -1,5 +1,7 @@
 # Agentic Travel Planner
 
+> **Current contracts:** see [docs/SYSTEM_CONTRACT.md](docs/SYSTEM_CONTRACT.md), [Traveler Profile](docs/TRAVELER_PROFILE_SCHEMA.md), [Final Trip Plan](docs/FINAL_TRIP_PLAN_SCHEMA.md), and [WebSocket Core API](docs/WEBSOCKET_CONTRACT.md).
+
 ## 1. Core Idea
 
 An **agentic, human-centric travel planning system** that plans trips around the traveler rather than merely around the destination.
@@ -447,11 +449,15 @@ The MVP does not need worldwide coverage.
 
 A limited number of well-covered destinations is preferable to shallow global coverage.
 
+> **Implementation (D2, Final — 2026-08-13):** Curated Experience Knowledge Base is primary (Aishwarya); external maps/places/weather/transport APIs are secondary `data_facts` with `source`/`observed_at`/`fresh_until`/`confidence`. Stale allowed only when hard feasibility remains verifiable.
+
 ---
 
 # 7. Ten-Agent Architecture
 
 The MVP retains the **10-agent architecture**, but the agents are logical specialized components rather than ten completely independent products.
+
+> **Architecture boundary:** The 10 agents are logical modules in the planning workflow. Detailed orchestration and runtime contracts are deferred while the core product contracts are being finalized. The management orchestrator under `mgmt/orchestrator/` remains a separate Python, recommendation-only GitHub Issues analyzer.
 
 ## Agent 1: Discovery Agent
 
@@ -844,3 +850,16 @@ They may be added later, but the MVP is centered on:
 3. **Dynamic Replanning**
 
 with the **10-agent architecture** operating underneath these three capabilities.
+
+---
+
+# 11. Current Documentation Contracts
+
+The active implementation guidance is intentionally narrow while the product foundation is being built:
+
+- **Planning input:** [Traveler Profile](docs/TRAVELER_PROFILE_SCHEMA.md), the normalized result after discovery.
+- **Planning output:** [Final Trip Plan](docs/FINAL_TRIP_PLAN_SCHEMA.md), the user-facing itinerary and explanation.
+- **Frontend/backend transport:** [WebSocket Core API](docs/WEBSOCKET_CONTRACT.md), the command and event contract for discovery, planning, and replanning.
+- **Architecture boundary:** [docs/SYSTEM_CONTRACT.md](docs/SYSTEM_CONTRACT.md), which defines the transformation from discovery to final plan and the later documentation phases.
+
+Runtime, persistence, public API, deployment, provider selection, agent interfaces, and exact optimization weights remain separate implementation decisions until adopted in the active contract set.
