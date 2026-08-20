@@ -2,6 +2,6 @@
 # files stay available locally for tests, demos, and development.
 *
 !.gitignore
-!agent-1.ts
+!discovery.ts
 !agent-2.ts
 !askUserTradeoff.ts
