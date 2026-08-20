@@ -1,7 +1,7 @@
 import { Socket } from 'socket.io';
 import { logger } from '../modules/logger';
 import { RunCancelMessage, RunCancelSchema } from '../structures/CommandMessage';
-import { Acknowledge } from '../structures/enums';
+import { Acks } from '../structures/enums';
 import { runCancelService } from '../services/RunServices';
 import { checkBaseCommandRejections } from './BaseValidation';
 import { AckMessage } from '../structures/AckMessage';
@@ -21,7 +21,7 @@ export async function runCancelHandler(socket: Socket, data: RunCancelMessage) {
         await currentWorkflowState(data.session_id),
         false,
     )
-    socket.emit(Acknowledge.COMMAND_ACCEPTED, ackmsg)
+    socket.emit(Acks.COMMAND_ACCEPTED, ackmsg)
 
     const reses: ServiceResult[] = await runCancelService(data)
 

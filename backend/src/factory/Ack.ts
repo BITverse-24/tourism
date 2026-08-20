@@ -1,5 +1,5 @@
 import { AckMessage, CommandAcceptedSchema, CommandRejectedSchema } from "../structures/AckMessage";
-import { RejectionCode, WorkflowStates } from "../structures/enums";
+import { RejectionCodes, WorkflowStates } from "../structures/enums";
 import { MessageEnvelope } from "../structures/MessageEnvelope";
 
 export function buildAckMsg(
@@ -12,7 +12,7 @@ export function buildAckMsg(
     deduplicated?: boolean,
 
     // if accepted = false need these
-    code?: RejectionCode,
+    code?: RejectionCodes,
     message?: string,
     retryable?: boolean,
     recovery?: Record<string, unknown>,

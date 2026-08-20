@@ -4,7 +4,7 @@ import type { Request } from 'express';
 import { ipKeyGenerator, rateLimit } from 'express-rate-limit';
 import { BadRequestError } from '../app/errors';
 import type { AppConfig } from '../app/config';
-import { Command } from '../structures/enums';
+import { Commands } from '../structures/enums';
 
 export function buildCorsOptions(config: AppConfig): CorsOptions {
     return {
@@ -69,8 +69,8 @@ export function parseBearerToken(authorizationHeader?: string): string | null {
     return token.length > 0 ? token : null;
 }
 
-export function isValidCommandType(type: unknown): type is Command {
-    return Object.values(Command).includes(type as Command);
+export function isValidCommandType(type: unknown): type is Commands {
+    return Object.values(Commands).includes(type as Commands);
 }
 
 export function generateUUID() {

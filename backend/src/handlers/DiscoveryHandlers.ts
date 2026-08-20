@@ -1,7 +1,7 @@
 import { Socket } from 'socket.io';
 import { logger } from '../modules/logger';
 import { DiscoveryAnswerMessage, DiscoveryAnswerSchema } from '../structures/CommandMessage';
-import { Acknowledge } from '../structures/enums';
+import { Acks } from '../structures/enums';
 import { discoveryAnswerService } from '../services/DiscoveryServices';
 import { checkBaseCommandRejections } from './BaseValidation';
 import { AckMessage } from '../structures/AckMessage';
@@ -25,7 +25,7 @@ export async function discoveryAnswerHandler(socket: Socket, data: DiscoveryAnsw
         await currentWorkflowState(data.session_id),
         false,
     )
-    socket.emit(Acknowledge.COMMAND_ACCEPTED, ackmsg)
+    socket.emit(Acks.COMMAND_ACCEPTED, ackmsg)
 
     const reses: ServiceResult[] = await discoveryAnswerService(data)
 

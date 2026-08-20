@@ -4,6 +4,7 @@ export const NewSessionMessageSchema = z.object({
     message_id: z.string(),
     kind: z.literal("command"),
     type: z.literal("session.start"),
+    command_id: z.string(),
     occurred_at: z.string(),
     payload: z.object({ session_id: z.string().nullable().optional() })
 })

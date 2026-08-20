@@ -7,6 +7,7 @@ export async function profileConfirmService(
     const res: ServiceResult[] = []
 
     // mark the confirmed profile
+    // set workflow to planning
     // start planning
 
     return res

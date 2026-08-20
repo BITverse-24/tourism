@@ -1,7 +1,7 @@
 import { Socket } from 'socket.io';
 import { logger } from '../modules/logger';
 import { SessionCloseMessage, SessionStartMessage, SessionStartSchema } from '../structures/CommandMessage';
-import { Acknowledge } from '../structures/enums';
+import { Acks } from '../structures/enums';
 import { sessionCloseService, sessionStartService } from '../services/SessionServices';
 import { ServiceResult } from '../structures/types';
 import { currentWorkflowState, getNextSequence } from '../services/StateServices';
@@ -25,7 +25,7 @@ export async function sessionStartHandler(socket: Socket, data: SessionStartMess
         await currentWorkflowState(data.session_id),
         false,
     )
-    socket.emit(Acknowledge.COMMAND_ACCEPTED, ackmsg)
+    socket.emit(Acks.COMMAND_ACCEPTED, ackmsg)
 
     const reses: ServiceResult[] = await sessionStartService(data, isNewSessionMsg)
 
@@ -45,7 +45,7 @@ export async function sessionCloseHandler(socket: Socket, data: SessionCloseMess
         await currentWorkflowState(data.session_id),
         false,
     )
-    socket.emit(Acknowledge.COMMAND_ACCEPTED, ackmsg)
+    socket.emit(Acks.COMMAND_ACCEPTED, ackmsg)
 
     const reses: ServiceResult[] = await sessionCloseService(data)
 

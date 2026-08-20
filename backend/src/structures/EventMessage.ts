@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { BaseMessageEnvelopeSchema } from "./MessageEnvelope";
-import { WorkflowStates } from "./enums";
+import { DiscoveryAnsSelectionModes, DiscoveryFreeTextModes, PlanningPhases, PlanningStatus, ProfileSnapshotStates, WorkflowOutcomes, WorkflowStates } from "./enums";
+import { TravelerProfileSchema } from "./TravelerProfile";
 
 const BaseEventMessageSchema = BaseMessageEnvelopeSchema.extend({
     kind: z.literal("event"),
@@ -13,26 +14,28 @@ export const SessionReadySchema = BaseEventMessageSchema.extend({
         session_id: z.string(),
         run_id: z.string(),
         workflow_state: z.enum(WorkflowStates),
-        has_checkpoint: z.boolean(),
+        has_recovery_state: z.boolean(),
+        confirmed_profile_revision: z.number().nullable(),
     }),
 })
 export type SessionReadyMessage = z.infer<typeof SessionReadySchema>;
 
 
+const QuestionOptionsSchema = z.object({
+    option_id: z.string(),
+    option_label: z.string(),
+    option_description: z.string().optional(),
+})
 export const DeliveryQuestionSchema = BaseEventMessageSchema.extend({
     type: z.literal("delivery.question"),
     payload: z.object({
-        /////////////// TOOOOOOOOOOOOOO DOOOOOOOOOOOOOOO
-// question_id 	Yes 	Stable identifier for this question within the run.
-// prompt 	Yes 	Question displayed to the traveler.
-// selection_mode 	Yes 	single or multiple.
-// required 	Yes 	Whether an answer is required before continuing.
-// options 	Yes 	Ordered list of selectable options.
-// options[].option_id 	Yes 	Stable identifier submitted in selected_option_ids.
-// options[].label 	Yes 	Human-readable option label.
-// options[].description 	Optional 	Supporting explanation for the option.
-// free_text_mode 	Yes 	disabled, optional, only_if_no_option, or required.
-// free_text_placeholder 	Optional 	Suggested text-field placeholder.
+        question_id: z.string(),
+        prompt: z.string(),
+        selection_mode: z.enum(DiscoveryAnsSelectionModes),
+        required: z.boolean(),
+        options: z.array(QuestionOptionsSchema),
+        free_text_mode: z.enum(DiscoveryFreeTextModes),
+        free_text_placeholder: z.string().optional(),
     }),
 })
 export type DeliveryQuestionMessage = z.infer<typeof DeliveryQuestionSchema>;
@@ -41,7 +44,9 @@ export type DeliveryQuestionMessage = z.infer<typeof DeliveryQuestionSchema>;
 export const ProfileSnapshotSchema = BaseEventMessageSchema.extend({
     type: z.literal("profile.snapshot"),
     payload: z.object({
-        // todo
+        revision: z.number(),
+        state: z.enum(ProfileSnapshotStates),
+        profile: TravelerProfileSchema,
     }),
 })
 export type ProfileSnapshotMessage = z.infer<typeof ProfileSnapshotSchema>;
@@ -50,7 +55,8 @@ export type ProfileSnapshotMessage = z.infer<typeof ProfileSnapshotSchema>;
 export const ProfileReadySchema = BaseEventMessageSchema.extend({
     type: z.literal("profile.ready"),
     payload: z.object({
-        // todo
+        profile_revision: z.number(),
+        blocking_unknowns: z.array(z.string()),
     }),
 })
 export type ProfileReadyMessage = z.infer<typeof ProfileReadySchema>;
@@ -68,16 +74,28 @@ export type AgentLifecycleMessage = z.infer<typeof AgentLifecycleSchema>;
 export const PlanningStatusSchema = BaseEventMessageSchema.extend({
     type: z.literal("planning.status"),
     payload: z.object({
-        // todo
+        phase: z.enum(PlanningPhases),
+        status: z.enum(PlanningStatus),
+        message: z.string(),
+        progress: z.number(),
     }),
 })
 export type PlanningStatusMessage = z.infer<typeof PlanningStatusSchema>;
 
 
+const DecisionOptionSchema = z.object({
+    option_id: z.string(),
+    label: z.string(),
+    tradeoff: z.string(),
+});
 export const DecisionRequestSchema = BaseEventMessageSchema.extend({
     type: z.literal("decision.request"),
     payload: z.object({
-        // todo
+        decision_id: z.string(),
+        profile_revision: z.number(),
+        reason: z.string(),
+        prompt: z.string(),
+        options: z.array(DecisionOptionSchema),
     }),
 })
 export type DecisionRequestMessage = z.infer<typeof DecisionRequestSchema>;
@@ -95,7 +113,8 @@ export type PlanSnapshotMessage = z.infer<typeof PlanSnapshotSchema>;
 export const WorkflowCompletedSchema = BaseEventMessageSchema.extend({
     type: z.literal("workflow.completed"),
     payload: z.object({
-        // todo
+        outcome: z.enum(WorkflowOutcomes),
+        final_plan_revision: z.number(),
     }),
 })
 export type WorkflowCompletedMessage = z.infer<typeof WorkflowCompletedSchema>;
@@ -104,7 +123,8 @@ export type WorkflowCompletedMessage = z.infer<typeof WorkflowCompletedSchema>;
 export const SessionExpiredSchema = BaseEventMessageSchema.extend({
     type: z.literal("session.expired"),
     payload: z.object({
-        // todo
+        reason: z.string(),
+        can_start_new_session: z.boolean(),
     }),
 })
 export type SessionExpiredMessage = z.infer<typeof SessionExpiredSchema>;

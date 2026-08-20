@@ -1,6 +1,5 @@
-// TOOOOOOOO DOOOOOOOOOOOOOOO
 
-export enum Command {
+export enum Commands {
     SESSION_START = "session.start",
     DISCOVERY_ANSWER = 'discovery.answer',
     RUN_CANCEL = 'run.cancel',
@@ -10,19 +9,34 @@ export enum Command {
     DECISION_RESPOND = 'decision.respond',
 }
 
-export enum Event {
+export enum Events {
+    SESSION_EXPIRED = 'session.expired',
+    WORKFLOW_COMPLETED = 'workflow.completed',
+    DECISION_REQUEST = 'decision.request',
+    PLANNING_STATUS = 'planning.status',
+    PROFILE_READY = 'profile.ready',
+    PROFILE_SNAPSHOT = 'profile.snapshot',
+    DELIVERY_QUESTION = 'delivery.question',
+    SESSION_READY = 'session.ready',
 }
 
-export enum Acknowledge {
+export enum Acks {
     COMMAND_ACCEPTED = 'command.accepted',
     COMMAND_REJECTED = 'command.rejected',
 }
 
-export enum Error {
+export enum Errors {
     ERROR = "error"
 } 
 
-export enum RejectionCode {
+export enum MessageKinds {
+    COMMAND = 'command',
+    EVENT = 'event',
+    ACK = 'ack',
+    ERROR = 'error',
+}
+
+export enum RejectionCodes {
     INVALID_ENVELOPE = "invalid_envelope",
     UNSUPPORTED_MESSAGE_TYPE = "unsupported_message_type",
     SESSION_NOT_FOUND = "session_not_found",
@@ -48,4 +62,47 @@ export enum WorkflowStates {
     CANCELLED = "cancelled",
     EXPIRED = "expired",
     DECISION_REQUIRED = 'decision_required',
+}
+
+export enum DiscoveryAnsSelectionModes {
+    SINGLE = 'single',
+    MULTIPLE = 'multiple',
+}
+
+export enum DiscoveryFreeTextModes {
+    DISABLED = 'disabled',
+    OPTIONAL = 'optional',
+    ONLY_IF_NO_OPTION = 'only_if_no_option',
+    REQUIRED = 'required',
+}
+
+export enum PlanningPhases {
+    PROFILE_VALIDATION = 'profile_validation',
+    DESTINATION_DESIGN = 'destination_design',
+    EXPERIENCE_SELECTION = 'experience_selection',
+    MOBILITY = 'mobility',
+    COST = 'cost',
+    SIMULATION = 'simulation',
+    OPTIMIZATION = 'optimization',
+    DECISION_REQUIRED = 'decision_required',
+    EXPLANATION = 'explanation',
+    REPLANNING = 'replanning',
+}
+
+export enum PlanningStatus {
+    QUEUED = 'queued',
+    RUNNING = 'running',
+    COMPLETED = 'completed',
+    FAILED = 'failed',
+}
+
+export enum WorkflowOutcomes {
+    FINAL_PLAN_AVAILABLE = 'final_plan_available',
+    CANCELLED = 'cancelled',
+}
+
+export enum ProfileSnapshotStates {
+    DRAFT = 'draft',
+    READY = 'ready',
+    CONFIRMED = 'confirmed'
 }

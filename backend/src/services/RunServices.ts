@@ -1,4 +1,6 @@
+import { setWorkflowState, unsetRunId } from "../models/data";
 import { RunCancelMessage } from "../structures/CommandMessage";
+import { WorkflowStates } from "../structures/enums";
 import { ServiceResult } from "../structures/types";
 
 export async function runCancelService(
@@ -6,7 +8,9 @@ export async function runCancelService(
 ): Promise<ServiceResult[]> {
     const res: ServiceResult[] = []
 
-    // unset current run for session id - set it as expired or whatev
+    unsetRunId(data.session_id)
+
+    setWorkflowState(data.session_id, WorkflowStates.CANCELLED)
 
     return res
 }

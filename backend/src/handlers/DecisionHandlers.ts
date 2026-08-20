@@ -1,6 +1,6 @@
 import { Socket } from 'socket.io';
 import { logger } from '../modules/logger';
-import { Acknowledge } from '../structures/enums';
+import { Acks } from '../structures/enums';
 import { DecisionRespondMessage, DecisionRespondSchema, SessionStartSchema } from '../structures/CommandMessage';
 import { decisionRespondService } from '../services/DecisionServices';
 import { checkBaseCommandRejections } from './BaseValidation';
@@ -21,7 +21,7 @@ export async function decisionRespondHandler(socket: Socket, data: DecisionRespo
         await currentWorkflowState(data.session_id),
         false,
     )
-    socket.emit(Acknowledge.COMMAND_ACCEPTED, ackmsg)
+    socket.emit(Acks.COMMAND_ACCEPTED, ackmsg)
 
     const reses: ServiceResult[] = await decisionRespondService(data)
 

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { BaseMessageEnvelopeSchema } from "./MessageEnvelope";
-import { RejectionCode, WorkflowStates } from "./enums";
+import { RejectionCodes, WorkflowStates } from "./enums";
 
 const BaseAckMessageSchema = BaseMessageEnvelopeSchema.extend({
     kind: z.literal('ack'),
@@ -18,7 +18,7 @@ export type CommandAcceptedMessage = z.infer<typeof CommandAcceptedSchema>;
 export const CommandRejectedSchema = BaseAckMessageSchema.extend({
     type: z.literal('command.rejected'),
     accepted: z.literal(false),
-    code: z.enum(RejectionCode),
+    code: z.enum(RejectionCodes),
     message: z.string(),
     retryable: z.boolean(),
     recovery: z.record(z.string(), z.unknown()),

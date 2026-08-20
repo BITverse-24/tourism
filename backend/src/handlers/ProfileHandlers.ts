@@ -2,7 +2,7 @@ import { Socket } from 'socket.io';
 import { logger } from '../modules/logger';
 import { ProfileConfirmMessage, ProfileConfirmSchema, ProfileRequestChangesMessage, ProfileRequestChangesSchema } from '../structures/CommandMessage';
 import { profileConfirmService, profileRequestChangesService } from '../services/ProfileServices';
-import { Acknowledge } from '../structures/enums';
+import { Acks } from '../structures/enums';
 import { checkBaseCommandRejections } from './BaseValidation';
 import { buildAckMsg } from '../factory/Ack';
 import { AckMessage } from '../structures/AckMessage';
@@ -27,7 +27,7 @@ export async function profileConfirmHandler(socket: Socket, data: ProfileConfirm
         await currentWorkflowState(data.session_id),
         false,
     )
-    socket.emit(Acknowledge.COMMAND_ACCEPTED, ackmsg)
+    socket.emit(Acks.COMMAND_ACCEPTED, ackmsg)
 
     const reses: ServiceResult[] = await profileConfirmService(data)
 
@@ -50,7 +50,7 @@ export async function profileRequestChangesHandler(
         await currentWorkflowState(data.session_id),
         false,
     )
-    socket.emit(Acknowledge.COMMAND_ACCEPTED, ackmsg)
+    socket.emit(Acks.COMMAND_ACCEPTED, ackmsg)
 
     const reses: ServiceResult[] = await profileRequestChangesService(data)
 
