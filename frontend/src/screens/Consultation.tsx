@@ -1,12 +1,11 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
 
 /**
- * Consultation — Night Desk
- * Full-ink veil 100svh, 96px ripple + 192px glow breathing 3s sinusoid,
- * bone status line 85-90%, 320px lifecycle rail with 10 stages,
- * graceful 12s timeout → clay dot + Try again, no progress bar.
- * Rail collapses to 4px brass edge outside consultation (handled via CSS).
- * Basic timer mock only — no real WebSocket, idempotent retry.
+ * Consultation — Voyager Consultation (One screen, three states)
+ * WORKING → DECISION_REQUIRED → RESUMING → WORKING
+ * Dark navy/charcoal (#18232A / #1B252C), amber orb, 320px lifecycle rail.
+ * Decision surfaces as warm light emerging from dark: panel #202B30 / #263137
+ * with ivory typography, no cream modal, no navigation.
  */
 
 type StageStatus = "queued" | "started" | "progressed" | "completed" | "failed";
@@ -18,7 +17,6 @@ type Stage = {
   summary?: string;
 };
 
-// Canonical ten-stage order — README / AGENT_ARCHITECTURE / WEBSOCKET_CONTRACT
 const STAGE_DEFS: { key: string; label: string }[] = [
   { key: "discovery", label: "Discovery" },
   { key: "constraint_preference", label: "Constraint & Preference" },
@@ -32,7 +30,6 @@ const STAGE_DEFS: { key: string; label: string }[] = [
   { key: "continuous_replanning", label: "Continuous Replanning" },
 ];
 
-// Traveler-safe planning messages — never raw phase identifiers
 const PLANNING_MESSAGES: string[] = [
   "Preparing a thoughtful plan for you.",
   "Consulting on comfort and feasibility.",
@@ -62,14 +59,40 @@ function statusText(s: StageStatus): string {
   return "Needs attention";
 }
 
+// Decision types — mirrors DecisionRequired payload
+export type DecisionOption = { option_id: string; label: string; tradeoff: string };
+export type DecisionRequest = {
+  decision_id: string;
+  prompt: string;
+  reason?: string;
+  sequenceLabel?: string; // e.g. "01  ·  TRADE-OFF"
+  kicker?: string; // e.g. "A CHOICE IS NEEDED"
+  options: DecisionOption[];
+};
+
+const DEFAULT_DECISION: DecisionRequest = {
+  decision_id: "decision_profile7_route_a_route_b",
+  sequenceLabel: "01  ·  TRADE-OFF",
+  kicker: "A CHOICE IS NEEDED",
+  prompt: "Would you rather keep the pace gentle or see a little more, even if it means more walking?",
+  reason: "material_tradeoff",
+  options: [
+    { option_id: "comfort", label: "Prioritize comfort", tradeoff: "Fewer attraction visits and less movement — more rest, less transit." },
+    { option_id: "coverage", label: "Prioritize coverage", tradeoff: "More attraction visits and a higher movement burden — see more, walk more." },
+  ],
+};
+
 export type ConsultationProps = {
-  /** Optional external control — if omitted, internal mock timer drives the screen */
   stages?: Stage[];
   planningMessage?: string | null;
   lastSequenceAt?: number;
   onRetry?: () => void;
-  /** When false the rail renders in its collapsed 4px brass edge form (outside consultation) */
   expanded?: boolean;
+  /** Decision integration — if provided, consultation enters decision_required */
+  decisionRequest?: DecisionRequest | null;
+  onDecisionSubmit?: (optionId: string, decisionId: string) => void;
+  /** Controls mock decision auto-trigger when no external decision provided. Default true */
+  enableMockDecision?: boolean;
 };
 
 export default function Consultation({
@@ -78,6 +101,9 @@ export default function Consultation({
   lastSequenceAt: externalSeq,
   onRetry,
   expanded = true,
+  decisionRequest: externalDecision,
+  onDecisionSubmit,
+  enableMockDecision = true,
 }: ConsultationProps) {
   const [internalStages, setInternalStages] = useState<Stage[]>(() =>
     STAGE_DEFS.map((d) => ({ ...d, status: "queued" as StageStatus, summary: undefined }))
@@ -89,50 +115,57 @@ export default function Consultation({
   const retryCountRef = useRef(0);
   const seqRef = useRef<number>(Date.now());
 
+  // Decision state machine
+  const [mockDecisionVisible, setMockDecisionVisible] = useState(false);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const [resuming, setResuming] = useState(false);
+  const [decisionFadingOut, setDecisionFadingOut] = useState(false);
+
   const stages = externalStages ?? internalStages;
   const usesMock = externalStages === undefined;
 
-  // Derive status line: prefer planning message, fallback to latest lifecycle summary, else default
+  // Determine if we have an active decision
+  const hasExternalDecision = externalDecision !== undefined && externalDecision !== null;
+  const activeDecision: DecisionRequest | null = hasExternalDecision
+    ? (externalDecision as DecisionRequest)
+    : mockDecisionVisible
+      ? DEFAULT_DECISION
+      : null;
+
+  const isDecisionRequired = !!activeDecision && !resuming;
+  const isResuming = resuming;
+  const isWorking = !isDecisionRequired && !isResuming;
+
   const planningMessage = externalPlanningMessage ?? PLANNING_MESSAGES[planningIdx] ?? PLANNING_MESSAGES[0];
   const lastSummary = (() => {
-    // latest stage with summary and not queued
     for (let i = stages.length - 1; i >= 0; i--) {
       if (stages[i].summary && stages[i].status !== "queued") return stages[i].summary!;
     }
     return null;
   })();
   const statusLine = planningMessage || lastSummary || "Preparing a thoughtful plan for you.";
-
-  // Track last sequence — external or internal mock tick
   const lastSeq = externalSeq ?? seqTick;
 
-  // Mock timer: progress stages deterministically, update seqTick as new event
+  // Mock timer: progress stages deterministically
   useEffect(() => {
     if (!usesMock) return;
-    if (timedOut) return; // pause mock while timed out
+    if (timedOut) return;
+    if (isDecisionRequired || isResuming) return; // pause progression during decision
 
     let current = 0;
-    // start first stage as started after short delay
     const interval = window.setInterval(() => {
       setInternalStages((prev) => {
         const next = prev.map((s) => ({ ...s }));
-        // find first non-completed non-failed that is queued/started
-        // advance in order: queued -> started -> completed
         const idx = next.findIndex((s) => s.status === "queued" || s.status === "started" || s.status === "progressed");
-        if (idx === -1) {
-          // all done
-          return prev;
-        }
+        if (idx === -1) return prev;
         const st = next[idx];
         if (st.status === "queued") {
           st.status = "started";
           st.summary = LIFECYCLE_SUMMARIES[st.key];
         } else if (st.status === "started" || st.status === "progressed") {
-          // occasionally mark progressed then completed
           st.status = "completed";
-          // keep summary
         }
-        // advance planning message occasionally
         setPlanningIdx((p) => Math.min(p + 1, PLANNING_MESSAGES.length - 1));
         const now = Date.now();
         seqRef.current = now;
@@ -145,11 +178,26 @@ export default function Consultation({
     }, 1400);
 
     return () => window.clearInterval(interval);
-  }, [usesMock, timedOut]);
+  }, [usesMock, timedOut, isDecisionRequired, isResuming]);
 
-  // Graceful timeout: ~12s without newer sequence event
+  // Auto-trigger mock decision after constraint_preference starts
+  useEffect(() => {
+    if (!enableMockDecision) return;
+    if (hasExternalDecision) return; // external controls
+    if (mockDecisionVisible || resuming) return;
+    if (!usesMock) return;
+    // When second stage becomes started, show decision after short delay
+    const constraint = internalStages.find((s) => s.key === "constraint_preference");
+    if (constraint && (constraint.status === "started" || constraint.status === "progressed")) {
+      const t = window.setTimeout(() => setMockDecisionVisible(true), 900);
+      return () => window.clearTimeout(t);
+    }
+  }, [internalStages, enableMockDecision, hasExternalDecision, mockDecisionVisible, resuming, usesMock]);
+
+  // Graceful timeout: ~12s without newer sequence event, paused during decision
   useEffect(() => {
     if (timedOut) return;
+    if (isDecisionRequired || isResuming) return;
     const start = lastSeq;
     seqRef.current = start;
     setElapsed(0);
@@ -163,59 +211,200 @@ export default function Consultation({
       }
     }, 250);
     return () => window.clearInterval(tick);
-  }, [lastSeq, timedOut]);
+  }, [lastSeq, timedOut, isDecisionRequired, isResuming]);
 
-  // When external seq changes, keep ref in sync
   useEffect(() => {
     seqRef.current = lastSeq;
   }, [lastSeq]);
 
+  // Reset selection when decision changes
+  useEffect(() => {
+    if (activeDecision) {
+      setSelected(null);
+      setConfirming(false);
+      setDecisionFadingOut(false);
+    }
+  }, [activeDecision?.decision_id]);
+
   const handleRetry = useCallback(() => {
-    // Idempotent: do not reset completed stages, do not show spinner, same correlation concept
     retryCountRef.current += 1;
     setTimedOut(false);
     setElapsed(0);
     const now = Date.now();
     seqRef.current = now;
     setSeqTick(now);
-    // keep completed stages, only nudge planning index back one so status feels responsive
     setPlanningIdx((p) => Math.max(0, p - 0));
     onRetry?.();
   }, [onRetry]);
 
+  const handleContinue = useCallback(() => {
+    if (!selected || !activeDecision || confirming || resuming) return;
+    setConfirming(true);
+    // show amber outline + check for ~500ms, then dissolve into resuming
+    window.setTimeout(() => {
+      setDecisionFadingOut(true);
+      window.setTimeout(() => {
+        setResuming(true);
+        setMockDecisionVisible(false);
+        setDecisionFadingOut(false);
+        setConfirming(false);
+        // Notify parent
+        onDecisionSubmit?.(selected, activeDecision.decision_id);
+        // After resuming display (~1800ms), return to working
+        window.setTimeout(() => {
+          setResuming(false);
+          setSelected(null);
+          // mark constraint stage as completed and advance
+          if (usesMock) {
+            setInternalStages((prev) => {
+              const next = prev.map((s) => ({ ...s }));
+              const idx = next.findIndex((s) => s.key === "constraint_preference");
+              if (idx !== -1) {
+                next[idx].status = "completed";
+                next[idx].summary = "Preference recorded — continuing with your choice.";
+                // start next stage
+                const nxt = next[idx + 1];
+                if (nxt && nxt.status === "queued") {
+                  nxt.status = "started";
+                  nxt.summary = LIFECYCLE_SUMMARIES[nxt.key];
+                }
+              }
+              return next;
+            });
+            const now = Date.now();
+            seqRef.current = now;
+            setSeqTick(now);
+          }
+        }, 1800);
+      }, 380);
+    }, 520);
+  }, [selected, activeDecision, confirming, resuming, onDecisionSubmit, usesMock]);
+
+  // Determine which stage is the decision point (constraint_preference by default)
+  const decisionStageKey = "constraint_preference";
+
   return (
-    <main className={`consultation${expanded ? " is-expanded" : " is-collapsed"}`} role="main" aria-label="Consultation">
-      {/* transparent header 72px */}
+    <main
+      className={`consultation${expanded ? " is-expanded" : " is-collapsed"}${isDecisionRequired ? " is-decision" : ""}${isResuming ? " is-resuming" : ""}`}
+      role="main"
+      aria-label="Consultation"
+      data-state={isDecisionRequired ? "decision_required" : isResuming ? "resuming" : "working"}
+    >
       <header className="consultation-header" aria-hidden="true">
         <span className="consultation-header-label">Consultation</span>
       </header>
 
       <div className="consultation-layout">
         <div className="consultation-center">
-          {/* Ripple — 96px visual diameter, 192px glow footprint, 3s sinusoid */}
+          {/* Orb — remains as visual anchor, stronger glow in decision */}
           <div className="ripple-stage" aria-hidden="true">
-            {timedOut ? (
+            {timedOut && !isDecisionRequired && !isResuming ? (
               <div className="timeout-dot" data-testid="timeout-dot" aria-hidden="true" />
             ) : (
-              <div className="ripple" data-testid="ripple" aria-hidden="true">
+              <div
+                className={`ripple${isDecisionRequired ? " ripple--decision" : ""}${isResuming ? " ripple--resuming" : ""}`}
+                data-testid="ripple"
+                aria-hidden="true"
+              >
                 <div className="ripple-glow" />
                 <div className="ripple-core" />
+                {isDecisionRequired && (
+                  <>
+                    <span className="ripple-orbit ripple-orbit--a" />
+                    <span className="ripple-orbit ripple-orbit--b" />
+                  </>
+                )}
               </div>
             )}
           </div>
 
-          {/* Status line — bone 85-90% opacity, centered, polite live region */}
-          <p
-            className="status-line"
-            aria-live="polite"
-            aria-atomic="true"
-            data-testid="status-line"
-            style={{ opacity: timedOut ? 0.72 : 0.88 }}
-          >
-            {statusLine}
-          </p>
+          {/* WORKING status line */}
+          {isWorking && !timedOut && (
+            <p
+              className="status-line"
+              aria-live="polite"
+              aria-atomic="true"
+              data-testid="status-line"
+              style={{ opacity: 0.88 }}
+            >
+              {statusLine}
+            </p>
+          )}
 
-          {timedOut && (
+          {/* RESUMING status */}
+          {isResuming && (
+            <div className="resuming-block" aria-live="polite" data-testid="resuming-block">
+              <p className="resuming-title">Preference recorded.</p>
+              <p className="resuming-sub">Reworking the journey…</p>
+            </div>
+          )}
+
+          {/* DECISION surface — replaces status line, not a modal */}
+          {isDecisionRequired && activeDecision && (
+            <section
+              className={`decision-surface${decisionFadingOut ? " is-exiting" : " is-entering"}`}
+              aria-label="Choice required"
+              data-testid="decision-surface"
+              role="group"
+            >
+              <div className="decision-eyebrow mono" aria-hidden="true">
+                {activeDecision.sequenceLabel ?? "01  ·  TRADE-OFF"}
+              </div>
+              <div className="decision-kicker mono">{activeDecision.kicker ?? "A CHOICE IS NEEDED"}</div>
+              <h2 className="decision-prompt serif">{activeDecision.prompt}</h2>
+
+              <div className="decision-cards" role="group" aria-label="Choose one option">
+                {activeDecision.options.map((o, idx) => {
+                  const isSelected = selected === o.option_id;
+                  const isConfirmingThis = isSelected && confirming;
+                  return (
+                    <button
+                      key={o.option_id}
+                      type="button"
+                      aria-pressed={isSelected}
+                      aria-label={`${o.label}: ${o.tradeoff}`}
+                      onClick={() => {
+                        if (confirming || resuming) return;
+                        setSelected(o.option_id);
+                      }}
+                      className={`decision-card${isSelected ? " is-selected" : ""}${isConfirmingThis ? " is-confirming" : ""}`}
+                      data-testid={`decision-option-${o.option_id}`}
+                      style={{ animationDelay: `${120 + idx * 90}ms` }}
+                    >
+                      <div className="card-head">
+                        <span className="card-index mono">0{idx + 1}</span>
+                        <span className="card-head-line" aria-hidden="true" />
+                        <span className="card-radio" aria-hidden="true">
+                          <span className="card-radio-dot" />
+                        </span>
+                      </div>
+                      <div className="card-label serif">{o.label}</div>
+                      <div className="card-tradeoff">{o.tradeoff}</div>
+                      {isConfirmingThis && <span className="card-check" aria-hidden="true">✓</span>}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <button
+                type="button"
+                onClick={handleContinue}
+                disabled={!selected || confirming}
+                className="decision-continue"
+                data-testid="decision-continue"
+                aria-label="Confirm preference"
+                style={{ opacity: !selected || confirming ? 0.38 : 1 }}
+              >
+                <span>{confirming ? "Confirming…" : "Continue"}</span>
+                <span aria-hidden="true" className="continue-arrow">→</span>
+              </button>
+              <div className="decision-hint mono" aria-hidden="true">
+                Select a card, then continue — your choice shapes what follows
+              </div>
+            </section>
+          )}
+
+          {timedOut && isWorking && (
             <button
               type="button"
               className="retry-link"
@@ -227,13 +416,12 @@ export default function Consultation({
             </button>
           )}
 
-          {/* Elapsed helper — basic timer mock only (no progress bar) */}
           <span className="sr-only" aria-live="polite">
             {timedOut ? "Consultation paused. You can try again." : `Consulting — ${Math.floor(elapsed / 1000)} seconds`}
           </span>
         </div>
 
-        {/* Lifecycle rail — 320px ledger when expanded, 4px brass edge when collapsed */}
+        {/* Lifecycle rail — acknowledges interruption */}
         <aside
           className="lifecycle-rail"
           aria-label="Planning stages"
@@ -248,36 +436,52 @@ export default function Consultation({
                 const isCompleted = stage.status === "completed";
                 const isFailed = stage.status === "failed";
                 const isQueued = stage.status === "queued";
+                const isDecisionStage = stage.key === decisionStageKey;
+                const showDecisionInterrupt = isDecisionStage && (isDecisionRequired || isResuming);
+                const dimQueuedAfterDecision = isDecisionRequired && isQueued && idx > 1;
+
                 return (
                   <li
                     key={stage.key}
-                    className={`rail-item rail-item--${stage.status}`}
+                    className={`rail-item rail-item--${stage.status}${showDecisionInterrupt ? " rail-item--decision" : ""}${dimQueuedAfterDecision ? " rail-item--dimmed" : ""}`}
                     data-testid={`stage-${stage.key}`}
-                    data-status={stage.status}
-                    style={{ animationDelay: `${idx * 60}ms` }}
+                    data-status={showDecisionInterrupt ? "decision_required" : stage.status}
+                    style={{ animationDelay: `${idx * 60}ms` } as React.CSSProperties}
                   >
                     <div className="rail-item-row">
-                      <span className="rail-indicator" aria-hidden="true" data-status={stage.status}>
-                        {/* shape: empty ring / breathing dot / sage / clay */}
-                        {isQueued && <span className="indicator-ring" />}
-                        {isActive && <span className="indicator-breathing" />}
-                        {isCompleted && <span className="indicator-sage" />}
-                        {isFailed && <span className="indicator-clay" />}
-                        {/* timeout replaces all with clay at center dot position is handled separately */}
+                      <span className="rail-indicator" aria-hidden="true" data-status={showDecisionInterrupt ? "decision_required" : stage.status}>
+                        {showDecisionInterrupt ? (
+                          <span className="indicator-decision" />
+                        ) : isQueued ? (
+                          <span className="indicator-ring" />
+                        ) : isActive ? (
+                          <span className="indicator-breathing" />
+                        ) : isCompleted ? (
+                          <span className="indicator-sage" />
+                        ) : isFailed ? (
+                          <span className="indicator-clay" />
+                        ) : null}
                       </span>
                       <div className="rail-text">
                         <span className="rail-label">{stage.label}</span>
-                        <span className="rail-status-text">{statusText(stage.status)}</span>
+                        <span className={`rail-status-text${showDecisionInterrupt ? " rail-status-text--decision" : ""}`}>
+                          {showDecisionInterrupt ? (isResuming ? "In progress" : "Decision required") : statusText(stage.status)}
+                        </span>
                       </div>
                     </div>
-                    {stage.summary && (
-                      <p className="rail-summary">{stage.summary}</p>
-                    )}
-                    {isFailed && !stage.summary && (
-                      <p className="rail-summary rail-summary--failed">
-                        This check will be retried — your plan is still being shaped.
+                    {(showDecisionInterrupt || stage.summary) && (
+                      <p className={`rail-summary${showDecisionInterrupt ? " rail-summary--decision" : ""}`}>
+                        {showDecisionInterrupt
+                          ? isResuming
+                            ? "Preference recorded. Reworking…"
+                            : "Your input is needed to continue."
+                          : stage.summary}
                       </p>
                     )}
+                    {isFailed && !stage.summary && !showDecisionInterrupt && (
+                      <p className="rail-summary rail-summary--failed">This check will be retried — your plan is still being shaped.</p>
+                    )}
+                    {showDecisionInterrupt && <div className="rail-decision-rule" aria-hidden="true" />}
                   </li>
                 );
               })}
@@ -293,6 +497,7 @@ export default function Consultation({
           --voyager-bone-2: #E1D6C5;
           --voyager-bone-3: #C9BBA5;
           --voyager-ink-0: #1B252C;
+          --voyager-ink-deep: #18232A;
           --voyager-ink-1: #263239;
           --voyager-ink-2: #56636A;
           --voyager-ink-3: #7D878A;
@@ -306,6 +511,9 @@ export default function Consultation({
           --voyager-radius-md: 12px;
           --voyager-shadow-night-rail: -12px 0 30px rgba(0, 0, 0, .12);
           --voyager-focus-ring: 0 0 0 3px rgba(216, 193, 154, .72);
+          --voyager-decision-panel: #202B30;
+          --voyager-decision-card: #263137;
+          --voyager-decision-card-hover: #2A383E;
         }
         * { box-sizing: border-box; }
         .sr-only {
@@ -315,14 +523,14 @@ export default function Consultation({
           overflow: hidden; clip: rect(0,0,0,0);
           white-space: nowrap; border: 0;
         }
-        /* Page veil — full ink 100svh */
+        .mono { font-family: IBM Plex Mono, ui-monospace, monospace; }
+        .serif { font-family: Fraunces, Georgia, serif; }
         .consultation {
           min-height: 100svh;
-          background: var(--voyager-ink-0);
+          background: var(--voyager-ink-deep);
           color: var(--voyager-light-ink);
           display: flex;
           flex-direction: column;
-          /* subtle velvet: barely perceptible inner softness, no glossy sweep */
           position: relative;
           overflow: hidden;
         }
@@ -332,6 +540,11 @@ export default function Consultation({
           inset: 0;
           background: radial-gradient(ellipse 80% 60% at 50% 42%, rgba(242,235,221,0.045) 0%, transparent 68%);
           pointer-events: none;
+        }
+        .consultation.is-decision::before {
+          background:
+            radial-gradient(ellipse 70% 52% at 50% 46%, rgba(179,138,85,0.09) 0%, transparent 62%),
+            radial-gradient(ellipse 80% 60% at 50% 42%, rgba(242,235,221,0.045) 0%, transparent 68%);
         }
         .consultation-header {
           height: 72px;
@@ -366,20 +579,19 @@ export default function Consultation({
           justify-content: center;
           padding: 48px 32px 64px;
           text-align: center;
-          /* reserve rail at >=1200px so ripple centers in remaining central area */
         }
         @media (min-width: 1200px) {
           .consultation.is-expanded .consultation-center {
             margin-right: 320px;
           }
         }
-        /* Ripple stage — 192px footprint, core 96px */
         .ripple-stage {
           width: 192px;
           height: 192px;
           display: grid;
           place-items: center;
           margin-bottom: 28px;
+          flex-shrink: 0;
         }
         .ripple {
           width: 192px;
@@ -406,6 +618,32 @@ export default function Consultation({
           opacity: 0.92;
           animation: breathe-core 3s ease-in-out infinite;
         }
+        .ripple--decision .ripple-glow {
+          background: radial-gradient(circle, rgba(179,138,85,0.55) 0%, rgba(179,138,85,0.26) 36%, rgba(179,138,85,0.10) 60%, transparent 72%);
+          filter: blur(0.4px);
+          animation: breathe-glow-strong 2.6s ease-in-out infinite;
+        }
+        .ripple--decision .ripple-core {
+          box-shadow: 0 0 56px rgba(179,138,85,0.52), 0 0 110px rgba(179,138,85,0.24);
+          animation: breathe-core-strong 2.6s ease-in-out infinite;
+        }
+        .ripple-orbit {
+          position: absolute;
+          width: 6px;
+          height: 6px;
+          border-radius: 999px;
+          background: rgba(216,193,154,0.72);
+          box-shadow: 0 0 8px rgba(216,193,154,0.55);
+          opacity: 0.85;
+        }
+        .ripple-orbit--a { transform: translate(-52px, -8px); animation: orbit-pulse 2.2s ease-in-out infinite; }
+        .ripple-orbit--b { transform: translate(52px, 8px); animation: orbit-pulse 2.2s ease-in-out 0.7s infinite; }
+        @keyframes orbit-pulse {
+          0%,100% { opacity: 0.45; transform: scale(0.9) translate(var(--tx, -52px), var(--ty, -8px)); }
+          50% { opacity: 0.9; transform: scale(1.15) translate(var(--tx, -52px), var(--ty, -8px)); }
+        }
+        .ripple-orbit--a { --tx: -52px; --ty: -8px; }
+        .ripple-orbit--b { --tx: 52px; --ty: 8px; }
         @keyframes breathe-glow {
           0%, 100% { transform: scale(0.86); opacity: 0.72; }
           50% { transform: scale(1.06); opacity: 0.38; }
@@ -414,7 +652,14 @@ export default function Consultation({
           0%, 100% { transform: scale(0.94); opacity: 0.90; }
           50% { transform: scale(1.04); opacity: 0.62; }
         }
-        /* Timeout dot — small solid muted clay, centered in same space */
+        @keyframes breathe-glow-strong {
+          0%,100% { transform: scale(0.92); opacity: 0.82; }
+          50% { transform: scale(1.08); opacity: 0.48; }
+        }
+        @keyframes breathe-core-strong {
+          0%,100% { transform: scale(0.97); opacity: 0.94; }
+          50% { transform: scale(1.06); opacity: 0.72; }
+        }
         .timeout-dot {
           width: 12px;
           height: 12px;
@@ -428,18 +673,46 @@ export default function Consultation({
           from { opacity: 0; transform: scale(0.6); }
           to { opacity: 0.92; transform: scale(1); }
         }
-        /* Status line — bone 85-90% centered, generous tracking, comfortable length */
         .status-line {
           font-family: General Sans, Inter, ui-sans-serif, sans-serif;
           font-size: 16px;
           line-height: 25px;
           font-weight: 400;
           color: var(--voyager-light-ink);
-          /* opacity via inline style: 0.88 active, 0.72 timeout */
           letter-spacing: 0.02em;
           max-width: 46ch;
           margin: 0;
           text-wrap: balance;
+          animation: status-enter 420ms ease both;
+        }
+        @keyframes status-enter {
+          from { opacity: 0; transform: translateY(6px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        .resuming-block {
+          text-align: center;
+          animation: resuming-enter 420ms cubic-bezier(0.22,1,0.36,1) both;
+        }
+        .resuming-title {
+          font-family: Fraunces, Georgia, serif;
+          font-size: 20px;
+          line-height: 28px;
+          font-weight: 400;
+          color: var(--voyager-light-ink);
+          margin: 0;
+          letter-spacing: -0.01em;
+        }
+        .resuming-sub {
+          margin-top: 8px;
+          font-family: General Sans, Inter, ui-sans-serif, sans-serif;
+          font-size: 14px;
+          line-height: 20px;
+          color: rgba(242,235,221,0.68);
+          letter-spacing: 0.02em;
+        }
+        @keyframes resuming-enter {
+          from { opacity: 0; transform: translateY(8px); }
+          to { opacity: 1; transform: translateY(0); }
         }
         .retry-link {
           margin-top: 16px;
@@ -462,12 +735,257 @@ export default function Consultation({
           box-shadow: var(--voyager-focus-ring);
           border-radius: 6px;
         }
-        /* Lifecycle rail — 320px ledger, lifted with soft shadow + warm hairline */
+
+        /* Decision surface — warm light emerging from dark */
+        .decision-surface {
+          width: min(560px, 92vw);
+          background: var(--voyager-decision-panel);
+          border: 1px solid rgba(242,235,221,0.08);
+          border-radius: 18px;
+          padding: 28px 28px 22px;
+          box-shadow: 0 16px 48px rgba(0,0,0,0.28), 0 1px 0 rgba(242,235,221,0.06) inset;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 0;
+          position: relative;
+          text-align: center;
+          margin-top: 8px;
+        }
+        .decision-surface::before {
+          content: "";
+          position: absolute;
+          inset: -1px;
+          border-radius: 18px;
+          background: radial-gradient(ellipse 90% 70% at 50% 0%, rgba(216,193,154,0.08) 0%, transparent 58%);
+          pointer-events: none;
+        }
+        .decision-surface.is-entering {
+          animation: decision-enter 480ms cubic-bezier(0.22,1,0.36,1) both;
+        }
+        .decision-surface.is-exiting {
+          animation: decision-exit 360ms ease both;
+        }
+        @keyframes decision-enter {
+          from { opacity: 0; transform: translateY(14px) scale(0.98); filter: blur(2px); }
+          to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+        }
+        @keyframes decision-exit {
+          from { opacity: 1; transform: translateY(0) scale(1); }
+          to { opacity: 0; transform: translateY(8px) scale(0.98); }
+        }
+        .decision-eyebrow {
+          font-size: 10px;
+          letter-spacing: 0.18em;
+          text-transform: uppercase;
+          color: rgba(242,235,221,0.48);
+          font-weight: 500;
+          margin-bottom: 14px;
+        }
+        .decision-kicker {
+          font-size: 10px;
+          letter-spacing: 0.16em;
+          text-transform: uppercase;
+          color: var(--voyager-brass-2);
+          font-weight: 600;
+          margin-bottom: 14px;
+          animation: decision-kicker-enter 420ms ease 120ms both;
+        }
+        @keyframes decision-kicker-enter {
+          from { opacity: 0; transform: translateY(6px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        .decision-prompt {
+          font-size: 22px;
+          line-height: 30px;
+          font-weight: 400;
+          color: var(--voyager-light-ink);
+          letter-spacing: -0.015em;
+          margin: 0;
+          max-width: 28ch;
+          text-wrap: balance;
+          animation: decision-prompt-enter 420ms ease 180ms both;
+        }
+        @keyframes decision-prompt-enter {
+          from { opacity: 0; transform: translateY(6px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        .decision-cards {
+          display: flex;
+          flex-direction: column;
+          gap: 14px;
+          width: 100%;
+          margin-top: 26px;
+        }
+        .decision-card {
+          text-align: left;
+          padding: 20px 20px 18px;
+          border-radius: 14px;
+          border: 1px solid rgba(242,235,221,0.07);
+          background: var(--voyager-decision-card);
+          color: var(--voyager-light-ink);
+          cursor: pointer;
+          position: relative;
+          overflow: hidden;
+          width: 100%;
+          transition: border-color 180ms ease, background 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+          animation: card-enter 420ms cubic-bezier(0.22,1,0.36,1) both;
+        }
+        @keyframes card-enter {
+          from { opacity: 0; transform: translateY(10px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        .decision-card:hover {
+          border-color: rgba(216,193,154,0.22);
+          background: var(--voyager-decision-card-hover);
+        }
+        .decision-card:focus-visible {
+          outline: none;
+          box-shadow: var(--voyager-focus-ring);
+        }
+        .decision-card.is-selected {
+          border-color: rgba(216,193,154,0.48);
+          background: #2E3C42;
+          box-shadow: 0 0 0 1px rgba(216,193,154,0.22), 0 4px 18px rgba(0,0,0,0.22);
+        }
+        .decision-card.is-confirming {
+          border-color: var(--voyager-brass-2);
+          box-shadow: 0 0 0 2px rgba(216,193,154,0.28), 0 6px 22px rgba(0,0,0,0.26);
+        }
+        .card-head {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          margin-bottom: 10px;
+        }
+        .card-index {
+          font-size: 10px;
+          letter-spacing: 0.14em;
+          color: rgba(242,235,221,0.46);
+          font-weight: 600;
+          flex-shrink: 0;
+        }
+        .decision-card.is-selected .card-index { color: var(--voyager-brass-2); }
+        .card-head-line {
+          flex: 1;
+          height: 1px;
+          background: rgba(242,235,221,0.07);
+        }
+        .decision-card.is-selected .card-head-line { background: rgba(216,193,154,0.18); }
+        .card-radio {
+          width: 18px;
+          height: 18px;
+          border-radius: 999px;
+          border: 1.25px solid rgba(242,235,221,0.18);
+          background: transparent;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          flex-shrink: 0;
+          transition: all 180ms ease;
+        }
+        .decision-card.is-selected .card-radio {
+          border-color: var(--voyager-brass-2);
+          background: var(--voyager-brass-1);
+        }
+        .card-radio-dot {
+          width: 7px;
+          height: 7px;
+          border-radius: 999px;
+          background: #FFFEFB;
+          opacity: 0;
+          transform: scale(0.6);
+          transition: all 180ms ease;
+          display: block;
+        }
+        .decision-card.is-selected .card-radio-dot {
+          opacity: 1;
+          transform: scale(1);
+        }
+        .card-label {
+          font-size: 16px;
+          line-height: 24px;
+          font-weight: 500;
+          color: var(--voyager-light-ink);
+          letter-spacing: -0.01em;
+          margin-bottom: 6px;
+        }
+        .card-tradeoff {
+          font-family: General Sans, Inter, ui-sans-serif, sans-serif;
+          font-size: 13px;
+          line-height: 19px;
+          color: rgba(242,235,221,0.62);
+        }
+        .card-check {
+          position: absolute;
+          top: 14px;
+          right: 14px;
+          width: 22px;
+          height: 22px;
+          border-radius: 999px;
+          background: var(--voyager-brass-1);
+          color: #FFFEFB;
+          display: grid;
+          place-items: center;
+          font-size: 12px;
+          font-weight: 700;
+          animation: check-pop 320ms cubic-bezier(0.22,1,0.36,1) both;
+        }
+        @keyframes check-pop {
+          from { opacity: 0; transform: scale(0.6); }
+          to { opacity: 1; transform: scale(1); }
+        }
+        .decision-continue {
+          margin-top: 22px;
+          background: transparent;
+          border: none;
+          border-bottom: 1px solid rgba(242,235,221,0.18);
+          color: rgba(242,235,221,0.86);
+          font-family: General Sans, Inter, ui-sans-serif, sans-serif;
+          font-size: 13px;
+          font-weight: 500;
+          letter-spacing: 0.06em;
+          padding: 8px 2px 6px;
+          cursor: pointer;
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          transition: color 180ms ease, border-color 180ms ease, opacity 180ms ease;
+        }
+        .decision-continue:hover:not(:disabled) {
+          color: var(--voyager-brass-2);
+          border-bottom-color: rgba(216,193,154,0.42);
+        }
+        .decision-continue:disabled {
+          cursor: not-allowed;
+        }
+        .decision-continue:focus-visible {
+          outline: none;
+          box-shadow: var(--voyager-focus-ring);
+          border-radius: 6px;
+        }
+        .continue-arrow {
+          font-size: 14px;
+          transition: transform 180ms ease;
+        }
+        .decision-continue:hover:not(:disabled) .continue-arrow {
+          transform: translateX(2px);
+        }
+        .decision-hint {
+          margin-top: 14px;
+          font-size: 10px;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: rgba(242,235,221,0.38);
+          line-height: 14px;
+        }
+
+        /* Lifecycle rail — 320px ledger */
         .lifecycle-rail {
           width: 320px;
           flex: 0 0 320px;
-          background: var(--voyager-ink-0);
-          border-left: 1px solid rgba(242,235,221,0.10);
+          background: var(--voyager-ink-deep);
+          border-left: 1px solid rgba(242,235,221,0.08);
           box-shadow: var(--voyager-shadow-night-rail);
           overflow-y: auto;
           display: flex;
@@ -497,8 +1015,17 @@ export default function Consultation({
           padding-bottom: 18px;
           border-bottom: 1px solid rgba(242,235,221,0.06);
           animation: rail-settle 520ms cubic-bezier(0.22,1,0.36,1) both;
+          transition: opacity 240ms ease;
         }
         .rail-item:last-child { border-bottom: none; }
+        .rail-item--dimmed { opacity: 0.42; }
+        .rail-item--decision {
+          border-bottom-color: rgba(216,193,154,0.14);
+          background: linear-gradient(90deg, rgba(216,193,154,0.06) 0%, transparent 70%);
+          margin: -6px -8px;
+          padding: 10px 8px 14px;
+          border-radius: 8px;
+        }
         @keyframes rail-settle {
           from { opacity: 0; transform: translateY(8px); }
           to { opacity: 1; transform: translateY(0); }
@@ -546,6 +1073,18 @@ export default function Consultation({
           background: var(--voyager-clay);
           display: block;
         }
+        .indicator-decision {
+          width: 9px; height: 9px;
+          border-radius: 999px;
+          background: var(--voyager-brass-1);
+          box-shadow: 0 0 0 6px rgba(179,138,85,0.14), 0 0 10px rgba(216,193,154,0.38);
+          display: block;
+          animation: decision-dot-pulse 1.6s ease-in-out infinite;
+        }
+        @keyframes decision-dot-pulse {
+          0%,100% { transform: scale(1); box-shadow: 0 0 0 6px rgba(179,138,85,0.14), 0 0 10px rgba(216,193,154,0.38); }
+          50% { transform: scale(1.08); box-shadow: 0 0 0 8px rgba(179,138,85,0.10), 0 0 14px rgba(216,193,154,0.46); }
+        }
         .rail-text {
           flex: 1;
           display: flex;
@@ -568,6 +1107,10 @@ export default function Consultation({
           text-transform: uppercase;
           color: rgba(242,235,221,0.46);
         }
+        .rail-status-text--decision {
+          color: var(--voyager-brass-2);
+          letter-spacing: 0.08em;
+        }
         .rail-summary {
           margin: 8px 0 0 26px;
           font-family: General Sans, Inter, ui-sans-serif, sans-serif;
@@ -575,11 +1118,21 @@ export default function Consultation({
           line-height: 18px;
           color: rgba(242,235,221,0.62);
         }
+        .rail-summary--decision {
+          color: rgba(242,235,221,0.72);
+          font-style: italic;
+        }
         .rail-summary--failed {
           color: rgba(242,235,221,0.66);
         }
+        .rail-decision-rule {
+          margin-top: 10px;
+          margin-left: 26px;
+          height: 1px;
+          background: linear-gradient(90deg, rgba(216,193,154,0.32) 0%, rgba(216,193,154,0.08) 60%, transparent 100%);
+        }
 
-        /* Collapsed rail outside consultation: 4px brass edge */
+        /* Collapsed rail — 4px brass edge */
         .consultation.is-collapsed .lifecycle-rail,
         .lifecycle-rail[data-expanded="false"] {
           width: 4px !important;
@@ -593,7 +1146,6 @@ export default function Consultation({
         .consultation.is-collapsed .lifecycle-rail .rail-inner,
         .lifecycle-rail[data-expanded="false"] .rail-inner { display: none; }
 
-        /* Below 1200px the rail is collapsed to its 4px edge (even when expanded logically) */
         @media (max-width: 1199px) {
           .consultation.is-expanded .lifecycle-rail {
             width: 4px;
@@ -607,18 +1159,18 @@ export default function Consultation({
           .consultation.is-expanded .lifecycle-rail .rail-inner { display: none; }
           .consultation.is-expanded .consultation-center { margin-right: 0; }
         }
-        /* Below 1024px rail removed from layout, info remains via status summary (sr-only + status line) */
         @media (max-width: 1023px) {
           .lifecycle-rail { display: none !important; }
           .consultation-center { padding: 32px 20px 48px; }
           .ripple-stage { width: 160px; height: 160px; }
           .ripple, .ripple-glow { width: 160px; height: 160px; }
           .ripple-core { width: 84px; height: 84px; }
+          .decision-surface { padding: 22px 18px 18px; }
+          .decision-prompt { font-size: 19px; line-height: 26px; }
         }
 
-        /* prefers-reduced-motion: static 16px brass dot instead of breath */
         @media (prefers-reduced-motion: reduce) {
-          .ripple-glow, .ripple-core, .indicator-breathing { animation: none !important; }
+          .ripple-glow, .ripple-core, .indicator-breathing, .indicator-decision { animation: none !important; }
           .ripple-glow { opacity: 0.22; transform: none; }
           .ripple-core {
             width: 16px; height: 16px;
@@ -629,9 +1181,10 @@ export default function Consultation({
           .ripple-stage { width: 96px; height: 96px; }
           .ripple { width: 96px; height: 96px; }
           .rail-item { animation: none; }
+          .decision-surface.is-entering, .decision-surface.is-exiting { animation: none; }
+          .decision-card { animation: none; }
         }
 
-        /* No progress bar anywhere — enforce */
         .consultation progress, .consultation [role="progressbar"] { display: none !important; }
       `}</style>
     </main>

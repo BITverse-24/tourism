@@ -1,12 +1,10 @@
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom'
 import { useState, useRef } from 'react'
 import Header from './components/Header'
-import LifecycleRail from './components/LifecycleRail'
 import Arrival from './screens/Arrival'
 import Discovery from './screens/Discovery'
 import ProfileReview from './screens/ProfileReview'
 import Consultation from './screens/Consultation'
-import DecisionRequired from './screens/DecisionRequired'
 import TradeoffBrief from './screens/TradeoffBrief'
 import TripOverview from './screens/TripOverview'
 import DayCanvas from './screens/DayCanvas'
@@ -18,12 +16,11 @@ import type { ItineraryItem } from './screens/DayCanvas'
 
 function AppShell(){
   const loc=useLocation()
-  const isConsultation = loc.pathname==='/consultation'
+  const isConsultation = loc.pathname==='/consultation' || loc.pathname==='/decision'
   const isArrival = loc.pathname==='/'
   const [detailOpen,setDetailOpen]=useState(false)
   const [detailItem,setDetailItem]=useState<ItineraryItem | null>(null)
   const returnFocusRef = useRef<HTMLElement>(null) as React.RefObject<HTMLElement>
-  const showRail = isConsultation
 
   const mockQuestion = mockQuestions[0] ?? null
   const mockProfile = {
@@ -70,27 +67,32 @@ function AppShell(){
     setDetailOpen(true)
   }
 
+  const decisionForRoute: import('./screens/Consultation').DecisionRequest = {
+    decision_id: 'decision_profile7_route_a_route_b',
+    sequenceLabel: '01  ·  TRADE-OFF',
+    kicker: 'A CHOICE IS NEEDED',
+    prompt: 'Would you rather keep the pace gentle or see a little more, even if it means more walking?',
+    reason: 'material_tradeoff',
+    options: [
+      { option_id: 'comfort', label: 'Prioritize comfort', tradeoff: 'Fewer attraction visits and less movement — more rest, less transit.' },
+      { option_id: 'coverage', label: 'Prioritize coverage', tradeoff: 'More attraction visits and a higher movement burden — see more, walk more.' },
+    ],
+  }
+
   return (
     <>
       {!isArrival && !isConsultation && <Header/>}
-      {isConsultation && (
-        <header style={{position:'fixed', top:0, left:0, right:0, height:64, display:'flex', alignItems:'center', padding:'0 5vw', zIndex:10, background:'transparent', borderBottom:'1px solid rgba(242,235,221,0.06)'}}>
-          <span className="serif" style={{color:'rgba(242,235,221,0.92)', letterSpacing:'0.12em', fontWeight:400, fontSize:13}}>VOYAGER</span>
-          <span style={{marginLeft:10, fontSize:10, letterSpacing:'0.14em', textTransform:'uppercase', color:'rgba(242,235,221,0.42)', fontWeight:400}}>Consultation</span>
-        </header>
-      )}
       <Routes>
         <Route path="/" element={<Arrival/>} />
         <Route path="/discovery" element={<Discovery question={mockQuestion} profile={mockProfile} sequence={2} sequenceTotal={5} onAnswer={()=>{}} />} />
         <Route path="/profile-review" element={<ProfileReview/>} />
         <Route path="/consultation" element={<Consultation />} />
-        <Route path="/decision" element={<DecisionRequired/>} />
+        <Route path="/decision" element={<Consultation decisionRequest={decisionForRoute} enableMockDecision={false} />} />
         <Route path="/tradeoff" element={<TradeoffBrief/>} />
         <Route path="/trip-overview" element={<TripOverview/>} />
         <Route path="/day-canvas" element={<DayCanvas plan={mockPlanForCanvas} workflowCompleted={true} onSelectItem={handleSelectItem} />} />
         <Route path="/replanning" element={<Replanning/>} />
       </Routes>
-      {showRail && <LifecycleRail expanded={true}/>}
       {!isArrival && !isConsultation && (
         <footer style={{borderTop:'1px solid rgba(225,214,197,0.38)', padding:'20px 5vw', display:'flex', justifyContent:'space-between', alignItems:'center', gap:16, flexWrap:'wrap', fontSize:10, color:'rgba(125,135,138,0.72)', letterSpacing:'0.07em', textTransform:'uppercase', background:'transparent'}}>
           <span style={{fontWeight:400, letterSpacing:'0.06em'}}>Voyager — Quiet Luxury, Liquid Intelligence</span>
