@@ -3,5 +3,5 @@
 *
 !.gitignore
 !discovery.ts
-!agent-2.ts
+!candidate-design.ts
 !askUserTradeoff.ts

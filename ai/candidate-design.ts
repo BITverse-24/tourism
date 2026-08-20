@@ -12,7 +12,7 @@ import type { TravelerProfile } from "./src/types.js";
 
 export type { TravelerProfile } from "./src/types.js";
 
-// --- tradeoff tool (separate file also at src/tools/askUserTradeoff.ts, inlined here so backend only needs agent-2.ts) ---
+// --- tradeoff tool (separate file also at src/tools/askUserTradeoff.ts, inlined here so backend only needs candidate-design.ts) ---
 export const MAX_TRADEOFF_CALLS = 3;
 export interface AskUserTradeoffRequest {
   attraction_id_a: string;

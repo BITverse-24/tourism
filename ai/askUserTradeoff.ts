@@ -77,7 +77,7 @@ export function isNeitherChoice(choice: string): boolean {
   return c === "neither" || c === "neither option" || c === "neither one" || c === "skip both" || c === "none";
 }
 
-// --- execution, fully contained in this file (no logic in agent-2.ts) ---
+// --- execution, fully contained in this file (no logic in candidate-design.ts) ---
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -113,9 +113,9 @@ async function withDeadline<T>(promise: Promise<T>, deadline: number, label: str
 }
 
 /**
- * Execute the ask_user_tradeoff tool. Called from agent-2.ts's executeTool.
+ * Execute the ask_user_tradeoff tool. Called from candidate-design.ts's executeTool.
  * Returns JSON string for model (choice or error). Mutates state.tradeoff_history/calls on success.
- * All validation and resolver I/O lives here, not in agent-2.ts.
+ * All validation and resolver I/O lives here, not in candidate-design.ts.
  */
 export async function executeAskUserTradeoffTool(
   state: TradeoffToolState,
