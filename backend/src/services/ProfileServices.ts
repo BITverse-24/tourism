@@ -1,10 +1,10 @@
 import { createPlanSnapshotMessage, createProfileSnapshotMessage } from "../factory/Event";
-import { addDiscoveryQuestion, getSessionCheckpoint, getSessionProfile, setSessionCheckpoint, setWorkflowState } from "../models/data";
+import { addDiscoveryQuestion, appendProfileSnapshot, getSessionProfile, setWorkflowState } from "../models/data";
 import { generateUUID } from "../modules/util";
 import { ProfileConfirmMessage, ProfileRequestChangesMessage } from "../structures/CommandMessage";
 import { DiscoveryAnsSelectionModes, DiscoveryFreeTextModes, Events, PlanSnapshotStates, ProfileSnapshotStates, WorkflowStates } from "../structures/enums";
 import { PlanSnapshotMessage, ProfileSnapshotMessage } from "../structures/EventMessage";
-import { CheckpointType, ProfileSnapshot, ServiceResult } from "../structures/types";
+import { ServiceResult } from "../structures/types";
 import { newDiscoveryQuestionService } from "./DiscoveryServices";
 import { nextSequence } from "./StateServices";
 import { CandidateDesignInput, CandidateDesignOptions, CandidateDesignResult, processCandidateDesign, RunBudget } from "../../../ai/candidate-design";
@@ -25,20 +25,15 @@ export async function profileConfirmService(
 
         logger.debug('started profile.confirm service', { data: data })
 
-        // mark the confirmed profile
-        const checkpoint: CheckpointType = await getSessionCheckpoint(data.session_id)
+        // mark the confirmed profile — always a new revision (never reuse ready revision)
         const profile: TravelerProfile = await getSessionProfile(data.session_id);
-        const revision = (checkpoint.profile_snapshots.length == 0) ?
-                1 :
-                checkpoint.profile_snapshots[checkpoint.profile_snapshots.length - 1].revision + 1
-        const snapshot: ProfileSnapshot = {
-                revision: revision,
-                state: ProfileSnapshotStates.CONFIRMED,
-                profile: profile,
-        }
-        checkpoint.profile_snapshots.push(snapshot)
-
-        await setSessionCheckpoint(data.session_id, checkpoint)
+        const snapshot = await appendProfileSnapshot(
+                data.session_id,
+                ProfileSnapshotStates.CONFIRMED,
+                profile,
+                WorkflowStates.PLANNING,
+        )
+        const revision = snapshot.revision
 
         // send confirmed profile snapshot
         const profSnapMsg: ProfileSnapshotMessage = createProfileSnapshotMessage({

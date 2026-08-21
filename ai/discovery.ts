@@ -131,6 +131,10 @@ export interface UserAnswer {
 export interface DiscoveryInput {
   profile: TravelerProfile | null;
   answer: UserAnswer | null;
+  /** Number of traveler-facing questions already asked in this run (authoritative backend count). When provided, Agent 1 uses this instead of estimating from profile fullness to enforce the 5–15 bounds exactly. */
+  questions_asked_count?: number | null;
+  /** Optional prior question prompts (oldest → newest) for de-duplication and variety. */
+  prior_questions?: string[] | null;
 }
 
 export interface DiscoveryResult {
@@ -219,6 +223,10 @@ export interface DiscoveryPatchResult {
 export interface ProcessDiscoveryOptions {
   api_key?: string;
   model?: string;
+  /**
+   * Ignored for Agent 1 — discovery always uses the model's lowest supported thinking_level
+   * (or omits thinking when the model defaults to Off). Kept for Agent 2 (candidate-design).
+   */
   reasoning_effort?: "low" | "medium" | "high";
   api_url?: string;
   timeout_ms?: number;
@@ -244,99 +252,372 @@ export type Fetcher = (input: string, init?: FetchRequestInit) => Promise<FetchR
 export const DISCOVERY_SYSTEM_PROMPT = `
 You are the Discovery/Profile agent for Voyager, an agentic travel-planning product.
 
-Your only job is to understand the traveler well enough for a later planning stage. In one response, do two jobs:
+Your job is to build a sufficiently rich Traveler Profile for a later planning stage. Capture not only logistics, but also the traveler's purpose, priorities, preferences, travel style, and material constraints.
 
-1. Return ONLY the additions/changes to the traveler profile derived from the latest answer (a patch). Do not repeat the complete profile.
-2. Decide whether enough information exists to plan the trip. If it does not, ask exactly one useful next question.
+In every response, do exactly two things:
 
-The backend already holds the complete profile in memory and will merge your patch. The full current profile is provided in context for grounding — use it to avoid asking for known information, but do not echo it back.
+1. Return ONLY the additions/changes to the traveler profile derived from the latest answer (a patch). Never repeat the complete profile.
+2. Decide whether discovery should continue. If it should, ask exactly ONE high-value next question.
 
-First turn:
+The backend already stores the complete profile and will merge your patch. The full current profile is provided in context. Always inspect it before choosing a question. Use it to avoid re-asking known information, but never echo it back.
 
-* The profile and answer may both be null.
-* Return an empty patch (all sections null/omitted) and ask a clear default question about the travel destination.
+CRITICAL ANTI-LOOP RULE:
+Before asking any question, compare the intended topic against:
+- the current profile;
+- the latest traveler answer;
+- unknowns;
+- assumptions;
+- coverage_hint, if provided;
+- topics asked in previous turns, if available.
 
-## Question selection
+If the topic has already been resolved at sufficient specificity, DO NOT ask it again, even if the corresponding field is technically incomplete.
 
-Questions should be chosen to **maximize useful knowledge gained per question**, not to fill profile fields one by one.
+If timing is known anywhere in the profile or latest answer — including a specific date, date range, month, season, approximate timing, or timing stored in notes/assumptions — NEVER ask again about when, month, season, or time of year unless the traveler explicitly contradicts the previous timing.
 
-Treat the traveler’s possible trip preferences as a set of plausible solutions. After each answer, identify the remaining uncertainties that could materially change the trip you would plan. Ask the single question whose possible answers would eliminate the most important uncertainty or most significantly narrow that solution set.
+If a topic is partially known, ask only for the genuinely missing piece when that missing piece is materially important. Example: if the month is known but duration is unknown, ask about duration, not "when are you going?"
 
-Do not follow a fixed question order or checklist.
+Do not alternate different phrasings of the same question across turns.
 
-When choosing the next question, consider:
+## First turn
 
-* How much would different answers change the eventual trip?
-* How many plausible trip directions would the question rule in or rule out?
-* Is there a major ambiguity that could cause the planner to make the wrong assumption?
-* Can one natural question reveal several useful dimensions at once?
-* Is there another unresolved question that is substantially more consequential?
-* Can the traveler reasonably answer this without being asked to fill out a form?
+The profile and answer may both be null.
 
-Prefer **high-impact questions over low-impact completeness**. An unknown field does not automatically justify asking about it. Conversely, a single unknown can justify a question if different answers would lead to substantially different plans.
+- If destination_request is already set from existing context or initial intent, do NOT ask for the destination again. Ask the highest-value unresolved question instead.
+- Otherwise, return an empty patch and ask a concise default question about the destination.
 
-The best next question is generally the one where:
+## Discovery objective
 
-**different possible answers would lead to meaningfully different planning decisions.**
+The objective is PLANNING SUFFICIENCY, not blindly filling every field.
 
-For example, if the traveler says they want to visit Japan for food and culture, do not automatically ask separate questions about interests, pace, priorities, and activities. If the main remaining uncertainty is what kind of experience they want, a question that distinguishes between a slower neighborhood-and-food-focused trip, a major-sights-focused trip, or a balanced combination may reveal several relevant preferences at once.
+Treat the traveler's possible trips as a set of plausible solutions. After each answer, identify the remaining uncertainties that could materially change the trip. Ask the ONE question whose possible answers would most reduce important planning uncertainty.
 
-Likewise, do not ask a broad question merely because several fields are unknown. Ask the question that resolves the most consequential uncertainty first.
+Do not use a rigid checklist or fixed question order.
 
-Questions should collect, when relevant: destination, dates or duration, party size, budget and its scope, trip purpose, priorities, interests, pace, energy pattern, walking tolerance, crowd tolerance, comfort, spontaneity, must-visit items, things to avoid, dietary requirements, accessibility requirements, and accommodation requirements.
+Prioritize questions based on:
+- how much different answers would change the resulting trip;
+- how many plausible trip directions the answer would rule in or out;
+- whether an unresolved ambiguity could cause a materially wrong planning assumption;
+- whether one natural question can reveal several related dimensions;
+- whether the traveler can answer it naturally without filling out a form.
 
-These are dimensions to learn about when they are useful for reducing planning uncertainty, **not a checklist that must be explicitly queried**.
+An unknown field does NOT automatically justify a question.
 
-Use information volunteered by the traveler to update multiple relevant profile dimensions when justified. A single answer may legitimately provide information about several dimensions at once.
+A single unknown DOES justify a question when resolving it would materially change the feasible trip or planning direction.
+
+Use volunteered information aggressively. One answer may legitimately update multiple profile dimensions.
 
 Avoid asking for information that:
+- is already known;
+- can be reliably derived from the latest answer;
+- is unlikely to materially affect the plan;
+- can safely be handled through a reasonable assumption;
+- has already been resolved at sufficient specificity.
 
-* is already known;
-* can be reliably derived from what the traveler just said;
-* is unlikely to materially affect the plan;
-* can safely be handled by a reasonable planning assumption;
-* has already been resolved at a sufficient level of specificity.
+When an answer is ambiguous, clarify only the ambiguity with the greatest downstream planning impact.
 
-When an answer is ambiguous, prioritize clarifying the ambiguity that has the greatest downstream planning impact.
+Example:
+If the traveler says "$3,000 for the trip" and it is unclear whether that is total or per person, clarify the budget scope if that distinction materially changes feasibility. Do not ask unrelated low-impact questions first.
 
-For example, if a traveler gives a total budget without saying whether it is per person or for the whole group, clarify that before asking about lower-impact preferences if the distinction would materially change the feasible trip.
+## Profile dimensions
 
-Do not ask follow-up questions simply because the traveler mentioned a topic. Ask a follow-up only when additional information about that topic is among the highest-value remaining information.
+Learn these dimensions when they are useful for reducing planning uncertainty. They are NOT a mandatory question-by-question checklist.
 
-Questions should feel conversational and purposeful rather than like form fields. When appropriate, phrase questions so that the traveler can naturally volunteer multiple relevant preferences, but do not turn a single question into a multi-question checklist.
+### trip_context
+- destination_request
+- start_date
+- end_date
+- duration_days
+- date_flexibility
+- party_size
+- party_notes
+- budget, including amount, currency, scope, and type
 
-The objective is **planning sufficiency, not profile completeness**. Stop asking questions once the remaining unknowns are unlikely to materially change the quality or direction of a reasonable trip plan.
+### purpose_and_priorities
+- primary_purpose
+- secondary_purposes
+- priorities
+- success_definition
 
-Patch rules:
+### preferences
+Experience categories such as:
+- culture
+- food
+- nature
+- photography
+- history
+- relaxation
+- nightlife
+- shopping
+- local experiences
+- adventure
+- architecture
+- wellness
+- entertainment
 
-* Return ONLY changed fields in profile_patch. Omit any section or field that did not change.
-* Within trip_context, purpose_and_priorities, travel_style: include only keys that changed in this turn. Omit unchanged keys. Use null only to explicitly clear a previously set value.
-* Use the exact field names: destination_request (not destination), start_date, end_date, duration_days, party_size, budget, primary_purpose, etc. Do not invent alternate names.
-* Never invent dates, budget, party size, destinations, constraints, or preferences. Only patch what the traveler actually said or clearly accepted.
-* Do not treat an inference as something the traveler directly said. Inferred preferences must have source=inferred and a confidence value.
-* A hard constraint may only be patched from something the traveler clearly stated or explicitly accepted.
-* Never copy a target or flexible budget into hard_constraints.budget_ceiling. Only patch budget_ceiling when the traveler clearly states a maximum, limit, or non-negotiable ceiling (type must be ceiling).
-* For preferences: use preferences.upsert to add or update by category; use preferences.remove_categories only when the traveler retracts an interest. Prefer updating strength to not_interested over removal.
-* For hard_constraints array fields: use *_add to add items, *_remove to retract items. Do not resend the entire array.
-* For unknowns: use unknowns.add to add new unknowns, unknowns.resolve_topics to remove resolved ones (by topic string).
-* For assumptions: use assumptions.add to add, assumptions.remove_topics to remove.
-* Keep the patch minimal and readable. Do not plan an itinerary, recommend places, book anything, or discuss implementation details.
+Store preference strength and notes where justified.
 
-Completion rules:
+### travel_style
+Where relevant:
+- pace
+- energy_pattern
+- walking_tolerance
+- crowd_tolerance
+- comfort_preference
+- spontaneity
 
-* Set finished=true only when the merged profile (current profile + your patch) contains enough reliable information for planning. At minimum: destination, dates or duration, party size, trip purpose or priorities, and enough budget information.
-* If a blocking unknown would remain after merging, set finished=false and ask about it.
-* If finished=true, next_question must be null and completion_reason must briefly explain why.
-* If finished=false, next_question must contain exactly one question and completion_reason must be null.
+### hard_constraints
+When relevant:
+- must_visit
+- avoid
+- dietary
+- accessibility
+- accommodation requirements
+- other explicit non-negotiables
 
-Return exactly one JSON object with these four root-level keys. The fields finished, next_question, and completion_reason are siblings of profile_patch, never inside it:
+### unknowns / assumptions
+Record material unresolved gaps and temporary interpretations explicitly.
+
+## Question strategy
+
+After basic destination information exists, generally prioritize the highest-impact unresolved dimension among:
+1. missing essential logistics: dates/duration, party size, budget;
+2. purpose and what success looks like;
+3. experience interests and priorities;
+4. travel style;
+5. material constraints;
+6. final blocking ambiguities.
+
+This ordering is only a heuristic. A different question is preferable when it has substantially higher information value.
+
+Do not ask multiple unrelated questions in one prompt.
+
+Questions must be SHORT, DIRECT, and SPECIFIC.
+
+Do NOT add:
+- congratulations;
+- enthusiasm;
+- travel clichés;
+- praise;
+- filler;
+- explanations of why you are asking;
+- repeated context;
+- "That sounds wonderful!";
+- "Congratulations on your trip to...";
+- "When would you like to visit this lovely place?";
+- multi-sentence conversational framing.
+
+Prefer:
+- "When do you want to travel?"
+- "How long will you stay?"
+- "Who is traveling?"
+- "What's your total budget?"
+- "What matters most on this trip?"
+- "What kind of experience do you want?"
+- "How fast do you like to travel?"
+- "Anything you want to avoid?"
+- "Any dietary or accessibility needs?"
+
+The question should usually be one sentence. Keep it concise while still allowing the traveler to provide useful detail.
+
+## Question format (STRICT — free-text-only is the exception)
+
+Default to structured choice. For the vast majority of questions you MUST provide MCQ/MSQ options:
+
+- Provide 2-4 options (each with 'option_id', 'label', 'description') that are genuinely distinct and cover the common answers for that dimension.
+- Set 'selection_mode' to 'single' for logistics/timing/party_size/budget/purpose (one answer) and 'multiple' for interests/priorities/constraints where several can apply.
+- Set 'free_text_mode' to 'optional' (user may supplement a choice with detail) or 'only_if_no_option' (free text as fallback). This is the normal relaxation — user can still type more detail without forcing a blank textbox.
+- Do NOT use 'options: []' by default. An empty options array with 'free_text_mode: "required"' is reserved ONLY for the hardest open-ended questions where a meaningful 2-4 choice set cannot be constructed (e.g., unconstrained must-visit/avoid list with arbitrary place names, highly specific dietary/accessibility requirements, or a truly open narrative that cannot be bucketed). Treat overuse of free-text-only as a defect.
+
+Examples — correct vs incorrect:
+
+- Correct (logistics): 'prompt:"Who is traveling?" options:[{2 travelers},{family with kids},{solo},{group 6+}] free_text_mode:"optional"'
+- Correct (preferences, multiple): 'prompt:"What kinds of experiences do you want?" options:[{culture & history},{food & nightlife},{nature & outdoors},{relaxation & wellness}] selection_mode:"multiple" free_text_mode:"optional"'
+- Incorrect: 'options:[], free_text_mode:"required"' for party_size, dates, budget, pace, or generic preferences — these ALWAYS have a natural choice set.
+
+Do not pack several unrelated questions into one prompt. However, a question may naturally invite multiple related preferences when those preferences belong to the same decision.
+
+## Never re-ask known information
+
+Treat the following as resolved when sufficiently populated:
+
+- destination_request non-null → never ask destination again;
+- start_date or end_date non-null → do not ask when/month/season again;
+- duration_days non-null → do not ask trip length again;
+- date_flexibility sufficiently known → do not ask date flexibility again;
+- party_size non-null → do not ask number of travelers again;
+- budget non-null → do not ask budget again unless a missing scope/type is materially blocking;
+- primary_purpose or priorities already sufficiently established → do not ask the same purpose question again;
+- a travel_style field sufficiently known → do not re-ask that same style dimension;
+- a preference category already present with sufficient strength → do not re-ask that interest unless strength/notes are materially important;
+- hard constraint information already collected → do not ask the same constraint question again unless resolving a contradiction.
+
+A free-text answer counts as an answer even if the traveler ignored provided options.
+
+Do not ask the same semantic question in different wording.
+
+## Coverage and completion
+
+If coverage_hint is provided, use it as authoritative guidance for remaining gaps.
+
+- If coverage_hint.timing_already_known is true, NEVER ask about month, season, dates, timing, or time of year again.
+- If coverage_hint.may_finish is false, finished MUST be false. Ask the highest-value unresolved item from missing_high_value or another materially important uncovered dimension.
+- If coverage_hint.questions_asked_estimate >= 15, finish. Record material leftover gaps in unknowns rather than continuing discovery.
+
+Do not finish merely because destination, timing, party size, and budget exist. Logistics alone are insufficient when important experiential information is still missing.
+
+Set finished=true only when, AFTER MERGING current profile + your patch, there is enough reliable information to produce a good trip plan.
+
+As a strong default, the merged profile should contain:
+
+1. Logistics:
+   - destination_request;
+   - at least one of start_date/end_date or duration_days;
+   - party_size;
+   - budget information OR an explicit material/blocking budget unknown.
+
+2. Purpose:
+   - primary_purpose;
+   - at least one meaningful priority or success_definition.
+
+3. Persona depth:
+   - at least TWO preference categories with strengths;
+   - at least THREE non-unknown travel_style fields among:
+     pace, energy_pattern, walking_tolerance, crowd_tolerance, comfort_preference, spontaneity.
+
+4. Constraints:
+   - relevant hard constraints collected when applicable, OR at least one constraints-oriented question has been asked and the result recorded, including an explicit "none" where appropriate.
+
+5. Interview depth:
+   - normally at least ~5 traveler-facing questions worth of meaningful coverage;
+   - never exceed ~15 questions.
+
+These are sufficiency guidelines, not permission to ask redundant questions. If the profile is already rich enough with fewer questions, finish. If the traveler naturally supplied substantial information, count that coverage rather than manufacturing additional questions.
+
+Do not continue merely to fill cosmetic gaps.
+
+Finish earlier if the remaining unknowns are unlikely to materially change a reasonable plan.
+
+Do not finish if one remaining question could resolve a genuinely blocking uncertainty and the question limit has not been reached.
+
+When finished=true:
+- next_question MUST be null;
+- completion_reason MUST briefly explain why the profile is sufficient.
+
+When finished=false:
+- next_question MUST contain exactly ONE question;
+- completion_reason MUST be null.
+
+## Patch rules
+
+Return ONLY changed fields in profile_patch.
+
+Omit any section or field that did not change.
+
+Within trip_context, purpose_and_priorities, and travel_style:
+- include only keys changed in this turn;
+- omit unchanged keys;
+- use null only when explicitly clearing a previously set value.
+
+Use the exact schema field names. For example:
+- destination_request, NOT destination;
+- start_date;
+- end_date;
+- duration_days;
+- party_size;
+- budget;
+- primary_purpose.
+
+Never invent alternate field names.
+
+Never invent:
+- dates;
+- duration;
+- budget;
+- party size;
+- destinations;
+- constraints;
+- preferences.
+
+Only patch information the traveler explicitly stated or clearly accepted.
+
+Do not represent an inference as a stated fact.
+
+For inferred preferences:
+- source MUST be "inferred";
+- confidence MUST be populated.
+
+A hard constraint may ONLY be patched when the traveler clearly stated it or explicitly accepted it.
+
+Never copy a target, preferred, or flexible budget into hard_constraints.budget_ceiling.
+
+Only patch hard_constraints.budget_ceiling when the traveler clearly states a maximum, limit, or non-negotiable ceiling. Its type MUST be "ceiling".
+
+For preferences:
+- use preferences.upsert to add or update a category;
+- use preferences.remove_categories ONLY when the traveler retracts an interest;
+- normally prefer updating strength to "not_interested" over removal.
+
+For hard constraint array fields:
+- use *_add to add items;
+- use *_remove to retract items;
+- never resend the entire array.
+
+For unknowns:
+- use unknowns.add for new unresolved topics;
+- use unknowns.resolve_topics to remove resolved topics by topic string.
+
+For assumptions:
+- use assumptions.add to record assumptions;
+- use assumptions.remove_topics to remove assumptions that are no longer applicable.
+
+Keep patches minimal and readable.
+
+Do not plan an itinerary.
+Do not recommend destinations or places.
+Do not book anything.
+Do not discuss implementation details.
+Do not echo the complete profile.
+
+## Output format
+
+Return EXACTLY one valid JSON object with exactly these four root-level keys:
+
 {
-"finished": false,
-"next_question": { "question_id": "...", "prompt": "...", "selection_mode": "single", "required": true, "options": [], "free_text_mode": "optional", "free_text_placeholder": "..." },
-"completion_reason": null,
-"profile_patch": { "trip_context": { "destination_request": "Kyoto" }, "preferences": { "upsert": [{ "category": "photography", "strength": "strong", "notes": null, "source": "stated", "confidence": null }] } }
+  "finished": false,
+  "next_question": {
+    "question_id": "...",
+    "prompt": "...",
+    "selection_mode": "single",
+    "required": true,
+    "options": [
+      { "option_id": "opt_a", "label": "Example A", "description": "Description for A" },
+      { "option_id": "opt_b", "label": "Example B", "description": "Description for B" }
+    ],
+    "free_text_mode": "optional",
+    "free_text_placeholder": "Add detail (optional)..."
+  },
+  "completion_reason": null,
+  "profile_patch": {}
 }
-Use null for next_question when finished is true and null for completion_reason when finished is false. Return ONLY the patch, not the complete profile. Do not include markdown, commentary, chain-of-thought, or extra keys.
+
+The keys finished, next_question, completion_reason, and profile_patch are siblings.
+
+If finished=true:
+- next_question = null;
+- completion_reason = a brief explanation of why discovery is sufficient.
+
+If finished=false:
+- next_question contains exactly one question;
+- completion_reason = null.
+
+The next_question prompt MUST be concise and direct. Do not add conversational filler.
+
+Return ONLY valid JSON.
+No markdown.
+No commentary.
+No chain-of-thought.
+No explanations outside the JSON.
+No extra keys.
 `;
 
 const stringOrNullSchema = { type: ["string", "null"] } as const;
@@ -622,6 +903,7 @@ export const DISCOVERY_PATCH_RESPONSE_SCHEMA = {
             party_notes: stringOrNullSchema,
             budget: budgetSchema,
           },
+          required: [], // Make all fields optional to support partial patches
         },
         purpose_and_priorities: {
           type: ["object", "null"],
@@ -632,6 +914,7 @@ export const DISCOVERY_PATCH_RESPONSE_SCHEMA = {
             priorities: { type: "array", items: { type: "string" } },
             success_definition: stringOrNullSchema,
           },
+          required: [], // Make all fields optional to support partial patches
         },
         preferences: {
           type: ["object", "null"],
@@ -660,6 +943,7 @@ export const DISCOVERY_PATCH_RESPONSE_SCHEMA = {
             },
             remove_categories: { type: "array", items: { type: "string" } },
           },
+          required: [], // Make all fields optional to support partial patches
         },
         travel_style: {
           type: ["object", "null"],
@@ -687,6 +971,7 @@ export const DISCOVERY_PATCH_RESPONSE_SCHEMA = {
               enum: ["structured", "some_flexibility", "spontaneous", "unknown", null],
             },
           },
+          required: [], // Make all fields optional to support partial patches
         },
         hard_constraints: {
           type: ["object", "null"],
@@ -706,6 +991,7 @@ export const DISCOVERY_PATCH_RESPONSE_SCHEMA = {
             maximum_hotel_changes: numberOrNullSchema,
             budget_ceiling: budgetSchema,
           },
+          required: [], // Make all fields optional to support partial patches
         },
         unknowns: {
           type: ["object", "null"],
@@ -726,6 +1012,7 @@ export const DISCOVERY_PATCH_RESPONSE_SCHEMA = {
             },
             resolve_topics: { type: "array", items: { type: "string" } },
           },
+          required: [], // Make all fields optional to support partial patches
         },
         assumptions: {
           type: ["object", "null"],
@@ -747,6 +1034,7 @@ export const DISCOVERY_PATCH_RESPONSE_SCHEMA = {
             },
             remove_topics: { type: "array", items: { type: "string" } },
           },
+          required: [], // Make all fields optional to support partial patches
         },
       },
     },
@@ -764,6 +1052,44 @@ const MODEL_HIERARCHY = [
   "gemini-3.1-flash-lite",
   "gemma-4-31b-it",
 ] as const;
+
+type GeminiThinkingLevel = "minimal" | "low" | "medium" | "high";
+
+/** Lowest → highest. Gemini 3.x rejects thinkingBudget: 0; use thinking_level instead. */
+const MODEL_THINKING_LEVELS: Record<string, readonly GeminiThinkingLevel[]> = {
+  "gemini-3.7-flash": ["low", "medium", "high"],
+  "gemini-3.6-flash": ["minimal", "low", "medium", "high"],
+  "gemini-3.5-flash-lite": ["minimal", "low", "medium", "high"],
+  "gemini-3.1-pro-preview": ["low", "medium", "high"],
+  "gemini-3.1-flash-lite-image": ["minimal", "high"],
+  "gemini-3.1-flash-lite": ["minimal", "low", "medium", "high"],
+  "gemini-3-flash-preview": ["minimal", "low", "medium", "high"],
+  "gemini-3-pro-preview": ["low", "high"],
+  "gemini-3.5-flash": ["minimal", "low", "medium", "high"],
+  "gemini-2.5-pro": ["low", "medium", "high"],
+  "gemini-2.5-flash": ["low", "medium", "high"],
+  "gemini-2.5-flash-lite": ["low", "medium", "high"],
+};
+
+/** Sending a thinking_level on this model would turn thinking on; omit config instead. */
+const THINKING_OFF_BY_DEFAULT = new Set<string>(["gemini-2.5-flash-lite"]);
+
+function lowestThinkingLevel(modelName: string): GeminiThinkingLevel | null {
+  if (THINKING_OFF_BY_DEFAULT.has(modelName)) return null;
+  const listed = MODEL_THINKING_LEVELS[modelName];
+  if (listed && listed.length > 0) return listed[0];
+  if (modelName.startsWith("gemini-3") && modelName.includes("pro")) return "low";
+  if (modelName.startsWith("gemini-3")) return "minimal";
+  if (modelName.startsWith("gemini-2.5")) return "low";
+  return "minimal";
+}
+
+function agent1ThinkingConfig(modelName: string): { thinkingLevel: GeminiThinkingLevel } | undefined {
+  if (!modelName.startsWith("gemini")) return undefined;
+  const level = lowestThinkingLevel(modelName);
+  if (!level) return undefined;
+  return { thinkingLevel: level };
+}
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_COMPLETION_TOKENS = 1_200; // ponytail: patch only, 3k overkill -> 14-26s, 1.2k cuts gen 40%
 const MAX_RATE_LIMIT_RETRIES = 2;
@@ -1340,11 +1666,124 @@ function validatePatchResult(value: unknown): asserts value is DiscoveryPatchRes
   }
 }
 
+function buildCoverageHint(profile: TravelerProfile | null, questionsAskedCount?: number | null): Record<string, unknown> {
+  const hasActualCount = typeof questionsAskedCount === "number" && Number.isFinite(questionsAskedCount);
+  const actualCount = hasActualCount ? (questionsAskedCount as number) : null;
+  if (!profile) {
+    return {
+      questions_asked_estimate: actualCount ?? 0,
+      questions_asked_count: actualCount,
+      is_estimate: !hasActualCount,
+      may_finish: false,
+      missing_high_value: [
+        "destination_request",
+        "dates_or_duration",
+        "party_size",
+        "budget",
+        "primary_purpose",
+        "priorities",
+        "preferences",
+        "travel_style",
+        "constraints_pass",
+      ],
+      timing_already_known: false,
+      note: "First turn or empty profile — do not finish; ask the best opening question.",
+    };
+  }
+
+  const tc = profile.trip_context;
+  const timingKnown = !!(tc.start_date || tc.end_date || tc.duration_days);
+  const style = profile.travel_style;
+  const styleKnown = [
+    style.pace,
+    style.energy_pattern,
+    style.walking_tolerance,
+    style.crowd_tolerance,
+    style.comfort_preference,
+    style.spontaneity,
+  ].filter((v) => v && v !== "unknown").length;
+
+  const prefs = profile.preferences.filter((p) => p.strength !== "unknown");
+  const purpose = profile.purpose_and_priorities;
+  const hc = profile.hard_constraints;
+  const constraintsTouched =
+    hc.must_visit.length > 0 ||
+    hc.avoid.length > 0 ||
+    hc.dietary_requirements.length > 0 ||
+    hc.accessibility_requirements.length > 0 ||
+    hc.accommodation_requirements.length > 0 ||
+    hc.maximum_daily_travel !== null ||
+    hc.maximum_hotel_changes !== null ||
+    hc.budget_ceiling !== null ||
+    profile.assumptions.some((a) => /constraint|dietary|access|avoid|must.?visit|accommodation/i.test(a.topic)) ||
+    profile.unknowns.some((u) => /constraint|dietary|access|avoid|must.?visit|accommodation/i.test(u.topic));
+
+  const missing: string[] = [];
+  if (!tc.destination_request) missing.push("destination_request");
+  if (!timingKnown) missing.push("dates_or_duration");
+  if (tc.party_size === null) missing.push("party_size");
+  if (!tc.budget) missing.push("budget");
+  if (!purpose.primary_purpose) missing.push("primary_purpose");
+  if (purpose.priorities.length === 0 && !purpose.success_definition) missing.push("priorities_or_success_definition");
+  if (prefs.length < 2) missing.push("preferences_at_least_2");
+  if (styleKnown < 3) missing.push("travel_style_at_least_3_fields");
+  if (!constraintsTouched) missing.push("constraints_pass");
+
+  // Rough depth signal from how much of the profile is already filled (no backend question counter).
+  let filledScore = 0;
+  if (tc.destination_request) filledScore += 1;
+  if (timingKnown) filledScore += 1;
+  if (tc.party_size !== null) filledScore += 1;
+  if (tc.budget) filledScore += 1;
+  if (purpose.primary_purpose) filledScore += 1;
+  if (purpose.priorities.length > 0 || purpose.success_definition) filledScore += 1;
+  filledScore += Math.min(prefs.length, 3);
+  filledScore += Math.min(styleKnown, 3);
+  if (constraintsTouched) filledScore += 1;
+  const questionsAskedEstimate = Math.max(0, filledScore - (tc.destination_request ? 1 : 0));
+  const authoritativeCount = hasActualCount ? (actualCount as number) : questionsAskedEstimate;
+
+  const depthMet =
+    !!tc.destination_request &&
+    timingKnown &&
+    tc.party_size !== null &&
+    (!!tc.budget || profile.unknowns.some((u) => /budget/i.test(u.topic))) &&
+    !!purpose.primary_purpose &&
+    (purpose.priorities.length > 0 || !!purpose.success_definition) &&
+    prefs.length >= 2 &&
+    styleKnown >= 3 &&
+    constraintsTouched;
+
+  return {
+    questions_asked_estimate: authoritativeCount,
+    questions_asked_count: actualCount,
+    questions_asked_estimate_fallback: questionsAskedEstimate,
+    is_estimate: !hasActualCount,
+    min_questions: 5,
+    max_questions: 15,
+    may_finish: depthMet && authoritativeCount >= 5,
+    timing_already_known: timingKnown,
+    date_flexibility: tc.date_flexibility,
+    preference_count: prefs.length,
+    travel_style_known_count: styleKnown,
+    constraints_pass_done: constraintsTouched,
+    missing_high_value: missing,
+    note: timingKnown
+      ? "Timing is already known — do NOT ask month, season, dates, or time-of-year again."
+      : "Timing still unknown — you may ask once for dates/duration/season.",
+  };
+}
+
 function buildUserMessage(input: DiscoveryInput): string {
+  const coverageHint = buildCoverageHint(input.profile, input.questions_asked_count ?? null);
   return JSON.stringify({
-    instructions: "Return ONLY the profile_patch (changed fields) and either one next question or a finished response. The full current profile is provided for grounding; do not echo it back.",
+    instructions:
+      "Return ONLY the profile_patch (changed fields) and either one next question or a finished response. Use coverage_hint to pick an uncovered dimension. Never re-ask timing if timing_already_known is true. Do not finish unless coverage_hint.may_finish is true (unless questions_asked_count/estimate >= 15). Do not echo the profile back. questions_asked_count is authoritative when present; otherwise questions_asked_estimate is a fallback.",
     profile: input.profile,
     answer: input.answer,
+    coverage_hint: coverageHint,
+    prior_questions: input.prior_questions ?? undefined,
+    questions_asked_count: input.questions_asked_count ?? undefined,
     profile_id_if_new: input.profile?.profile_id ?? "mock-profile",
   });
 }
@@ -1386,12 +1825,21 @@ export async function processDiscovery(
   input: DiscoveryInput,
   options: ProcessDiscoveryOptions & { genAiClient?: any } = {},
 ): Promise<DiscoveryResult> {
+  console.log('[processDiscovery] Starting processDiscovery with input:', {
+    hasProfile: !!input.profile,
+    hasAnswer: !!input.answer,
+    profileId: input.profile?.profile_id
+  });
+
   const apiKey =
     options.api_key ??
     process.env.GEMINI_API_KEY ??
     process.env.GOOGLE_API_KEY ??
     process.env.GOOGLE_GENAI_API_KEY ??
     process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+  
+  console.log('[processDiscovery] API key found:', !!apiKey);
+  
   if (!apiKey) {
     throw new DiscoveryConfigurationError(
       "Missing GEMINI_API_KEY. Set it in the environment or pass api_key for this request.",
@@ -1401,9 +1849,23 @@ export async function processDiscovery(
   const requestedModel = options.model ?? process.env.GEMINI_MODEL ?? process.env.GOOGLE_MODEL ?? DEFAULT_MODEL;
   const timeoutMs = options.timeout_ms ?? DEFAULT_TIMEOUT_MS;
   const logResponses = options.log_raw_responses ?? true;
+  
+  console.log('[processDiscovery] Configuration:', {
+    requestedModel,
+    timeoutMs,
+    logResponses,
+    thinkingLevel: lowestThinkingLevel(requestedModel),
+    // Backend may still pass AGENT_REASONING_EFFORT; Agent 1 never uses it.
+    ignored_reasoning_effort: options.reasoning_effort ?? null,
+    hasFetcher: !!options.fetcher,
+    hasInjectedClient: !!options.genAiClient
+  });
+  
   // Build hierarchy starting from requested model, fallback through list
   const startIdx = MODEL_HIERARCHY.indexOf(requestedModel as any);
   const modelsToTry = startIdx >= 0 ? MODEL_HIERARCHY.slice(startIdx) : [requestedModel, ...MODEL_HIERARCHY.filter(m => m !== requestedModel)];
+  
+  console.log('[processDiscovery] Models to try (in order):', modelsToTry);
 
   // Build combined prompt: system instruction + user context.
   // Do not modify DISCOVERY_SYSTEM_PROMPT per requirements.
@@ -1430,32 +1892,42 @@ export async function processDiscovery(
   };
 
   const createInteraction = async (client: any, modelName: string, signal?: AbortSignal): Promise<any> => {
-    if (client.interactions && typeof client.interactions.create === "function") {
-      return await client.interactions.create({
-        model: modelName,
-        input: fullPrompt,
-        response_format: {
-          type: "text",
-          mime_type: "application/json",
-          schema: discoveryPatchJsonSchema,
-        },
-      }, signal ? { signal } as any : undefined);
-    }
+    const thinkingConfig = agent1ThinkingConfig(modelName);
+    const thinkingLevel = thinkingConfig?.thinkingLevel ?? null;
+    // Prefer generateContent: GoogleGenAI always exposes interactions.create, and that
+    // path previously sent thinkingBudget: 0 which Gemini 3.x rejects as INVALID_ARGUMENT.
     if (client.models && typeof client.models.generateContent === "function") {
-      const isGemini = modelName.startsWith("gemini");
+      console.log(`[processDiscovery] Using generateContent with thinkingLevel=${thinkingLevel ?? "omit"} for ${modelName}`);
       const res = await client.models.generateContent({
-        model: modelName,
+        model: `models/${modelName}`,
         contents: [{ role: "user", parts: [{ text: fullPrompt }] }],
         config: {
           responseMimeType: "application/json",
           responseJsonSchema: discoveryPatchJsonSchema,
           temperature: 0.2,
           maxOutputTokens: MAX_COMPLETION_TOKENS,
-          ...(isGemini ? { thinkingConfig: { thinkingBudget: 0 } as any } : {}),
+          ...(thinkingConfig ? { thinkingConfig } : {}),
           httpOptions: signal ? { signal } as any : undefined,
         } as any,
       });
       return res;
+    }
+    if (client.interactions && typeof client.interactions.create === "function") {
+      console.log(`[processDiscovery] Fallback interactions.create for ${modelName}`);
+      return await client.interactions.create({
+        model: `models/${modelName}`,
+        input: fullPrompt,
+        response_format: {
+          type: "text",
+          mime_type: "application/json",
+          schema: discoveryPatchJsonSchema,
+        },
+        generation_config: {
+          temperature: 0.2,
+          max_output_tokens: MAX_COMPLETION_TOKENS,
+          ...(thinkingLevel ? { thinking_level: thinkingLevel, thinking_summaries: "none" } : {}),
+        },
+      }, signal ? { signal } as any : undefined);
     }
     throw new DiscoveryApiError("Unsupported GoogleGenAI client shape.", 0);
   };
@@ -1483,14 +1955,18 @@ export async function processDiscovery(
   let lastRateLimitError: any = null;
 
   for (const model of modelsToTry) {
+    console.log(`[processDiscovery] Trying model: ${model}`);
   for (let attempt = 0; attempt <= MAX_RATE_LIMIT_RETRIES; attempt += 1) {
+    console.log(`[processDiscovery] Attempt ${attempt + 1}/${MAX_RATE_LIMIT_RETRIES + 1} for model ${model}`);
     try {
       let interaction: any;
 
       if (injectedClient) {
+        console.log(`[processDiscovery] Using injected client for model ${model}`);
         const ctrl = new AbortController();
         interaction = await withTimeout(createInteraction(injectedClient, model, ctrl.signal), timeoutMs, ctrl);
       } else if (fetcher) {
+        console.log(`[processDiscovery] Using fetcher for model ${model}`);
         // Legacy fetch-style mock: allow tests to provide fetcher that returns Gemini-like envelope.
         // We synthesize a Gemini interaction from fetcher response to keep migration testable without real API.
         const mockUrl = "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent";
@@ -1553,37 +2029,48 @@ export async function processDiscovery(
           interaction = envelope;
         }
       } else {
+        console.log(`[processDiscovery] Creating GoogleGenAI client for model ${model}`);
         const client = new GoogleGenAI({ apiKey } as any);
         const ctrl = new AbortController();
         interaction = await withTimeout(createInteraction(client, model, ctrl.signal), timeoutMs, ctrl);
       }
 
+      console.log(`[processDiscovery] API call completed successfully for model ${model}`);
+
       lastOutputText = getOutputText(interaction);
+      console.log(`[processDiscovery] Got output text, length: ${lastOutputText.length}`);
+      
       if (logResponses && !fetcher) {
         void logRawResponse(lastOutputText, 200, attempt + 1).catch(()=>{}); // ponytail: fire-and-forget
       }
 
       if (!lastOutputText || lastOutputText.trim().length === 0) {
+        console.log('[processDiscovery] Error: Empty response from API');
         throw new DiscoveryResponseError("Gemini returned an empty discovery response.");
       }
 
       let result: unknown;
       try {
         result = JSON.parse(lastOutputText);
-      } catch {
+        console.log('[processDiscovery] Successfully parsed JSON response');
+      } catch (parseError) {
+        console.log('[processDiscovery] Error: Failed to parse JSON from API response');
         throw new DiscoveryResponseError("Gemini returned discovery content that is not valid JSON.");
       }
 
       // Validate with zod (ensures schema compliance) then with manual validator for error messages
       try {
         discoveryPatchZodSchema.parse(result);
+        console.log('[processDiscovery] Zod validation passed');
       } catch (zErr: any) {
+        console.log('[processDiscovery] Error: Zod validation failed', zErr?.message);
         throw new DiscoveryResponseError(
           `Gemini returned invalid patch shape: ${zErr?.message ?? String(zErr)}`,
         );
       }
 
       validatePatchResult(result);
+      console.log('[processDiscovery] Manual validation passed');
       const patchResult = result as DiscoveryPatchResult;
       const merged = applyProfilePatch(input.profile, patchResult.profile_patch);
       if (input.profile?.profile_id) {
@@ -1591,6 +2078,13 @@ export async function processDiscovery(
       }
       const normalized = normalizeProfile(merged as unknown as Record<string, unknown>);
       normalized.profile_id = merged.profile_id;
+      
+      console.log('[processDiscovery] Successfully completed discovery, returning result:', {
+        finished: patchResult.finished,
+        hasNextQuestion: !!patchResult.next_question,
+        completionReason: patchResult.completion_reason
+      });
+      
       return {
         finished: patchResult.finished,
         next_question: patchResult.next_question,
@@ -1598,6 +2092,13 @@ export async function processDiscovery(
         profile: normalized,
       };
     } catch (error: any) {
+      console.log('[processDiscovery] Error occurred:', {
+        errorType: error?.constructor?.name,
+        errorMessage: error?.message,
+        errorStatus: error?.status,
+        errorCode: error?.code
+      });
+      
       const isRateLimited =
         error?.status === 429 ||
         error?.code === 429 ||
@@ -1606,6 +2107,7 @@ export async function processDiscovery(
         (typeof error?.message === "string" && /quota exceeded/i.test(error.message));
 
       if (isRateLimited && attempt < MAX_RATE_LIMIT_RETRIES) {
+        console.log(`[processDiscovery] Rate limited, retrying after delay. Attempt ${attempt + 1}/${MAX_RATE_LIMIT_RETRIES + 1}`);
         const delayMs = rateLimitDelayMs(error?.message ?? "");
         await wait(delayMs);
         continue;
@@ -1613,7 +2115,12 @@ export async function processDiscovery(
 
       // ponytail: TPD/RPD fallback to next model in hierarchy (for testing)
       const hasNextModel = modelsToTry.indexOf(model as any) < modelsToTry.length - 1;
-      if (isRateLimited && hasNextModel) {
+      const isInvalidModel =
+        error?.status === 400 &&
+        typeof error?.message === "string" &&
+        /invalid argument|model.*not found|not supported|thinking/i.test(error.message);
+      if ((isRateLimited || isInvalidModel) && hasNextModel) {
+        console.log(`[processDiscovery] ${isInvalidModel ? "Invalid model/argument" : "Rate limited"} on all retries, trying next model in hierarchy`);
         lastRateLimitError = error;
         const delayMs = rateLimitDelayMs(error?.message ?? "");
         await wait(Math.min(delayMs, 2000));
@@ -1635,6 +2142,7 @@ export async function processDiscovery(
   }
   } // end model loop
 
+  console.log('[processDiscovery] All models failed to return a response');
   if (lastRateLimitError) throw lastRateLimitError;
   throw new DiscoveryApiError("Gemini did not return a response.", 0);
 }

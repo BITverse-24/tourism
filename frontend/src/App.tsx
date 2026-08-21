@@ -10,23 +10,18 @@ import TripOverview from './screens/TripOverview'
 import DayCanvas from './screens/DayCanvas'
 import ExperienceDetail from './screens/ExperienceDetail'
 import Replanning from './screens/Replanning'
-import { mockQuestions } from './data/mockQuestions'
-import { mockPlan } from './data/mockPlan'
 import type { ItineraryItem } from './screens/DayCanvas'
 import SessionBanner from './components/SessionBanner'
 import ErrorBanner from './components/ErrorBanner'
 import { useWsBannerState } from './hooks/useWsBannerState'
 import { usePlan } from './hooks/usePlan'
-import { useMockFallback } from './hooks/useMockFallback'
-import { useDiscovery } from './hooks/useDiscovery'
 import { WsContext, workflowStateToPath } from './ws/WsProvider'
 
 function TripOverviewGuard({ plan, state, revision, hasLivePlan }: { plan: ReturnType<typeof usePlan>['plan']; state: ReturnType<typeof usePlan>['state']; revision: ReturnType<typeof usePlan>['revision']; hasLivePlan: boolean }){
   const ws = useContext(WsContext)
   const workflowState = ws?.workflowState ?? null
   const isFinal = state === 'final'
-  const isDevMockFinal = !hasLivePlan && isFinal
-  const allowed = workflowState === 'plan_ready' || isFinal || isDevMockFinal
+  const allowed = workflowState === 'plan_ready' || isFinal
   if (!allowed && !isFinal) {
     const target = workflowState ? workflowStateToPath(workflowState) : '/discovery'
     return <Navigate to={target} replace />
@@ -37,51 +32,16 @@ function DayCanvasGuard({ plan, state, revision, hasLivePlan, onSelectItem }: { 
   const ws = useContext(WsContext)
   const workflowState = ws?.workflowState ?? null
   const isFinal = state === 'final'
-  const allowed = workflowState === 'plan_ready' || isFinal || (!hasLivePlan && isFinal)
+  const allowed = workflowState === 'plan_ready' || isFinal
   if (!allowed && !isFinal) {
     const target = workflowState ? workflowStateToPath(workflowState) : '/discovery'
     return <Navigate to={target} replace />
   }
-  return <DayCanvas plan={plan} revision={revision ?? undefined} state={state ?? undefined} workflowCompleted={hasLivePlan ? state === 'final' : true} onSelectItem={onSelectItem} />
+  return <DayCanvas plan={plan} revision={revision ?? undefined} state={state ?? undefined} workflowCompleted={state === 'final'} onSelectItem={onSelectItem} />
 }
 
 function DiscoveryRoute(){
-  const navigate = useNavigate()
-  const { question, profile, sequence, busy: liveBusy, feedback, connected, sendAnswer } = useDiscovery()
-  const { allowMock, wsFailedAtStart, isWaitingForLive } = useMockFallback()
-  const [mockIdx, setMockIdx] = useState(0)
-  const [mockBusy, setMockBusy] = useState(false)
-  useEffect(() => { if (question) { setMockIdx(0); setMockBusy(false) } }, [question?.question_id])
-  // Live WS is default; mock appears only when WS is not connected and no live question.
-  // While waiting for live (1.5s window) we still show mock for quick testing, but live question replaces it immediately when it arrives.
-  const shouldShowMock = !question && !connected && (allowMock || wsFailedAtStart || isWaitingForLive)
-  const isMockMode = shouldShowMock
-  const mockQuestion = isMockMode ? (mockQuestions[mockIdx] as unknown as ReturnType<typeof useDiscovery>['question']) : null
-  const effectiveQuestion = question ?? mockQuestion
-  const effectiveProfile = profile ?? (isMockMode ? { revision: mockIdx + 1, profile: { trip_context: { destination_request: "Kyoto in autumn, slow" }, preferences: [{ category:"Photography", strength:"strong", source:"stated" as const, notes:"sunrise" }], unknowns: mockIdx < mockQuestions.length - 1 ? [{ topic:"budget", impact:"minor" as const, description:"flights excluded?" }] : [], assumptions: [{ topic:"pace", value:"slow", reason:"preference", user_confirmation_needed:true }] } } as unknown as ReturnType<typeof useDiscovery>['profile'] : null)
-  const effectiveSequence = sequence ?? (effectiveQuestion ? mockIdx + 1 : null)
-  const mockSequenceTotal = mockQuestions.length
-  const busy = liveBusy || mockBusy
-  const handleAnswer = (payload: { question_id: string; selected_option_ids: string[]; free_text: string; command_id: string }) => {
-    if (question) {
-      sendAnswer({ selected_option_ids: payload.selected_option_ids, free_text: payload.free_text, command_id: payload.command_id })
-      return
-    }
-    if (isMockMode && !mockBusy) {
-      // For testing: mock WS data displays with 5s delay to replicate server latency + busy sphere
-      setMockBusy(true)
-      window.setTimeout(() => {
-        setMockBusy(false)
-        if (mockIdx < mockQuestions.length - 1) {
-          setMockIdx(i => i + 1)
-        } else {
-          navigate('/profile-review')
-        }
-      }, 5000)
-      return
-    }
-  }
-  return <Discovery question={effectiveQuestion} profile={effectiveProfile as unknown as never} sequence={effectiveSequence ?? undefined} sequenceTotal={question ? undefined : mockSequenceTotal} busy={busy} feedback={feedback} onAnswer={handleAnswer} />
+  return <Discovery />
 }
 
 function AppShell(){
@@ -97,7 +57,6 @@ function AppShell(){
   const workflowState = wsCtx?.workflowState ?? null
   const { sessionBanner, lastError, clearSessionBanner, clearError, handleStartNewSession, handleCloseSuperseded } = useWsBannerState(wsClient ?? undefined)
   const { plan: livePlan, revision: liveRevision, state: liveState, hasLivePlan } = usePlan(wsClient ?? undefined)
-  const { allowMock } = useMockFallback()
 
   // Workflow-state-driven routing: live state drives URL (loop guard, arrival exempt)
   useEffect(() => {
@@ -125,6 +84,9 @@ function AppShell(){
     }
   }, [liveState, workflowState, loc.pathname, navigate])
 
+  // Workflow completed cancelled → show dedicated cancelled state (banner + return to start)
+  const isCancelled = workflowState === 'cancelled'
+
   const handleSelectItem = (_dayIdx:number, _itemIdx:number, item: ItineraryItem) => {
     setDetailItem(item)
     setDetailOpen(true)
@@ -144,8 +106,17 @@ function AppShell(){
 
   return (
     <>
-      {(sessionBanner.kind === 'expired' || sessionBanner.kind === 'superseded' || lastError) && (
+      {(sessionBanner.kind === 'expired' || sessionBanner.kind === 'superseded' || lastError || isCancelled) && (
         <div style={{ display:'flex', flexDirection:'column', gap:10, padding:'12px 5vw 0', background:'transparent' }}>
+          {isCancelled && (
+            <div role="status" data-testid="cancelled-banner" style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:12, padding:'14px 16px', borderRadius:12, border:'1px solid rgba(225,214,197,0.55)', background:'rgba(247,242,233,0.92)', color:'var(--voyager-ink-1)' }}>
+              <span style={{ fontSize:13, lineHeight:'18px' }}>Run cancelled — your previous answers are preserved. Start again from Arrival or continue where you left off.</span>
+              <div style={{ display:'flex', gap:8 }}>
+                <button onClick={() => { try { wsCtx?.startNewSession() } catch {} ; navigate('/') }} style={{ fontSize:12, padding:'6px 12px', borderRadius:8, border:'1px solid var(--voyager-stone)', background:'var(--voyager-ivory)', cursor:'pointer' }}>Start new session</button>
+                <button onClick={() => navigate('/discovery')} style={{ fontSize:12, padding:'6px 12px', borderRadius:8, border:'1px solid transparent', background:'transparent', color:'var(--voyager-ink-2)', cursor:'pointer' }}>Back to discovery</button>
+              </div>
+            </div>
+          )}
           {sessionBanner.kind === 'expired' && (
             <SessionBanner kind="expired" reason={sessionBanner.reason} canStartNewSession={sessionBanner.canStartNewSession} onStartNewSession={handleStartNewSession} onDismiss={clearSessionBanner} />
           )}
@@ -163,7 +134,7 @@ function AppShell(){
         <Route path="/discovery" element={<DiscoveryRoute/>} />
         <Route path="/profile-review" element={<ProfileReview/>} />
         <Route path="/consultation" element={<Consultation />} />
-        <Route path="/decision" element={<Consultation decisionRequest={decisionForRoute} enableMockDecision={!allowMock} />} />
+        <Route path="/decision" element={<Consultation decisionRequest={decisionForRoute} />} />
         <Route path="/tradeoff" element={<TradeoffBrief/>} />
         <Route path="/trip-overview" element={<TripOverviewGuard plan={livePlan} state={liveState} revision={liveRevision} hasLivePlan={hasLivePlan} />} />
         <Route path="/day-canvas" element={<DayCanvasGuard plan={livePlan} state={liveState} revision={liveRevision} hasLivePlan={hasLivePlan} onSelectItem={handleSelectItem} />} />
@@ -178,7 +149,7 @@ function AppShell(){
           </span>
         </footer>
       )}
-      <ExperienceDetail open={detailOpen} item={detailItem} fitExplanation={livePlan?.fit_explanation ?? mockPlan.fit_explanation} onClose={()=>{ setDetailOpen(false); setTimeout(()=>setDetailItem(null),200)}} returnFocusRef={returnFocusRef} />
+      <ExperienceDetail open={detailOpen} item={detailItem} fitExplanation={livePlan?.fit_explanation} onClose={()=>{ setDetailOpen(false); setTimeout(()=>setDetailItem(null),200)}} returnFocusRef={returnFocusRef} />
     </>
   )
 }

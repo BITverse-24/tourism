@@ -1,7 +1,5 @@
-import { mockPlan } from '../data/mockPlan'
 import type { FinalPlan } from '../types'
 import { usePlan } from '../hooks/usePlan'
-import { useMockFallback } from '../hooks/useMockFallback'
 
 export interface TradeoffBriefProps {
   plan?: FinalPlan | null
@@ -9,11 +7,7 @@ export interface TradeoffBriefProps {
 
 export default function TradeoffBrief({ plan: incoming }: TradeoffBriefProps = {}) {
   const { plan: livePlan } = usePlan()
-  const { allowMock, wsFailedAtStart, isWaitingForLive } = useMockFallback()
-  // Live WS is default; only use mockPlan when websocket failed at start.
-  const mockFallbackPlan: FinalPlan | null = allowMock && wsFailedAtStart ? (mockPlan as unknown as FinalPlan) : null
-  const resolved: FinalPlan | null = incoming ?? livePlan ?? mockFallbackPlan
-  const isMockActive = !incoming && !livePlan && !!mockFallbackPlan
+  const resolved: FinalPlan | null = incoming ?? livePlan ?? null
   const plan: any = resolved
 
   // Distinguish waiting-for-live vs mock fallback active
@@ -23,7 +17,7 @@ export default function TradeoffBrief({ plan: incoming }: TradeoffBriefProps = {
         <p style={{ fontSize: 11, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--voyager-ink-3)' }}>Trade-off brief</p>
         <h1 className="serif" style={{ marginTop: 12, fontSize: 28, fontWeight: 400, color: 'var(--voyager-ink-1)' }}>Your trade-offs will appear here</h1>
         <p style={{ marginTop: 12, fontSize: 14, lineHeight: '22px', color: 'var(--voyager-ink-2)', maxWidth: 560 }}>
-          {isWaitingForLive ? 'Waiting for live snapshot — connecting to the concierge…' : 'No trade-offs yet — they will appear when the Final Trip Plan snapshot arrives.'}
+          No trade-offs yet — they will appear when the Final Trip Plan snapshot arrives.
         </p>
       </main>
     )
@@ -52,11 +46,6 @@ export default function TradeoffBrief({ plan: incoming }: TradeoffBriefProps = {
         minWidth: 0,
       }}
     >
-      {isMockActive && (
-        <p style={{ textAlign: 'center', fontSize: 11, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--voyager-ink-3)', marginBottom: 12 }}>
-          Mock fallback active — websocket failed at start
-        </p>
-      )}
       <h1
         className="serif"
         style={{
