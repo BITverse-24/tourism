@@ -65,17 +65,26 @@ class ModelManager:
         print("[ModelManager] WARNING: All models in hierarchy are locked! Defaulting to lowest model tier.")
         return self.hierarchy[-1]
 
-    def handle_rate_limit(self, model_name: str, is_daily_quota: bool = False) -> str:
+    def handle_rate_limit(
+        self,
+        model_name: str,
+        is_daily_quota: bool = False,
+        cooldown_override: Optional[int] = None
+    ) -> str:
         """
-        Record rate limit lockout for model_name, trigger step-down fallback to next model tier,
+        Record rate limit/server error lockout for model_name, trigger step-down fallback,
         and return the new active model.
+        Supports cooldown_override (e.g. 10s for 503 UNAVAILABLE temporary batch fallback).
         """
         now = time.time()
-        cooldown = self.rpd_cooldown if is_daily_quota else self.rpm_tpm_cooldown
-        locked_until = now + cooldown
+        if cooldown_override is not None:
+            cooldown = cooldown_override
+        else:
+            cooldown = self.rpd_cooldown if is_daily_quota else self.rpm_tpm_cooldown
 
+        locked_until = now + cooldown
         self.lockouts[model_name] = locked_until
-        print(f"[ModelManager] Rate limit hit on {model_name}. Lockout set for {cooldown}s (until {time.strftime('%H:%M:%S', time.localtime(locked_until))})")
+        print(f"[ModelManager] Lockout set on {model_name} for {cooldown}s (until {time.strftime('%H:%M:%S', time.localtime(locked_until))})")
 
         new_model = self.get_active_model()
         return new_model
@@ -102,9 +111,6 @@ if __name__ == "__main__":
     mm = ModelManager()
     print("Initial active model:", mm.get_active_model())
 
-    # Simulate rate limit on top model
-    next_m = mm.handle_rate_limit("gemini-3.7-flash", is_daily_quota=False)
-    print("After rate limit on top tier:", next_m)
-
-    next_m2 = mm.handle_rate_limit("gemini-3.6", is_daily_quota=False)
-    print("After rate limit on tier 2:", next_m2)
+    # Simulate 503 temporary 10s lockout
+    next_m = mm.handle_rate_limit("gemini-3.7-flash", cooldown_override=10)
+    print("After 503 fallback:", next_m)

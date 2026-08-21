@@ -1,8 +1,8 @@
 """
 Main execution pipeline for Dataset 2 (Attraction Knowledgebase) generation.
-Integrates official google-genai Python SDK via Chat.send_message pattern with thinking_budget=0 for instant generation,
+Integrates official google-genai Python SDK via Chat.send_message pattern with thinking_budget=1024,
 city_loader, rate_limiter, model_manager (single API key with 4-tier model hierarchy step-down & timer recovery),
-attraction_generator (with SYSTEM_PROMPT.md & responseSchema), and writer.
+attraction_generator (with SYSTEM_PROMPT.md & responseSchema), and writer with IMMEDIATE BATCHWISE PERSISTENCE.
 """
 
 import argparse
@@ -38,7 +38,7 @@ from writer import DatasetWriter
 def call_gemini_api(model_name: str, prompt: str, api_key: str, system_instruction: str = "") -> Tuple[str, int, int]:
     """
     Invoke official Google GenAI Python SDK using Chat.send_message pattern.
-    Configures thinking_budget=0 to disable reasoning overhead for instant JSON generation.
+    Configures thinking_budget=1024 (~5-10s reasoning).
     Returns (response_text, total_tokens, status_code).
     Raises urllib.error.HTTPError on 429 rate limit / quota errors.
     """
@@ -48,7 +48,7 @@ def call_gemini_api(model_name: str, prompt: str, api_key: str, system_instructi
         temperature=0.2,
         response_mime_type="application/json",
         response_schema=ATTRACTION_RESPONSE_SCHEMA,
-        thinking_config=types.ThinkingConfig(thinking_budget=1024),  # Allows ~5-10s reasoning budget
+        thinking_config=types.ThinkingConfig(thinking_budget=1024),
     )
     if system_instruction:
         config.system_instruction = system_instruction
@@ -124,7 +124,6 @@ def run_pipeline(
         output_dir=output_dir,
         checkpoint_file=checkpoint_file
     )
-    # Target custom filename for dry run if applicable
     writer.json_path = os.path.join(writer.output_dir, main_json)
 
     # 2. Load cities from city.csv
@@ -140,6 +139,7 @@ def run_pipeline(
     # 3. Checkpoint state
     checkpoint = writer.load_checkpoint() if resume else {"completed_city_ids": [], "city_progress": {}}
     completed_cities = set(checkpoint.get("completed_city_ids", []))
+    city_progress = checkpoint.get("city_progress", {})
 
     system_instruction = load_system_prompt()
     print(f"[Pipeline] System prompt loaded from data/SYSTEM_PROMPT.md ({len(system_instruction)} chars)")
@@ -160,33 +160,56 @@ def run_pipeline(
 
         target_attractions = city["target_attractions"]
         batch_size = config.get("batch_size_attractions", 25)
-        needed_batches = (target_attractions + batch_size - 1) // batch_size
+        already_generated = city_progress.get(city_id, 0)
+        remaining_target = max(0, target_attractions - already_generated)
+
+        if remaining_target <= 0:
+            completed_cities.add(city_id)
+            continue
+
+        needed_batches = (remaining_target + batch_size - 1) // batch_size
 
         print("-" * 60)
         print(f"[{idx}/{len(cities)}] Processing City: {city['city_name']} ({city_id})")
-        print(f"  State: {city['state']} | Target POIs: {target_attractions} ({needed_batches} batches of ~{batch_size} POIs)")
+        print(f"  State: {city['state']} | Target POIs: {target_attractions} (Already saved: {already_generated}, Remaining: {remaining_target} in {needed_batches} batches)")
 
-        city_attractions = []
+        city_batch_generated = 0
 
         for batch_idx in range(needed_batches):
-            attractions_in_batch = min(batch_size, target_attractions - len(city_attractions))
+            attractions_in_batch = min(batch_size, remaining_target - city_batch_generated)
             if attractions_in_batch <= 0:
                 break
 
-            prompt = generate_prompt_for_city_batch(city, attractions_in_batch, batch_idx)
+            existing_saved = writer.load_existing_attractions()
+            existing_city_names = [item["name"] for item in existing_saved if item.get("city_id") == city_id and "name" in item]
+
+            prompt = generate_prompt_for_city_batch(
+                city=city,
+                count=attractions_in_batch,
+                batch_index=batch_idx,
+                existing_attraction_names=existing_city_names
+            )
             estimated_tokens = 2500 + (attractions_in_batch * 200)
 
-            # Proactive rate limit delay check
+            # Proactive DAILY QUOTA handling: RPD exhaustion triggers model step-down, NOT 24h sleep
+            # Fires on internal tracking regardless of API 429. Reactive path below handles API-triggered quota.
+            if rate_limiter.get_current_rpd() >= rate_limiter.max_rpd:
+                pre_model = model_manager.get_active_model()
+                next_m = model_manager.handle_rate_limit(pre_model, is_daily_quota=True)
+                print(f"[Pipeline] Proactive RPD limit hit ({rate_limiter.get_current_rpd()}/{rate_limiter.max_rpd} in 24h). Stepping down {pre_model} -> {next_m} instead of waiting 24h", flush=True)
+
+            # Proactive minute-limit delay check (RPM/TPM only — 60s wait, never 24h)
             rate_limiter.wait_if_needed(estimated_tokens=estimated_tokens, verbose=True)
 
             active_model = model_manager.get_active_model()
+            valid_batch = []
 
             if dry_run:
-                records, tokens_used = mock_generate_attractions(city, attractions_in_batch)
+                records, tokens_used = mock_generate_attractions(city, attractions_in_batch, offset=len(existing_city_names))
                 rate_limiter.record_request(tokens_used)
                 model_manager.record_success(active_model)
-                city_attractions.extend(records)
-                print(f"  Batch {batch_idx+1}/{needed_batches}: Generated {len(records)} mock POIs using {active_model} ({tokens_used} tokens)", flush=True)
+                valid_batch = records
+                print(f"  Batch {batch_idx+1}/{needed_batches}: Generated {len(valid_batch)} mock POIs using {active_model} ({tokens_used} tokens)", flush=True)
             else:
                 # Live Gemini Call using recommended Chat.send_message pattern
                 success = False
@@ -195,6 +218,11 @@ def run_pipeline(
 
                 while not success and attempts < max_attempts:
                     attempts += 1
+                    # Proactive daily quota check inside retry loop — step down even between attempts
+                    if rate_limiter.get_current_rpd() >= rate_limiter.max_rpd:
+                        pre = model_manager.get_active_model()
+                        nxt = model_manager.handle_rate_limit(pre, is_daily_quota=True)
+                        print(f"    [Retry] Proactive RPD hit ({rate_limiter.get_current_rpd()}/{rate_limiter.max_rpd}). {pre} -> {nxt}", flush=True)
                     active_model = model_manager.get_active_model()
 
                     try:
@@ -211,7 +239,6 @@ def run_pipeline(
 
                         parsed = extract_json_from_response(response_text)
                         if isinstance(parsed, list):
-                            valid_batch = []
                             for item in parsed:
                                 is_valid, errs = validate_attraction_record(item, city_id)
                                 if is_valid:
@@ -219,7 +246,6 @@ def run_pipeline(
                                 else:
                                     print(f"    Schema validation warning for POI '{item.get('name')}': {errs}", flush=True)
 
-                            city_attractions.extend(valid_batch)
                             print(f"    Batch {batch_idx+1} succeeded: {len(valid_batch)} validated POIs generated.", flush=True)
                             success = True
 
@@ -229,34 +255,57 @@ def run_pipeline(
                             next_m = model_manager.handle_rate_limit(active_model, is_daily_quota=is_daily)
                             print(f"    HTTP 429 Rate Limit on {active_model}. Stepping down to: {next_m}", flush=True)
                             time.sleep(2)
+                        elif e.code in (500, 502, 503, 504):
+                            next_m = model_manager.handle_rate_limit(active_model, cooldown_override=10)
+                            print(f"    HTTP {e.code} Unavailable on {active_model}. Temporarily stepping down for 1 batch to: {next_m}", flush=True)
+                            time.sleep(1)
                         else:
                             print(f"    HTTP Error {e.code} on {active_model}: {e.reason}", flush=True)
                             time.sleep(5)
                     except Exception as ex:
                         err_str = str(ex)
-                        if "timeout" in err_str.lower() or "timed out" in err_str.lower():
-                            next_m = model_manager.handle_rate_limit(active_model, is_daily_quota=False)
+                        if "503" in err_str or "UNAVAILABLE" in err_str or "high demand" in err_str.lower() or "overloaded" in err_str.lower():
+                            next_m = model_manager.handle_rate_limit(active_model, cooldown_override=10)
+                            print(f"    503 Service Unavailable on {active_model}. Temporarily stepping down for 1 batch to: {next_m}", flush=True)
+                            time.sleep(1)
+                        elif "timeout" in err_str.lower() or "timed out" in err_str.lower():
+                            next_m = model_manager.handle_rate_limit(active_model, cooldown_override=10)
                             print(f"    Timeout on {active_model}. Stepping down to: {next_m}", flush=True)
                         else:
                             print(f"    SDK error querying {active_model}: {ex}", flush=True)
                         time.sleep(3)
 
-        # 5. Incremental citywise write & checkpointing
-        if city_attractions:
-            total_attractions = writer.append_city_attractions(city_id, city_attractions)
-            completed_cities.add(city_id)
+            # IMMEDIATE BATCHWISE PERSISTENCE: Save into output file as soon as batch completes!
+            if valid_batch:
+                total_attractions = writer.append_city_attractions(city_id, valid_batch)
+                city_batch_generated += len(valid_batch)
+                current_city_total = already_generated + city_batch_generated
+                city_progress[city_id] = current_city_total
 
-            metrics = {
+                metrics = {
+                    "rate_limiter": rate_limiter.get_metrics(),
+                    "models": model_manager.get_status_report()
+                }
+                writer.save_checkpoint(
+                    completed_city_ids=list(completed_cities),
+                    city_progress=city_progress,
+                    total_attractions=total_attractions,
+                    metrics=metrics
+                )
+                print(f"    --> BATCH PERSISTED: Appended {len(valid_batch)} POIs to {writer.json_path}. Checkpoint updated.", flush=True)
+
+        # Mark city as fully completed when all batches finish
+        completed_cities.add(city_id)
+        writer.save_checkpoint(
+            completed_city_ids=list(completed_cities),
+            city_progress=city_progress,
+            total_attractions=total_attractions,
+            metrics={
                 "rate_limiter": rate_limiter.get_metrics(),
                 "models": model_manager.get_status_report()
             }
-            writer.save_checkpoint(
-                completed_city_ids=list(completed_cities),
-                city_progress={city_id: len(city_attractions)},
-                total_attractions=total_attractions,
-                metrics=metrics
-            )
-            print(f"  Completed '{city_id}'. Saved {len(city_attractions)} attractions. Checkpoint updated.")
+        )
+        print(f"  Completed city '{city_id}'. Saved total {city_progress.get(city_id, 0)} attractions.")
 
     print("=" * 70)
     print(f"PIPELINE EXECUTION FINISHED. Total Dataset Attractions: {total_attractions}")

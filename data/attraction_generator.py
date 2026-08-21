@@ -1,6 +1,7 @@
 """
 Attraction Generator & Schema Validator module for Dataset 2 (Attraction Knowledgebase).
-Integrates data/SYSTEM_PROMPT.md, constructs detailed prompts with field descriptions,
+Integrates data/SYSTEM_PROMPT.md, constructs detailed prompts with field descriptions and
+EXPLICIT PREVIOUS BATCH EXCLUSION LISTS to prevent cross-batch attraction duplication,
 defines explicit Gemini responseSchema for structured JSON output,
 and validates response records per docs/DATASET.md §2.5 & §2.6.
 """
@@ -191,12 +192,28 @@ def validate_attraction_record(record: Dict[str, Any], canonical_city_id: str) -
     return (len(errors) == 0, errors)
 
 
-def generate_prompt_for_city_batch(city: Dict[str, Any], count: int, batch_index: int) -> str:
+def generate_prompt_for_city_batch(
+    city: Dict[str, Any],
+    count: int,
+    batch_index: int,
+    existing_attraction_names: Optional[List[str]] = None
+) -> str:
     """
-    Generate structured Gemini user prompt requesting JSON array of attractions
-    with full field descriptions matching docs/DATASET.md §2.5.
+    Generate structured Gemini user prompt requesting JSON array of attractions,
+    including explicit EXCLUSION CONTEXT of previously generated attraction names to prevent duplicates.
     """
     today = datetime.date.today().isoformat()
+
+    exclusion_clause = ""
+    if existing_attraction_names and len(existing_attraction_names) > 0:
+        names_list = "\n".join(f"- {name}" for name in existing_attraction_names)
+        exclusion_clause = f"""
+EXCLUDED ATTRACTIONS (PREVIOUSLY GENERATED FOR THIS CITY - DO NOT REPEAT ANY OF THESE):
+{names_list}
+
+DO NOT include any of the above places or their direct duplicates. Discover NEW, distinct attractions.
+"""
+
     return f"""CITY TARGET DETAILS:
 - City Name: {city['city_name']}
 - State: {city['state']}
@@ -206,7 +223,7 @@ def generate_prompt_for_city_batch(city: Dict[str, Any], count: int, batch_index
 - Longitude: {city['longitude']}
 
 TASK:
-Generate exactly {count} researched, real-world tourism attractions for {city['city_name']} (Batch {batch_index + 1}).
+Generate exactly {count} NEW, distinct, researched tourism attractions for {city['city_name']} (Batch {batch_index + 1}).
 
 CRITICAL INVARIANTS:
 1. "city_id" MUST strictly be "{city['city_id']}".
@@ -214,6 +231,7 @@ CRITICAL INVARIANTS:
 3. Every attraction MUST be a real, verifiable POI in or practically associated with {city['city_name']}.
 4. "last_updated" MUST be "{today}".
 5. Output ONLY a valid JSON array matching the provided response schema.
+{exclusion_clause}
 """
 
 
@@ -230,15 +248,16 @@ def extract_json_from_response(text: str) -> Any:
     return json.loads(text)
 
 
-def mock_generate_attractions(city: Dict[str, Any], count: int) -> Tuple[List[Dict[str, Any]], int]:
+def mock_generate_attractions(city: Dict[str, Any], count: int, offset: int = 0) -> Tuple[List[Dict[str, Any]], int]:
     """Mock generator for dry-run testing without API calls."""
     today = datetime.date.today().isoformat()
     results = []
     types = ["Fort", "Temple", "Museum", "Garden", "Market", "Viewpoint", "Lake"]
 
     for i in range(count):
-        att_type = types[i % len(types)]
-        name = f"{city['city_name']} {att_type} {i + 1}"
+        idx_val = offset + i + 1
+        att_type = types[idx_val % len(types)]
+        name = f"{city['city_name']} {att_type} {idx_val}"
         att_id = sanitize_attraction_id(name, city["city_id"])
 
         record = {
@@ -251,8 +270,8 @@ def mock_generate_attractions(city: Dict[str, Any], count: int) -> Tuple[List[Di
             "description": f"A historic {att_type.lower()} located in {city['city_name']}, {city['state']}.",
             "significance": ["Historical", "Architectural"],
             "location_area": f"Central {city['city_name']}",
-            "latitude": round(city["latitude"] + (i * 0.005), 4),
-            "longitude": round(city["longitude"] + (i * 0.005), 4),
+            "latitude": round(city["latitude"] + (idx_val * 0.005), 4),
+            "longitude": round(city["longitude"] + (idx_val * 0.005), 4),
             "visit_duration_min": 60,
             "visit_duration_typical": 120,
             "visit_duration_max": 180,
@@ -261,8 +280,8 @@ def mock_generate_attractions(city: Dict[str, Any], count: int) -> Tuple[List[Di
             "avoid_months": ["May", "June"],
             "crowd_level": "Moderate",
             "tourism_level": "Popular",
-            "hidden_gem": (i % 5 == 0),
-            "discovery_category": "Must_See" if i < 3 else "Popular",
+            "hidden_gem": (idx_val % 5 == 0),
+            "discovery_category": "Must_See" if idx_val < 3 else "Popular",
             "local_authenticity": "High",
             "photography_value": "High",
             "indoor_outdoor": "Mixed",

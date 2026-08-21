@@ -1,8 +1,8 @@
 """
-Rate Limiter module implementing 3-dimensional tracking and proactive throttling:
-- Requests Per Minute (RPM): max 5
-- Requests Per Day (RPD): max 20
-- Tokens Per Minute (TPM): max 250,000 (250k)
+Rate Limiter module implementing minute-level sliding window tracking and proactive throttling:
+- Requests Per Minute (RPM): max 5 (60s sliding window)
+- Tokens Per Minute (TPM): max 250,000 (60s sliding window)
+- Requests Per Day (RPD): tracked for metrics (daily quota limits trigger model tier step-down in ModelManager, NOT 24-hour sleeps)
 """
 
 import time
@@ -33,7 +33,7 @@ class RateLimiter:
         while self.tpm_window and self.tpm_window[0][0] < cutoff_60s:
             self.tpm_window.popleft()
 
-        # 86400s window for RPD
+        # 86400s window for RPD metrics tracking
         cutoff_24h = now - 86400.0
         while self.rpd_window and self.rpd_window[0][0] < cutoff_24h:
             self.rpd_window.popleft()
@@ -58,7 +58,8 @@ class RateLimiter:
 
     def get_required_delay(self, estimated_tokens: int = 5000) -> float:
         """
-        Calculate seconds to sleep before making a request to avoid exceeding limits.
+        Calculate seconds to sleep before making a request to avoid exceeding minute limits (RPM=5, TPM=250k).
+        Note: Daily quota (RPD) is handled by ModelManager stepping down model tiers, NOT by 24-hour sleeps.
         """
         now = time.time()
         self._purge_expired(now)
@@ -82,21 +83,16 @@ class RateLimiter:
                     delays.append(max(0.0, (ts + 60.0) - now + 0.1))
                     break
 
-        # RPD check (max 20 per 24h)
-        if len(self.rpd_window) >= self.max_rpd:
-            oldest_rpd_ts = self.rpd_window[0][0]
-            delays.append(max(0.0, (oldest_rpd_ts + 86400.0) - now + 1.0))
-
         return max(delays) if delays else 0.0
 
     def wait_if_needed(self, estimated_tokens: int = 5000, verbose: bool = True) -> float:
         """
-        Proactively sleep if sending request would breach limits.
+        Proactively sleep if sending request would breach minute limits (RPM=5, TPM=250k).
         """
         delay = self.get_required_delay(estimated_tokens)
         if delay > 0:
             if verbose:
-                print(f"[RateLimiter] Throttling for {delay:.2f}s to respect RPM={self.max_rpm}, TPM={self.max_tpm}, RPD={self.max_rpd}")
+                print(f"[RateLimiter] Throttling for {delay:.2f}s to respect RPM={self.max_rpm}, TPM={self.max_tpm}", flush=True)
             time.sleep(delay)
         return delay
 
