@@ -15,15 +15,16 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { WsClient } from './client'
+import type { WsClient } from './client'
 import { parseProfileSnapshot, parseProfileReady, type ProfileSnapshot as DiscoverySnapshot, type ProfileReady } from './discovery'
 import { validateProfileConfirm, validateProfileRequestChanges } from './planning'
+import { useWsOptional as useWsContextOptional, getSharedWsClient } from './WsProvider'
 
-// Singleton accessor — avoids circular import with index.ts which re-exports this hook
-let singleton: WsClient | null = null
+// Single-client accessor — reuses WsProvider's owned client; no new WsClient() here
 function getClient(): WsClient {
-  if (!singleton) singleton = new WsClient()
-  return singleton
+  // Prefer provider context when available, fallback to provider's shared singleton (same URL via resolveWsUrl)
+  // We cannot call hooks here; callers that need context should use useWs() below.
+  return getSharedWsClient()
 }
 
 // Re-export discriminated state type for consumers
@@ -76,8 +77,9 @@ function toHookSnapshot(d: DiscoverySnapshot): HookProfileSnapshot {
 }
 
 export function useWs(): UseWsReturn {
-  // singleton client — bundle-safe, no new connection per hook instance
-  const [client] = useState<WsClient>(() => getClient())
+  // Single-owner client — prefer WsProvider context, fallback to shared singleton (same resolveWsUrl URL)
+  const ctx = useWsContextOptional()
+  const [client] = useState<WsClient>(() => ctx?.client ?? getClient())
 
   const [snapshot, setSnapshot] = useState<HookProfileSnapshot | null>(() => {
     const raw = client.getProfileSnapshot() as unknown as { revision: number; state?: string; profile?: Record<string, unknown> } | null

@@ -1,5 +1,5 @@
-import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom'
-import { useState, useRef } from 'react'
+import { BrowserRouter, Routes, Route, useLocation, useNavigate, Navigate } from 'react-router-dom'
+import { useState, useRef, useEffect, useContext } from 'react'
 import Header from './components/Header'
 import Arrival from './screens/Arrival'
 import Discovery from './screens/Discovery'
@@ -17,29 +17,94 @@ import SessionBanner from './components/SessionBanner'
 import ErrorBanner from './components/ErrorBanner'
 import { useWsBannerState } from './hooks/useWsBannerState'
 import { usePlan } from './hooks/usePlan'
+import { useMockFallback } from './hooks/useMockFallback'
+import { useDiscovery } from './hooks/useDiscovery'
+import { WsContext, workflowStateToPath } from './ws/WsProvider'
+
+function TripOverviewGuard({ plan, state, revision, hasLivePlan }: { plan: ReturnType<typeof usePlan>['plan']; state: ReturnType<typeof usePlan>['state']; revision: ReturnType<typeof usePlan>['revision']; hasLivePlan: boolean }){
+  const ws = useContext(WsContext)
+  const workflowState = ws?.workflowState ?? null
+  const isFinal = state === 'final'
+  const isDevMockFinal = !hasLivePlan && isFinal
+  const allowed = workflowState === 'plan_ready' || isFinal || isDevMockFinal
+  if (!allowed && !isFinal) {
+    const target = workflowState ? workflowStateToPath(workflowState) : '/discovery'
+    return <Navigate to={target} replace />
+  }
+  return <TripOverview plan={plan} state={state ?? undefined} revision={revision ?? undefined} />
+}
+function DayCanvasGuard({ plan, state, revision, hasLivePlan, onSelectItem }: { plan: ReturnType<typeof usePlan>['plan']; state: ReturnType<typeof usePlan>['state']; revision: ReturnType<typeof usePlan>['revision']; hasLivePlan: boolean; onSelectItem: (d:number,i:number,item:ItineraryItem)=>void }){
+  const ws = useContext(WsContext)
+  const workflowState = ws?.workflowState ?? null
+  const isFinal = state === 'final'
+  const allowed = workflowState === 'plan_ready' || isFinal || (!hasLivePlan && isFinal)
+  if (!allowed && !isFinal) {
+    const target = workflowState ? workflowStateToPath(workflowState) : '/discovery'
+    return <Navigate to={target} replace />
+  }
+  return <DayCanvas plan={plan} revision={revision ?? undefined} state={state ?? undefined} workflowCompleted={hasLivePlan ? state === 'final' : true} onSelectItem={onSelectItem} />
+}
+
+function DiscoveryRoute(){
+  const { question, profile, sequence, busy, feedback, connected, sendAnswer } = useDiscovery()
+  const { allowMock } = useMockFallback()
+  // Mock fallback ONLY when ws failed at start
+  const mockQuestion = allowMock && !connected && !question ? (mockQuestions[0] as unknown as ReturnType<typeof useDiscovery>['question']) : null
+  const effectiveQuestion = question ?? mockQuestion
+  const effectiveProfile = profile ?? (allowMock && !connected ? { revision: 7, profile: { trip_context: { destination_request: "Kyoto in autumn, slow" }, preferences: [{ category:"Photography", strength:"strong", source:"stated" as const, notes:"sunrise" }], unknowns: [{ topic:"budget", impact:"minor", description:"flights excluded?" }], assumptions: [{ topic:"pace", value:"slow", reason:"preference", user_confirmation_needed:true }] } } as unknown as ReturnType<typeof useDiscovery>['profile'] : null)
+  const effectiveSequence = sequence ?? (effectiveQuestion ? 2 : null)
+  const mockSequenceTotal = 5
+  const handleAnswer = (payload: { question_id: string; selected_option_ids: string[]; free_text: string; command_id: string }) => {
+    // Live path
+    if (question) {
+      sendAnswer({ selected_option_ids: payload.selected_option_ids, free_text: payload.free_text, command_id: payload.command_id })
+      return
+    }
+    // Mock path — no-op, Discovery will show mock but not advance live state
+  }
+  return <Discovery question={effectiveQuestion} profile={effectiveProfile as unknown as never} sequence={effectiveSequence ?? undefined} sequenceTotal={mockSequenceTotal} busy={busy} feedback={feedback} onAnswer={handleAnswer} />
+}
 
 function AppShell(){
   const loc=useLocation()
+  const navigate = useNavigate()
   const isConsultation = loc.pathname==='/consultation' || loc.pathname==='/decision'
   const isArrival = loc.pathname==='/'
   const [detailOpen,setDetailOpen]=useState(false)
   const [detailItem,setDetailItem]=useState<ItineraryItem | null>(null)
   const returnFocusRef = useRef<HTMLElement>(null) as React.RefObject<HTMLElement>
-  // Centralized WS banners — single WebSocket integration surface
-  const { sessionBanner, lastError, clearSessionBanner, clearError, handleStartNewSession, handleCloseSuperseded } = useWsBannerState()
-  // Live plan snapshot (plan.snapshot draft/final) — replaces static mock wiring
-  const { plan: livePlan, revision: liveRevision, state: liveState, hasLivePlan } = usePlan()
+  const wsCtx = useContext(WsContext)
+  const wsClient = wsCtx?.client ?? null
+  const workflowState = wsCtx?.workflowState ?? null
+  const { sessionBanner, lastError, clearSessionBanner, clearError, handleStartNewSession, handleCloseSuperseded } = useWsBannerState(wsClient ?? undefined)
+  const { plan: livePlan, revision: liveRevision, state: liveState, hasLivePlan } = usePlan(wsClient ?? undefined)
+  const { allowMock } = useMockFallback()
 
-  const mockQuestion = mockQuestions[0] ?? null
-  const mockProfile = {
-    revision: 7,
-    profile: {
-      trip_context: { destination_request: "Kyoto in autumn, slow" },
-      preferences: [{ category:"Photography", strength:"strong", source:"stated" as const, notes:"sunrise" }],
-      unknowns: [{ topic:"budget", impact:"minor", description:"flights excluded?" }],
-      assumptions: [{ topic:"pace", value:"slow", reason:"preference", user_confirmation_needed:true }]
+  // Workflow-state-driven routing: live state drives URL (loop guard, arrival exempt)
+  useEffect(() => {
+    if (!workflowState) return
+    if (isArrival) return
+    // Don't auto-navigate while on plan destinations if already there
+    const target = workflowStateToPath(workflowState)
+    // Alias: /decision and /consultation are same workflow state
+    const isSame = loc.pathname === target || (target === '/consultation' && (loc.pathname === '/consultation' || loc.pathname === '/decision'))
+    if (isSame) return
+    // Do not auto-navigate away from plan views when plan is final and user explicitly navigated to day-canvas
+    if ((loc.pathname === '/trip-overview' || loc.pathname === '/day-canvas') && workflowState === 'plan_ready') return
+    navigate(target)
+  }, [workflowState, loc.pathname, isArrival, navigate])
+
+  // Auto-navigation on plan snapshot final (draft stays on consultation)
+  useEffect(() => {
+    const isFinal = liveState === 'final'
+    const isPlanReady = workflowState === 'plan_ready'
+    if (!isFinal && !isPlanReady) return
+    if (liveState === 'draft') return
+    if (loc.pathname === '/trip-overview' || loc.pathname === '/day-canvas') return
+    if (loc.pathname === '/consultation' || loc.pathname === '/decision') {
+      navigate('/trip-overview')
     }
-  }
+  }, [liveState, workflowState, loc.pathname, navigate])
 
   const handleSelectItem = (_dayIdx:number, _itemIdx:number, item: ItineraryItem) => {
     setDetailItem(item)
@@ -76,13 +141,13 @@ function AppShell(){
       {!isArrival && !isConsultation && <Header/>}
       <Routes>
         <Route path="/" element={<Arrival/>} />
-        <Route path="/discovery" element={<Discovery question={mockQuestion} profile={mockProfile} sequence={2} sequenceTotal={5} onAnswer={()=>{}} />} />
+        <Route path="/discovery" element={<DiscoveryRoute/>} />
         <Route path="/profile-review" element={<ProfileReview/>} />
         <Route path="/consultation" element={<Consultation />} />
-        <Route path="/decision" element={<Consultation decisionRequest={decisionForRoute} enableMockDecision={false} />} />
+        <Route path="/decision" element={<Consultation decisionRequest={decisionForRoute} enableMockDecision={!allowMock} />} />
         <Route path="/tradeoff" element={<TradeoffBrief/>} />
-        <Route path="/trip-overview" element={<TripOverview plan={livePlan} state={liveState ?? undefined} revision={liveRevision ?? undefined} />} />
-        <Route path="/day-canvas" element={<DayCanvas plan={livePlan} revision={liveRevision ?? undefined} state={liveState ?? undefined} workflowCompleted={hasLivePlan ? liveState === 'final' : true} onSelectItem={handleSelectItem} />} />
+        <Route path="/trip-overview" element={<TripOverviewGuard plan={livePlan} state={liveState} revision={liveRevision} hasLivePlan={hasLivePlan} />} />
+        <Route path="/day-canvas" element={<DayCanvasGuard plan={livePlan} state={liveState} revision={liveRevision} hasLivePlan={hasLivePlan} onSelectItem={handleSelectItem} />} />
         <Route path="/replanning" element={<Replanning/>} />
       </Routes>
       {!isArrival && !isConsultation && (
@@ -94,7 +159,7 @@ function AppShell(){
           </span>
         </footer>
       )}
-      <ExperienceDetail open={detailOpen} item={detailItem} fitExplanation={mockPlan.fit_explanation} onClose={()=>{ setDetailOpen(false); setTimeout(()=>setDetailItem(null),200)}} returnFocusRef={returnFocusRef} />
+      <ExperienceDetail open={detailOpen} item={detailItem} fitExplanation={livePlan?.fit_explanation ?? mockPlan.fit_explanation} onClose={()=>{ setDetailOpen(false); setTimeout(()=>setDetailItem(null),200)}} returnFocusRef={returnFocusRef} />
     </>
   )
 }

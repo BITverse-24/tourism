@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { getWsClient } from "../ws/index";
+import { useMockFallback } from "../hooks/useMockFallback";
 import { PlanningLifecycleStore } from "../ws/planning";
 import {
   initialDecisionPlanState,
@@ -91,16 +92,15 @@ const DEFAULT_DECISION: DecisionRequest = {
   ],
 };
 
+/**
+ * Mock fallback for Consultation is gated by useMockFallback (wsFailedAtStart).
+ * Live WS is default; mock timer/decision only when websocket failed at start.
+ * The helper below is retained for backwards-compat but no longer drives `usesMock`.
+ */
 function isMockEnabled(): boolean {
-  try {
-    const env = (import.meta as unknown as { env?: Record<string, string | undefined> })?.env;
-    if (!env) return true;
-    const v = env["VITE_WS_MOCK"];
-    if (v === undefined) return true;
-    return String(v) !== "false";
-  } catch {
-    return true;
-  }
+  // Deprecated: decision now comes from useMockFallback. Keep returning false
+  // so that standalone VITE_WS_MOCK checks do not re-enable mocks when WS is live.
+  return false
 }
 
 function mapDecisionPayloadToRequest(payload: { decision_id: string; prompt: string; reason?: string; options: DecisionOption[] }): DecisionRequest {
@@ -375,10 +375,11 @@ export default function Consultation({
 
   const live = useLiveConsultation();
   const wsConnected = live.connected;
-  const mockFallbackEnabled = isMockEnabled();
+  const { allowMock: consultationAllowMock, wsFailedAtStart: consultationFailed } = useMockFallback()
 
-  // When ws is connected, mock is disabled entirely; otherwise respect VITE_WS_MOCK fallback
-  const usesMock = externalStages === undefined && !wsConnected && mockFallbackEnabled;
+  // Mock timer/decision ONLY when websocket failed at start — live WS is default.
+  // `allowMock` is true only after wsFailedAtStart && !connected.
+  const usesMock = externalStages === undefined && consultationAllowMock && consultationFailed
 
   // Effective stages / planningMessage / lastSeq
   const stages = wsConnected ? live.stages : externalStages ?? internalStages;

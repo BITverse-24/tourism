@@ -7,6 +7,7 @@ import type {
 } from "../ws/discovery";
 import { validateAnswer, generateCommandId } from "../ws/discovery";
 import { getWsClient } from "../ws";
+import { useDiscovery } from "../hooks/useDiscovery";
 
 // Re-export for backwards compat — consumers importing from this screen keep working
 export type { DiscoveryQuestion, DiscoveryOption, SelectionMode, FreeTextMode };
@@ -44,10 +45,10 @@ export type ProfileSnapshot = {
 };
 
 export type DiscoveryProps = {
-  question: DiscoveryQuestion | null;
+  question?: DiscoveryQuestion | null;
   profile?: ProfileSnapshot | null;
-  sequence?: number;
-  sequenceTotal?: number;
+  sequence?: number | null;
+  sequenceTotal?: number | null;
   busy?: boolean;
   feedback?: string | null;
   onAnswer?: (payload: {
@@ -199,12 +200,12 @@ function formatConstraints(hc: Record<string, unknown> | null | undefined): Reac
 // ---------------------------------------------------------------------------
 
 export default function Discovery({
-  question,
-  profile,
-  sequence,
-  sequenceTotal,
-  busy = false,
-  feedback = null,
+  question: questionProp,
+  profile: profileProp,
+  sequence: sequenceProp,
+  sequenceTotal: sequenceTotalProp,
+  busy: busyProp = false,
+  feedback: feedbackProp = null,
   onAnswer,
   onBack,
   onToggleNav,
@@ -216,6 +217,24 @@ export default function Discovery({
   const promptId = useId();
   const feedbackId = useId();
   const prevQRef = useRef<string | null>(null);
+
+  // Live wiring — when parent does NOT supply a question, consume WS discovery stream directly.
+  // This makes Discovery self-sufficient in the live app (App.tsx renders <Discovery /> with no props).
+  // When questionProp is provided (storybook/tests), that value is authoritative and the hook is still
+  // subscribed but its question is ignored.
+  const live = useDiscovery();
+  const isLiveMode = questionProp == null && onAnswer == null;
+
+  // Effective values: live WS data wins when in live mode; otherwise props win.
+  const question = isLiveMode ? live.question : questionProp;
+  const profile = isLiveMode ? (live.profile as unknown as ProfileSnapshot | null) ?? profileProp ?? null : (profileProp ?? null);
+  const liveSequence = live.sequence;
+  const sequence = isLiveMode ? (liveSequence ?? sequenceProp ?? null) : (sequenceProp ?? null);
+  const sequenceTotal = sequenceTotalProp ?? live.sequenceTotal ?? null;
+  const busy = isLiveMode ? live.busy : busyProp;
+  // Feedback priority: live hook feedback > local recovery > prop feedback
+  const liveFeedback = live.feedback;
+  const feedback = (isLiveMode ? (liveFeedback ?? localRecoveryFeedback) : (localRecoveryFeedback ?? feedbackProp)) ?? null;
 
   // Reset selection/text when server pushes a new discovery.question (forward-only)
   useEffect(() => {
@@ -230,8 +249,11 @@ export default function Discovery({
     }
   }, [question?.question_id]);
 
-  // Handle question_not_current recovery — server rejected stale answer, wait for new question
+  // Handle question_not_current recovery — server rejected stale answer, wait for new question.
+  // When in live mode the hook already handles this and exposes live.feedback; keep a
+  // fallback subscription for prop-driven (test/storybook) usage.
   useEffect(() => {
+    if (isLiveMode) return;
     let unsub: (() => void) | null = null;
     try {
       const client = getWsClient();
@@ -240,9 +262,6 @@ export default function Discovery({
           const p = env.payload as Record<string, unknown>;
           if (p.code === "question_not_current") {
             setLocalRecoveryFeedback("That question is no longer current — showing the latest one.");
-            // keep busy false so user can answer the new question once it arrives
-            // selection/text will be reset when question_id changes via effect above
-            // recovery payload contains current_question_id if server included it
           }
         }
       });
@@ -252,7 +271,7 @@ export default function Discovery({
     return () => {
       if (unsub) unsub();
     };
-  }, []);
+  }, [isLiveMode]);
 
   const toggleOption = (optionId: string) => {
     if (!question || busy) return;
@@ -304,43 +323,58 @@ export default function Discovery({
 
   const handleSubmit = () => {
     if (!question || !canSubmit) return;
-    // Pre-validate again at submit time (UX only) — do not block server truth
+    // Pre-validate again at submit time (UX only) — server remains truth
     const v = validateAnswer(question, selected, text);
     if (!v.valid) return;
 
     const fm = question.free_text_mode;
-    let ids = [...selected];
     let ft = text;
-    // Normalize per contract: disabled => free_text must be "", only_if_no_option mutual exclusion
     if (fm === "disabled") ft = "";
     else if (fm === "only_if_no_option" && hasSelection && hasText) {
-      // Should be invalid per validateAnswer, but defensively drop text if caller forced it
       ft = "";
     }
 
-    const payload = {
-      question_id: question.question_id,
-      selected_option_ids: ids,
-      free_text: ft,
-      command_id: genCommandId(),
-    };
+    const commandId = genCommandId();
 
-    // Prefer parent-provided onAnswer (which may be wired to useWs().sendAnswer / ws.send),
-    // fallback to direct WsClient send for live WebSocket operation.
+    // If parent supplied onAnswer (storybook/tests or App wiring), delegate to it.
     if (onAnswer) {
-      onAnswer(payload);
+      onAnswer({
+        question_id: question.question_id,
+        selected_option_ids: [...selected],
+        free_text: ft,
+        command_id: commandId,
+      });
       return;
     }
-    // No onAnswer — send directly via WsClient (live mode)
+
+    // Live path: single unified WsClient via useDiscovery (handles validateAnswer, busy, feedback,
+    // question_not_current recovery, and sequence tracking). Falls back to direct client call
+    // if hook is not yet fully initialized (e.g., early render before subscription).
+    if (isLiveMode) {
+      const res = live.sendAnswer({
+        selected_option_ids: [...selected],
+        free_text: ft,
+        command_id: commandId,
+      });
+      // sendAnswer already manages busy/feedback; surface local recovery note if it failed locally
+      if (!res.ok && res.error && !live.feedback) {
+        setLocalRecoveryFeedback(res.error);
+      }
+      // Also send via WsClient directly if hook's send was no-op (defensive: keep single unified client)
+      // No second send — live.sendAnswer already called client.sendDiscoveryAnswer with same commandId.
+      return;
+    }
+
+    // Fallback direct WsClient send (covers prop-less but non-live edge, e.g., tests without hook)
     try {
       const client = getWsClient();
       client.sendDiscoveryAnswer(
         {
-          question_id: payload.question_id,
-          selected_option_ids: payload.selected_option_ids,
-          free_text: payload.free_text,
+          question_id: question.question_id,
+          selected_option_ids: [...selected],
+          free_text: ft,
         },
-        payload.command_id
+        commandId,
       );
     } catch {
       // If WsClient unavailable (e.g., storybook), silently ignore — parent should provide onAnswer

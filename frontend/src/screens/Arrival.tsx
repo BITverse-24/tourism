@@ -1,5 +1,7 @@
 import { useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useAppState } from '../hooks/useAppState'
+import { useWsOptional } from '../ws/WsProvider'
 
 export default function Arrival() {
   const [text, setText] = useState('')
@@ -8,6 +10,8 @@ export default function Arrival() {
   const [exiting, setExiting] = useState(false)
   const navigate = useNavigate()
   const taRef = useRef<HTMLTextAreaElement>(null)
+  const { setIntent } = useAppState()
+  const ws = useWsOptional()
 
   const len = [...text].length
   const trimmed = text.trim()
@@ -24,6 +28,12 @@ export default function Arrival() {
     if (tooShort) return
     setFeedback('')
     setBusy(true)
+    // Persist intent for downstream screens (Discovery → profile, etc.)
+    try { setIntent(trimmed) } catch {}
+    // Queue session.start (WsProvider reads stored session_id or null and ensures connection)
+    // — must happen before navigate so discovery can receive session.ready / recovery state.
+    // Handle idle/closed client gracefully; navigation must still proceed.
+    try { ws?.sendSessionStart() } catch {}
     setTimeout(() => setExiting(true), 380)
     setTimeout(() => navigate('/discovery'), 820)
   }

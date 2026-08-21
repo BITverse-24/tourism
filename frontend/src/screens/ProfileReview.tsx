@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useWs } from '../ws/useWs'
 import type { TravelerProfile } from '../types'
 import { mockProfile } from '../data/mockProfile'
+import { useMockFallback } from '../hooks/useMockFallback'
 
 type Profile = TravelerProfile & { profile_revision?: number }
 
@@ -44,19 +45,17 @@ export default function ProfileReview() {
   const liveSnapshot = ws.snapshot
   const liveReady = ws.ready
 
-  // Fallback to mock only when no live snapshot has arrived yet (dev / initial load).
-  // Once a live snapshot exists, it is the single source of truth; mocks never override live.
+  // Live WS is default; mock fallback ONLY when websocket failed at start.
+  const { allowMock, wsFailedAtStart, isWaitingForLive } = useMockFallback()
   const hasLiveSnapshot = !!liveSnapshot
   const rawProfile = liveSnapshot?.profile as unknown as TravelerProfile | null | undefined
-  // Use live profile when available, otherwise show demo placeholder so the UI is not blank.
+  // Use live profile when available; when wsFailedAtStart mockProfile is used as fallback demo.
   const p: Profile | null = useMemo(() => {
     if (rawProfile && typeof rawProfile === 'object') {
-      // Ensure profile_id exists; fallback to placeholder if missing
       const withRev: Profile = {
         ...(rawProfile as TravelerProfile),
         profile_revision: liveSnapshot!.revision,
       } as Profile
-      // Defensive defaults for required nested objects so rendering doesn't crash on partial snapshots
       if (!withRev.trip_context) withRev.trip_context = mockProfile.trip_context
       if (!withRev.purpose_and_priorities) withRev.purpose_and_priorities = mockProfile.purpose_and_priorities
       if (!withRev.preferences) withRev.preferences = mockProfile.preferences
@@ -66,12 +65,15 @@ export default function ProfileReview() {
       if (!withRev.assumptions) withRev.assumptions = []
       return withRev
     }
+    // Mock fallback only when ws failed at start
+    if (allowMock && wsFailedAtStart) {
+      return { ...mockProfile, profile_revision: 7 } as Profile
+    }
     return null
-  }, [rawProfile, liveSnapshot])
+  }, [rawProfile, liveSnapshot, allowMock, wsFailedAtStart])
 
-  // Effective profile for rendering — live when present, otherwise null (shows loading)
-  // We keep mock visible only as a non-interactive placeholder behind the loading state,
-  // but all gating logic uses live signals only.
+  const isMockProfileActive = !rawProfile && allowMock && wsFailedAtStart && !!p
+  // Effective profile for rendering — live when present, mock only on ws failure, otherwise null (shows loading)
   const displayProfile: Profile | null = p
 
   // Confirm gating — contract: only when snapshot state === 'ready', revision is latest (matches profile.ready),
@@ -172,7 +174,7 @@ export default function ProfileReview() {
     setTopics((s) => (s.includes(t) ? s.filter((x) => x !== t) : [...s, t]))
   }
 
-  // Loading state — no live snapshot yet
+  // Loading state — no live snapshot yet (distinguishes waiting vs mock fallback active)
   if (!displayProfile) {
     return (
       <main className="profile-review">
@@ -183,10 +185,12 @@ export default function ProfileReview() {
           Here&rsquo;s what we&rsquo;ve understood.
         </h1>
         <p className="pr-lede pour" style={{ animationDelay: '80ms' }}>
-          Waiting for the live profile snapshot from the concierge…
+          {isWaitingForLive ? 'Waiting for live snapshot — connecting to the concierge…' : 'Waiting for the live profile snapshot from the concierge…'}
         </p>
         <div className="pr-notice" style={{ marginTop: 24 }}>
-          No profile.snapshot received yet. The server will emit a complete snapshot — the frontend replaces, never patches, the prior snapshot for that revision.
+          {isWaitingForLive
+            ? 'Live WebSocket is the default. No mock is shown while connecting — mock fallback will activate only if the websocket fails at start.'
+            : 'No profile.snapshot received yet. The server will emit a complete snapshot — the frontend replaces, never patches, the prior snapshot for that revision.'}
         </div>
         {notice ? <div className="pr-notice">{notice}</div> : null}
         <style>{styles}</style>
@@ -242,6 +246,10 @@ export default function ProfileReview() {
       {hasLiveSnapshot ? (
         <div className="pr-live-badge mono" style={{ marginTop: 8, fontSize: 10, letterSpacing: '0.08em', color: 'var(--voyager-ink-3)' }}>
           Live snapshot · revision {revisionLabel} · state {stateLabel} · {liveReady ? `${liveReady.blocking_unknowns.length} blocking` : `${blockingCount} blocking`}
+        </div>
+      ) : isMockProfileActive ? (
+        <div className="pr-live-badge mono" style={{ marginTop: 8, fontSize: 10, letterSpacing: '0.08em', color: 'var(--voyager-brass-1)' }}>
+          Mock fallback active — websocket failed at start · revision {revisionLabel}
         </div>
       ) : null}
 

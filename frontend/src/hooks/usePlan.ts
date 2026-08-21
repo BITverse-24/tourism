@@ -3,19 +3,20 @@
  * Subscribes to plan.snapshot (draft/final) via WsClient, respects revision
  * ordering (replace not patch), and normalizes to canonical FinalPlan.
  *
- * Falls back to mockPlan in DEV when no live plan has arrived, so the
- * overview/day-canvas screens remain inspectable without a running backend.
+ * Mock fallback: ONLY when websocket has failed at start (wsFailedAtStart).
+ * Live WS is the default; useMockFallback centralizes the decision.
  */
 import { useEffect, useMemo, useState } from 'react'
-import { WsClient } from '../ws/client'
+import type { WsClient } from '../ws/client'
 import { mockPlan } from '../data/mockPlan'
 import { normalizePlanSnapshot, type NormalizedPlanSnapshot } from '../types/planAdapter'
 import type { FinalPlan } from '../types'
+import { useMockFallback } from './useMockFallback'
+import { getSharedWsClient } from '../ws/WsProvider'
+import { useWsOptional } from '../ws/WsProvider'
 
-let singletonClient: WsClient | null = null
 function getClient(): WsClient {
-  if (!singletonClient) singletonClient = new WsClient()
-  return singletonClient
+  return getSharedWsClient()
 }
 
 export interface UsePlanReturn {
@@ -29,7 +30,9 @@ export interface UsePlanReturn {
 }
 
 export function usePlan(clientOpt?: WsClient): UsePlanReturn {
-  const client = clientOpt ?? getClient()
+  const ctx = useWsOptional()
+  const client = clientOpt ?? ctx?.client ?? getClient()
+  const { allowMock, wsFailedAtStart } = useMockFallback()
 
   const [snapshot, setSnapshot] = useState<NormalizedPlanSnapshot | null>(() => {
     const raw = client.getPlanSnapshot() as unknown as Record<string, unknown> | null
@@ -84,8 +87,8 @@ export function usePlan(clientOpt?: WsClient): UsePlanReturn {
         hasLivePlan: true,
       }
     }
-    // DEV fallback so screens are inspectable without backend
-    if ((import.meta as unknown as { env: Record<string, unknown> }).env?.DEV) {
+    // Mock fallback ONLY when websocket failed at start — live WS is default.
+    if (allowMock && wsFailedAtStart) {
       return {
         snapshot: { revision: 1, state: 'final' as const, plan: mockPlan as unknown as FinalPlan },
         plan: mockPlan as unknown as FinalPlan,
@@ -97,7 +100,7 @@ export function usePlan(clientOpt?: WsClient): UsePlanReturn {
       }
     }
     return { snapshot: null, plan: null, revision: null, state: null, isDraft: false, isFinal: false, hasLivePlan: false }
-  }, [snapshot])
+  }, [snapshot, allowMock, wsFailedAtStart])
 
   return derived
 }

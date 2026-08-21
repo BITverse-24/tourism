@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import type { FinalPlan, PlanItem } from "../types";
 import { mockPlan } from "../data/mockPlan";
 import { normalizeFinalPlan, budgetLabel } from "../types/planAdapter";
+import { useMockFallback } from "../hooks/useMockFallback";
 
 // Preserve exported item/day types for ExperienceDetail compatibility.
 // They now alias the canonical FinalPlan item shape.
@@ -107,15 +108,15 @@ function toItineraryItem(it: PlanItem): ItineraryItem {
   }
 }
 
-function resolvePlan(props: DayCanvasProps): { plan: FinalPlan; revision: number; state: "draft" | "final" } | null {
+function resolvePlan(props: DayCanvasProps, allowMock: boolean): { plan: FinalPlan; revision: number; state: "draft" | "final"; isMock: boolean } | null {
   if (props.plan) {
-    return { plan: props.plan, revision: props.revision ?? 1, state: props.state ?? "final" }
+    return { plan: props.plan, revision: props.revision ?? 1, state: props.state ?? "final", isMock: false }
   }
   if (props.snapshot) {
     const s = props.snapshot as unknown as Record<string, unknown>
     if (s.plan && typeof s.plan === "object") {
       const norm = normalizeFinalPlan(s.plan)
-      if (norm) return { plan: norm, revision: (s.revision as number) ?? 1, state: (s.state as "draft" | "final") ?? "final" }
+      if (norm) return { plan: norm, revision: (s.revision as number) ?? 1, state: (s.state as "draft" | "final") ?? "final", isMock: false }
     }
     // legacy PlanSnapshot without wrapped plan
     const legacy = props.snapshot as PlanSnapshot
@@ -161,30 +162,35 @@ function resolvePlan(props: DayCanvasProps): { plan: FinalPlan; revision: number
         unresolved_details: legacy.unresolved_details ?? [],
         ...(legacy.trip_dates ? { trip_dates: legacy.trip_dates } : {}),
       }
-      return { plan: fake, revision: legacy.revision, state: legacy.state }
+      return { plan: fake, revision: legacy.revision, state: legacy.state, isMock: false }
     }
   }
-  // dev fallback
-  if ((import.meta as unknown as { env: Record<string, unknown> }).env?.DEV) {
-    return { plan: mockPlan as unknown as FinalPlan, revision: 1, state: "final" }
+  // Mock fallback ONLY when websocket failed at start — live WS is default.
+  if (allowMock) {
+    return { plan: mockPlan as unknown as FinalPlan, revision: 1, state: "final", isMock: true }
   }
   return null
 }
 
 // ---------- Component ----------
 export default function DayCanvas({ plan: planProp, snapshot, revision, state, workflowCompleted = false, onSelectItem }: DayCanvasProps) {
-  const resolved = resolvePlan({ plan: planProp, snapshot, revision, state })
+  const { allowMock, wsFailedAtStart, isWaitingForLive } = useMockFallback()
+  const resolved = resolvePlan({ plan: planProp, snapshot, revision, state }, allowMock && wsFailedAtStart)
   const livePlan: FinalPlan | null = resolved?.plan ?? null
   const rev = resolved?.revision ?? 1
   const st = resolved?.state ?? "final"
+  const isMockActive = !!resolved?.isMock
 
-  // Early empty guard — no live plan and not in dev
+  // Early empty guard — waiting for live snapshot (mock only if ws failed at start)
   if (!livePlan) {
     return (
       <main className="day-canvas" style={{ display: 'block', padding: '48px 5vw' }}>
         <p style={{ fontSize: 11, letterSpacing: '.18em', textTransform: 'uppercase', color: 'var(--voyager-ink-3)', fontWeight: 600 }}>Day by day</p>
         <h2 className="serif" style={{ marginTop: 8, fontSize: 28, fontWeight: 400, color: 'var(--voyager-ink-1)' }}>Your itinerary will appear here</h2>
-        <p style={{ marginTop: 12, fontSize: 14, lineHeight: '22px', color: 'var(--voyager-ink-2)', maxWidth: 520 }}>Confirm your profile to generate a plan. Live day-by-day details, timings, and movement will render from the Final Trip Plan snapshot.</p>
+        <p style={{ marginTop: 12, fontSize: 14, lineHeight: '22px', color: 'var(--voyager-ink-2)', maxWidth: 520 }}>
+          {isWaitingForLive ? 'Waiting for live snapshot — connecting to the concierge…' : 'Confirm your profile to generate a plan. Live day-by-day details, timings, and movement will render from the Final Trip Plan snapshot.'}
+        </p>
+        {isWaitingForLive && <p style={{ marginTop: 8, fontSize: 12, color: 'var(--voyager-ink-3)' }}>Mock fallback will activate only if the websocket fails at start.</p>}
       </main>
     )
   }
