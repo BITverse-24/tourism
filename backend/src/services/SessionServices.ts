@@ -31,7 +31,7 @@ export async function sessionStartService(
             run_id: newRunId,
             command_id: data.command_id,
             occurred_at: new Date().toISOString(),
-            sequence: await nextSequence(newSessionId),
+            sequence: await nextSequence(newRunId),
             payload:{
                 session_id: newSessionId,
                 run_id: newRunId,
@@ -71,7 +71,7 @@ export async function sessionStartService(
                 run_id: newRunId,
                 command_id: data.command_id,
                 occurred_at: new Date().toISOString(),
-                sequence: await nextSequence(data.session_id),
+                sequence: await nextSequence(newRunId),
                 payload: {
                     session_id: data.session_id,
                     run_id: newRunId,
@@ -92,7 +92,7 @@ export async function sessionStartService(
                     run_id: newRunId,
                     command_id: data.command_id,
                     occurred_at: new Date().toISOString(),
-                    sequence: await nextSequence(data.session_id),
+                    sequence: await nextSequence(data.run_id),
                     payload: snapshot
                 })
                 emit({ event: Events.PROFILE_SNAPSHOT, data: profSnapMsg })
@@ -123,7 +123,7 @@ export async function sessionStartService(
                 run_id: newRunId,
                 command_id: data.command_id,
                 occurred_at: new Date().toISOString(),
-                sequence: await nextSequence(data.session_id),
+                sequence: await nextSequence(data.run_id),
                 payload: {
                     session_id: data.session_id,
                     run_id: newRunId,

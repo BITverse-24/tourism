@@ -17,7 +17,6 @@ export async function checkBaseCommandRejections<T extends z.ZodObject>(
 
     const curr_workflow_state = await currentWorkflowState(data.session_id);
     const curr_run_id = await getCurrentRunIdForSession(data.session_id);
-    const seq = await nextSequence(data.run_id);
     const rejectionMsg = 
             createCommandRejectedMessage({
                 message_id: `msg_${generateUUID()}`,
@@ -26,7 +25,7 @@ export async function checkBaseCommandRejections<T extends z.ZodObject>(
                 command_id: data.command_id,
                 occurred_at: new Date().toISOString(),
                 workflow_state: curr_workflow_state,
-                sequence: seq,
+                sequence: 1,
                 code: RejectionCodes.RUN_CANCELLED,
                 message: `not current run id`,
                 retryable: false,
@@ -37,11 +36,10 @@ export async function checkBaseCommandRejections<T extends z.ZodObject>(
         data,
         schema,
         curr_workflow_state,
-        seq
     ) 
     const sessionIdValidRes = await isValidSession(data.session_id);
-    if (!formatValidationRes.valid) {
-
+    if (!formatValidationRes.valid && formatValidationRes.ack) {
+        formatValidationRes.ack.sequence = await nextSequence(data.run_id);
         logger.warn(`recieved data in invalid format for ${data.type}`, {
             socketid: socket.id,
             data: data,
@@ -55,6 +53,7 @@ export async function checkBaseCommandRejections<T extends z.ZodObject>(
         rejectionMsg.code = RejectionCodes.SESSION_EXPIRED
         rejectionMsg.message = `invalid session id`
         rejectionMsg.recovery = { valid_sessions: sessionIdValidRes.validSessions }
+        rejectionMsg.sequence =  await nextSequence(data.run_id);
         socket.emit(
             Acks.COMMAND_REJECTED,
             rejectionMsg
@@ -66,6 +65,7 @@ export async function checkBaseCommandRejections<T extends z.ZodObject>(
         rejectionMsg.code = RejectionCodes.RUN_CANCELLED
         rejectionMsg.message = `not current run id`
         rejectionMsg.recovery = { current_run_id: curr_run_id }
+        rejectionMsg.sequence =  await nextSequence(data.run_id);
         socket.emit(
             Acks.COMMAND_REJECTED,
             rejectionMsg
@@ -77,6 +77,7 @@ export async function checkBaseCommandRejections<T extends z.ZodObject>(
         rejectionMsg.code = RejectionCodes.COMMAND_ID_CONFLICT
         rejectionMsg.message = `command id already used`
         rejectionMsg.recovery = {}
+        rejectionMsg.sequence =  await nextSequence(data.run_id);
         socket.emit(
             Acks.COMMAND_REJECTED,
             rejectionMsg

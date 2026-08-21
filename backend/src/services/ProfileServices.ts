@@ -47,7 +47,7 @@ export async function profileConfirmService(
                 run_id: data.run_id,
                 command_id: data.command_id,
                 occurred_at: new Date().toISOString(),
-                sequence: await nextSequence(data.session_id),
+                sequence: await nextSequence(data.run_id),
                 payload: snapshot
         })
     logger.debug('sending profile.snapshot with the confirmed profile snapshot', {data: profSnapMsg})

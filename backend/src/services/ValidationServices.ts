@@ -76,7 +76,6 @@ export function validateCommandDataFormat<T extends z.ZodObject>(
     data: MessageEnvelope,
     schema: T,
     workflow_state: WorkflowStates,
-    sequence: number,
 ): { valid: boolean, ack?: CommandRejectedMessage } {
 
     const parseRes = schema.safeParse(data)
@@ -92,7 +91,7 @@ export function validateCommandDataFormat<T extends z.ZodObject>(
                 command_id: data.command_id,
                 occurred_at: new Date().toISOString(),
                 workflow_state: workflow_state,
-                sequence: sequence,
+                sequence: 1,
                 code: RejectionCodes.RUN_CANCELLED,
                 message: `invalid envelope format for message type ${data.type}`,
                 retryable: false,

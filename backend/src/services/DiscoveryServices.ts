@@ -73,7 +73,7 @@ export async function discoveryAnswerService(
         run_id: data.run_id,
         command_id: data.command_id,
         occurred_at: new Date().toISOString(),
-        sequence: await nextSequence(data.session_id),
+        sequence: await nextSequence(data.run_id),
         payload: snapshot
     })
     logger.debug('sending profile.snapshot', {data: profSnapMsg})
@@ -89,7 +89,7 @@ export async function discoveryAnswerService(
             run_id: data.run_id,
             command_id: data.command_id,
             occurred_at: new Date().toISOString(),
-            sequence: await nextSequence(data.session_id),
+            sequence: await nextSequence(data.run_id),
             payload: {
                 profile_revision: snapshot.revision,
                 blocking_unknowns: []
@@ -109,7 +109,7 @@ export async function discoveryAnswerService(
                 run_id: data.run_id,
                 command_id: data.command_id,
                 occurred_at: new Date().toISOString(),
-                sequence: await nextSequence(data.session_id),
+                sequence: await nextSequence(data.run_id),
                 payload: discoveryRes.next_question
             })
         logger.debug('sending discovery.question', {data: discoveryQuestionMsg})
@@ -182,7 +182,7 @@ export async function newDiscoveryQuestionService(
         run_id: run_id,
         command_id: command_id,
         occurred_at: new Date().toISOString(),
-        sequence: await nextSequence(session_id),
+        sequence: await nextSequence(run_id),
         payload: snapshot
     })
     logger.debug('sending profile.snapshot', {data: profSnapMsg})
@@ -197,7 +197,7 @@ export async function newDiscoveryQuestionService(
             run_id: run_id,
             command_id: command_id,
             occurred_at: new Date().toISOString(),
-            sequence: await nextSequence(session_id),
+            sequence: await nextSequence(run_id),
             payload: {
                 profile_revision: snapshot.revision,
                 blocking_unknowns: []
@@ -215,7 +215,7 @@ export async function newDiscoveryQuestionService(
                 run_id: run_id,
                 command_id: command_id,
                 occurred_at: new Date().toISOString(),
-                sequence: await nextSequence(session_id),
+                sequence: await nextSequence(run_id),
                 payload: discoveryRes.next_question
             })
         logger.debug('sending discovery.question', {data: discoveryQuestionMsg})
