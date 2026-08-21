@@ -12,7 +12,7 @@ export function onConnect(socket: Socket) {
     sessionEvents(socket)
     runEvents(socket)
     profileEvents(socket)
-    decisionEvents(socket)
+    // decisionEvents(socket)  all handled in tool calls
     discoveryEvents(socket)
     replanEvents(socket)
 }

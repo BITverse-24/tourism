@@ -1,8 +1,9 @@
 import { z } from "zod";
 import { BaseMessageEnvelopeSchema } from "./BaseMessageEnvelope";
+import { MessageKinds } from "./enums";
 
 const CommandMessageEnvelopeSchema = BaseMessageEnvelopeSchema.extend({
-    kind: z.literal("command"),
+    kind: z.literal(MessageKinds.COMMAND),
 })
 
 

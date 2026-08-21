@@ -1,199 +1,248 @@
-import { TravelerProfile } from "./TravelerProfile";
+import { z } from "zod";
+// import { TravelerProfileSchema } from "./TravelerProfile";
 
-export interface FinalTripPlan {
-  plan_title: string;
-  summary: string;
-  traveler_profile_reference: TravelerProfile;
-  trip_dates?: TripDates;
-  destination_route: DestinationRouteItem[];
-  city_allocations: CityAllocation[];
-  accommodation?: AccommodationPlan[];
-  days: ItineraryDay[];
-  cost_summary: CostSummary;
-  fit_explanation: FitExplanationItem[];
-  tradeoffs: Tradeoff[];
-  assumptions: string[];
-  warnings: Warning[];
-  unresolved_details: UnresolvedDetail[];
-}
 
-export interface TravelerProfileReference {
-  id: string;
-  version?: string;
-}
+/* -------------------------------------------------------------------------- */
+/*                                    Enums                                   */
+/* -------------------------------------------------------------------------- */
 
-export interface TripDates {
-  start_date?: string; // ISO 8601: YYYY-MM-DD
-  end_date?: string;   // ISO 8601: YYYY-MM-DD
-  flexibility?: string;
-}
+export const AccommodationStatusSchema = z.enum([
+  "suggested",
+  "selected_by_traveler",
+  "not_yet_decided",
+]);
 
-export interface DestinationRouteItem {
-  place: string;
-  arrival_from?: string;
-  departure_to?: string;
-  order: number;
-}
+export const ItineraryItemTypeSchema = z.enum([
+  "experience",
+  "meal",
+  "rest",
+  "movement",
+]);
 
-export interface CityAllocation {
-  place: string;
-  nights?: number;
-  days: number | string;
-  reason?: string;
-}
+export const ItemFlexibilitySchema = z.enum([
+  "fixed",
+  "moveable",
+  "optional",
+]);
 
-export type AccommodationStatus =
-  | "suggested"
-  | "selected_by_traveler"
-  | "not_yet_decided";
+export const BudgetPositionSchema = z.enum([
+  "within_target",
+  "near_target",
+  "above_target",
+  "budget_unknown",
+]);
 
-export interface AccommodationPlan {
-  place: string;
-  nights: number;
-  recommendation: string;
-  reason: string;
-  estimated_cost?: MoneyAmount;
-  status: AccommodationStatus;
-}
+/* -------------------------------------------------------------------------- */
+/*                               Shared Schemas                               */
+/* -------------------------------------------------------------------------- */
 
-export interface ItineraryDay {
-  day: number;
-  date?: string; // ISO 8601: YYYY-MM-DD
-  place: string;
-  theme?: string;
-  items: ItineraryItem[];
-  daily_notes?: string;
-}
+export const EstimatedCostSchema = z.object({
+  amount: z.number().nullable(),
+  currency: z.string().nullable(),
+});
 
-export type ItineraryItemType =
-  | "experience"
-  | "meal"
-  | "rest"
-  | "movement";
+export const MovementSchema = z.object({
+  mode: z.string().nullable(),
+  duration_minutes: z.number().nullable(),
+  from: z.string().nullable(),
+  to: z.string().nullable(),
+});
 
-export type ItineraryFlexibility =
-  | "fixed"
-  | "moveable"
-  | "optional";
+/* -------------------------------------------------------------------------- */
+/*                            Traveler Profile Reference                      */
+/* -------------------------------------------------------------------------- */
 
-export interface ItineraryItem {
-  type: ItineraryItemType;
-  title: string;
-  start_time?: string; // Local time, e.g. "06:30"
-  end_time?: string;   // Local time, e.g. "08:00"
-  location?: string;
-  description: string;
-  movement?: MovementDetails;
-  estimated_cost?: MoneyAmount;
-  reason?: string;
-  flexibility?: ItineraryFlexibility;
-}
+export const TravelerProfileReferenceSchema = z.object({
+  profile_id: z.string(),
+  profile_revision: z.number(),
+});
 
-export interface MovementDetails {
-  mode?: string;
-  description: string;
-  duration_minutes?: number;
-}
+/* -------------------------------------------------------------------------- */
+/*                                 Trip Dates                                 */
+/* -------------------------------------------------------------------------- */
 
-export interface CostSummary {
-  currency: string;
-  estimated_total: number;
-  scope: string;
-  categories: CostCategory[];
-  budget_position: BudgetPosition;
-  caveats: string[];
-}
+export const TripDatesSchema = z.object({
+  start_date: z.string().nullable(),
+  end_date: z.string().nullable(),
+  duration_days: z.number().nullable(),
+  flexibility: z.string().nullable(),
+});
 
-export interface CostCategory {
-  category: string;
-  estimated_cost: number;
-  scope?: string;
-}
+/* -------------------------------------------------------------------------- */
+/*                             Destination Route                              */
+/* -------------------------------------------------------------------------- */
 
-export type BudgetPosition =
-  | "within_target"
-  | "near_target"
-  | "above_target"
-  | "budget_unknown";
+export const DestinationRouteItemSchema = z.object({
+  place: z.string(),
+  city_id: z.string(),
+  order: z.number(),
+  arrival_from: z.string().nullable(),
+  departure_to: z.string().nullable(),
+});
 
-export interface MoneyAmount {
-  amount: number;
-  currency: string;
-  scope?: string;
-}
+/* -------------------------------------------------------------------------- */
+/*                              City Allocations                              */
+/* -------------------------------------------------------------------------- */
 
-export interface FitExplanationItem {
-  preference_or_priority?: string;
-  constraint_satisfied?: string;
-  explanation: string;
-  uncertainty_or_assumption?: string;
-  expected_compromise?: string;
-}
+export const CityAllocationSchema = z.object({
+  place: z.string(),
+  city_id: z.string(),
+  nights: z.number().nullable(),
+  days: z.number(),
+  reason: z.string().nullable(),
+});
 
-export interface Tradeoff {
-  gained: string;
-  given_up: string;
-  reason: string;
-}
+/* -------------------------------------------------------------------------- */
+/*                                Accommodation                               */
+/* -------------------------------------------------------------------------- */
 
-export interface Warning {
-  message: string;
-  severity?: "low" | "medium" | "high";
-}
+export const AccommodationSchema = z.object({
+  place: z.string(),
+  nights: z.number(),
+  recommendation: z.string(),
+  reason: z.string(),
+  estimated_cost: EstimatedCostSchema.nullable(),
+  status: AccommodationStatusSchema,
+});
 
-export interface UnresolvedDetail {
-  detail: string;
-  impact?: string;
-}
+/* -------------------------------------------------------------------------- */
+/*                              Itinerary Items                               */
+/* -------------------------------------------------------------------------- */
 
-// import { TravelerProfile } from "./TravelerProfile";
+export const ItineraryItemSchema = z.object({
+  type: ItineraryItemTypeSchema,
+  title: z.string(),
+  start_time: z.string().nullable(),
+  end_time: z.string().nullable(),
+  location: z.string().nullable(),
+  description: z.string(),
+  movement: MovementSchema.nullable(),
+  estimated_cost: EstimatedCostSchema.nullable(),
+  reason: z.string().nullable(),
+  flexibility: ItemFlexibilitySchema.nullable(),
+});
 
-// export interface FinalTripPlan {
-//     plan_title: string;
-//     summary: string;
-//     traveler_profile_preference: TravelerProfile;
-//     trip_dates: [string];
-//     destination_route: [DestinationRouteItem];
-//     city_allocations: [City];
-//     accomadation?: Accommodation;
-//     days: DayPlan[];
-//     cost_summary: CostSummary;
-//     fit_explanation: string;
-//     tradeoffs: string,
-//     assumptions:
-//     warnings:
-//     unresolved_details:
-// }
+/* -------------------------------------------------------------------------- */
+/*                                 Trip Days                                  */
+/* -------------------------------------------------------------------------- */
 
-// interface DayPlan {
-// }
+export const TripDaySchema = z.object({
+  day: z.number(),
+  date: z.string().nullable(),
+  place: z.string(),
+  city_id: z.string(),
+  theme: z.string().nullable(),
+  items: z.array(ItineraryItemSchema),
+  daily_notes: z.string().nullable(),
+});
 
-// interface DestinationRouteItem {
-//     place: string;
-//     arrival_from?: string;
-//     departure_to?: string;
-//     order: number;
-// }
+/* -------------------------------------------------------------------------- */
+/*                               Cost Summary                                 */
+/* -------------------------------------------------------------------------- */
 
-// interface City {
-//     place: string;
-//     nights: number;
-//     days: number;
-//     reason?: string;
-// }
+export const CostCategorySchema = z.object({
+  name: z.string(),
+  estimated_cost: z.number(),
+});
 
-// interface Accommodation {
-//     place: string;
-//     nights: number;
-//     recommendation: string;
-//     reason: string;
-//     estimated_cost?: Cost;
-//     status: AccomodationStatus;
-// }
+export const CostSummarySchema = z.object({
+  currency: z.string(),
+  estimated_total: z.number().nullable(),
+  scope: z.string(),
+  categories: z.array(CostCategorySchema),
+  budget_position: BudgetPositionSchema,
+  caveats: z.array(z.string()),
+});
 
-// type AccomodationStatus = "suggested" | "selected_by_traveler" | "not_yet_decided";
+/* -------------------------------------------------------------------------- */
+/*                               Final Trip Plan                              */
+/* -------------------------------------------------------------------------- */
 
-// export interface Cost {
-//     amount: number;
-//     currency: string;
-// }
+export const FinalTripPlanSchema = z.object({
+  plan_title: z.string(),
+  summary: z.string(),
+
+  traveler_profile_reference: TravelerProfileReferenceSchema,
+
+  trip_dates: TripDatesSchema,
+
+  destination_route: z.array(DestinationRouteItemSchema),
+
+  city_allocations: z.array(CityAllocationSchema),
+
+  accommodation: z.array(AccommodationSchema),
+
+  days: z.array(TripDaySchema),
+
+  cost_summary: CostSummarySchema,
+
+  fit_explanation: z.string(),
+  tradeoffs: z.array(z.string()),
+  assumptions: z.array(z.string()),
+  warnings: z.array(z.string()),
+  unresolved_details: z.array(z.string()),
+});
+
+/* -------------------------------------------------------------------------- */
+/*                               Inferred Types                               */
+/* -------------------------------------------------------------------------- */
+
+// Enums
+export type AccommodationStatus = z.infer<
+  typeof AccommodationStatusSchema
+>;
+
+export type ItineraryItemType = z.infer<
+  typeof ItineraryItemTypeSchema
+>;
+
+export type ItemFlexibility = z.infer<
+  typeof ItemFlexibilitySchema
+>;
+
+export type BudgetPosition = z.infer<
+  typeof BudgetPositionSchema
+>;
+
+// Shared objects
+export type EstimatedCost = z.infer<typeof EstimatedCostSchema>;
+
+export type Movement = z.infer<typeof MovementSchema>;
+
+// Trip-level objects
+export type TravelerProfileReference = z.infer<
+  typeof TravelerProfileReferenceSchema
+>;
+
+export type TripDates = z.infer<typeof TripDatesSchema>;
+
+export type DestinationRouteItem = z.infer<
+  typeof DestinationRouteItemSchema
+>;
+
+export type CityAllocation = z.infer<
+  typeof CityAllocationSchema
+>;
+
+export type Accommodation = z.infer<
+  typeof AccommodationSchema
+>;
+
+export type ItineraryItem = z.infer<
+  typeof ItineraryItemSchema
+>;
+
+export type TripDay = z.infer<typeof TripDaySchema>;
+
+export type CostCategory = z.infer<
+  typeof CostCategorySchema
+>;
+
+export type CostSummary = z.infer<
+  typeof CostSummarySchema
+>;
+
+// Root schema
+export type FinalTripPlan = z.infer<
+  typeof FinalTripPlanSchema
+>;

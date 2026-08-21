@@ -18,6 +18,7 @@ export enum Events {
     PROFILE_SNAPSHOT = 'profile.snapshot',
     DISCOVERY_QUESTION = 'discovery.question',
     SESSION_READY = 'session.ready',
+    PLAN_SNAPSHOT = 'plan.snapshot',
 }
 
 export enum Acks {
@@ -105,4 +106,9 @@ export enum ProfileSnapshotStates {
     DRAFT = 'draft',
     READY = 'ready',
     CONFIRMED = 'confirmed'
+}
+
+export enum PlanSnapshotStates {
+    DRAFT = 'draft',
+    FINAL = 'final',
 }

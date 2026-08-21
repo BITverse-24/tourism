@@ -1,10 +1,11 @@
 import { z } from "zod";
-import { DiscoveryAnsSelectionModes, DiscoveryFreeTextModes, PlanningPhases, PlanningStatus, ProfileSnapshotStates, WorkflowOutcomes, WorkflowStates } from "./enums";
+import { DiscoveryAnsSelectionModes, DiscoveryFreeTextModes, PlanningPhases, PlanningStatus, ProfileSnapshotStates, WorkflowOutcomes, WorkflowStates, PlanSnapshotStates, MessageKinds, Events } from "./enums";
 import { TravelerProfileSchema } from "./TravelerProfile";
 import { BaseMessageEnvelopeSchema } from "./BaseMessageEnvelope";
+import { FinalTripPlan, FinalTripPlanSchema } from "./FinalTripPlan";
 
 const BaseEventMessageSchema = BaseMessageEnvelopeSchema.extend({
-    kind: z.literal("event"),
+    kind: z.literal(MessageKinds.EVENT),
     sequence: z.number(),
 })
 
@@ -42,7 +43,7 @@ export type DiscoveryQuestionMessage = z.infer<typeof DiscoveryQuestionSchema>;
 
 
 export const ProfileSnapshotSchema = BaseEventMessageSchema.extend({
-    type: z.literal("profile.snapshot"),
+    type: z.literal(Events.PROFILE_SNAPSHOT),
     payload: z.object({
         revision: z.number(),
         state: z.enum(ProfileSnapshotStates),
@@ -103,9 +104,11 @@ export type DecisionRequestMessage = z.infer<typeof DecisionRequestSchema>;
 
 
 export const PlanSnapshotSchema = BaseEventMessageSchema.extend({
-    type: z.literal("plan.snapshot"),
+    type: z.literal(Events.PLAN_SNAPSHOT),
     payload: z.object({
-        // todo
+        revision: z.number(),
+        state: z.enum(PlanSnapshotStates),
+        plan: FinalTripPlanSchema,
     }),
 })
 export type PlanSnapshotMessage = z.infer<typeof PlanSnapshotSchema>;

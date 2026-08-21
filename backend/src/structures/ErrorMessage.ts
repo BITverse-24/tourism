@@ -1,8 +1,9 @@
 import { z } from "zod";
 import { BaseMessageEnvelopeSchema } from "./BaseMessageEnvelope";
+import { MessageKinds } from "./enums";
 
 const BaseErrorMessageSchema = BaseMessageEnvelopeSchema.extend({
-    kind: z.literal('error'),
+    kind: z.literal(MessageKinds.ERROR),
     sequence: z.number(),
 })
 

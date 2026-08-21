@@ -1,12 +1,20 @@
-import { createProfileSnapshotMessage } from "../factory/Event";
+import { createPlanSnapshotMessage, createProfileSnapshotMessage } from "../factory/Event";
 import { addDiscoveryQuestion, getSessionCheckpoint, getSessionProfile, setSessionCheckpoint, setWorkflowState } from "../models/data";
 import { generateUUID } from "../modules/util";
 import { ProfileConfirmMessage, ProfileRequestChangesMessage } from "../structures/CommandMessage";
-import { DiscoveryAnsSelectionModes, DiscoveryFreeTextModes, Events, ProfileSnapshotStates, WorkflowStates } from "../structures/enums";
-import { ProfileSnapshotMessage } from "../structures/EventMessage";
+import { DiscoveryAnsSelectionModes, DiscoveryFreeTextModes, Events, PlanSnapshotStates, ProfileSnapshotStates, WorkflowStates } from "../structures/enums";
+import { PlanSnapshotMessage, ProfileSnapshotMessage } from "../structures/EventMessage";
 import { CheckpointType, ProfileSnapshot, ServiceResult } from "../structures/types";
 import { newDiscoveryQuestionService } from "./DiscoveryServices";
 import { nextSequence } from "./StateServices";
+import { CandidateDesignInput, CandidateDesignOptions, CandidateDesignResult, processCandidateDesign, RunBudget } from "../../../ai/candidate-design";
+import { TravelerProfile } from "../structures/TravelerProfile";
+import { AppConfig, loadConfig } from "../app/config";
+import { createCandidateDesignOptions, createCandidateDesignTools, createNarrativeOptions } from "../factory/AgentConfig";
+import { getCity, searchCities } from "../agent_tools/CityKnowledgebaseTools";
+import { getAttractionsByIds, queryAttractions } from "../agent_tools/AttractionKnowledgebaseTools";
+import { askUserDecisionTool } from "../agent_tools/CandidateDecision";
+import { NarrativeInput, NarrativeOptions, NarrativeResult, processNarrative } from "../../../ai/narrative";
 
 export async function profileConfirmService(
     data: ProfileConfirmMessage
@@ -14,14 +22,15 @@ export async function profileConfirmService(
     const res: ServiceResult[] = []
 
     // mark the confirmed profile
-    let checkpoint: CheckpointType = await getSessionCheckpoint(data.session_id)
-    const snapshot: ProfileSnapshot = {
-        revision:
-        (checkpoint.profile_snapshots.length == 0) ?
+    const checkpoint: CheckpointType = await getSessionCheckpoint(data.session_id)
+    const profile: TravelerProfile = await getSessionProfile(data.session_id);
+    const revision = (checkpoint.profile_snapshots.length == 0) ?
             1 :
-            checkpoint.profile_snapshots[checkpoint.profile_snapshots.length - 1].revision + 1,
+            checkpoint.profile_snapshots[checkpoint.profile_snapshots.length - 1].revision + 1
+    const snapshot: ProfileSnapshot = {
+        revision: revision,
         state: ProfileSnapshotStates.CONFIRMED,
-        profile: await getSessionProfile(data.session_id)
+        profile: profile,
     }
     checkpoint.profile_snapshots.push(snapshot)
 
@@ -43,8 +52,79 @@ export async function profileConfirmService(
     setWorkflowState(data.session_id, WorkflowStates.PLANNING)
 
     // start planning
-    // TODO
     // agent 2 service
+    const conf: AppConfig = loadConfig(process.env)
+    const runBudget: RunBudget = {
+        max_candidates: conf.agent_2_max_candidates,
+        max_tool_calls: conf.agent_2_max_tool_calls,
+        max_rows_per_tool_call: conf.agent_2_max_rows_per_tool_call,
+        timeout_ms: conf.agent_timeout_ms,
+    }
+    const candidateDesignInput: CandidateDesignInput = {
+        mode: 'city_day_plan',
+        profile: profile,
+        profile_revision: revision,
+        destination_scope: null, /// WHAT TODO???????
+        city_dataset_revision: "huh", /////// hardcoded TODO,
+        attraction_dataset_revision: "huuh",  /////// hardcoded TODO,
+        hard_constraint_guardrails: profile.hard_constraints, /// WHAT TODO????????
+        run_budget: runBudget,
+        session_id: data.session_id,
+    }
+
+    const candidateDesignOpt: CandidateDesignOptions = createCandidateDesignOptions({
+        tools: createCandidateDesignTools({
+            searchCities: searchCities,
+            getCity: getCity,
+            queryAttractions: queryAttractions,
+            getAttractionsByIds: getAttractionsByIds
+        }),
+        api_key: conf.agent_api_key,
+        model: conf.agent_model,
+        reasoning_effort: conf.agent_reasoning_effort,
+        api_url: conf.agent_api_url,
+        timeout_ms: conf.agent_timeout_ms,
+        askUserDecision: askUserDecisionTool,
+    })
+    const candidateDesignRes: CandidateDesignResult = await processCandidateDesign(
+        candidateDesignInput,
+        candidateDesignOpt
+    )
+
+
+    // agent 3 service
+    const narrativeInput: NarrativeInput = {
+        profile: profile,
+        profile_revision: revision,
+        candidate: candidateDesignRes.candidates[0],
+        dataset_revisions: { city: "HUH", attraction: "HUUH" }, ///// TOO DOO when whenever
+    }
+    const narrativeOpt: NarrativeOptions = createNarrativeOptions({
+        api_key: conf.agent_api_key,
+        model: conf.agent_model,
+        timeout_ms: conf.agent_timeout_ms,
+    })
+    const narrativeRes: NarrativeResult = await processNarrative(
+        narrativeInput,
+        narrativeOpt
+    )
+
+    // plan snapshot message
+    const planSnapMsg: PlanSnapshotMessage = createPlanSnapshotMessage({
+        message_id: `msg_${generateUUID()}`,
+        session_id: data.session_id,
+        run_id: data.run_id,
+        command_id: data.command_id,
+        occurred_at: new Date().toISOString(),
+        sequence: await nextSequence(data.run_id),
+        payload: {
+            revision: 1, // cos final is first rn??
+            state: PlanSnapshotStates.FINAL,
+            plan: narrativeRes.plan
+        }
+    })
+    res.push({ event: Events.PLAN_SNAPSHOT, data: planSnapMsg })
+
 
     return res
 }

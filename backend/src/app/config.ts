@@ -8,7 +8,12 @@ const envSchema = z.object({
     AGENT_MODEL: z.string(),
     AGENT_REASONING_EFFORT: z.enum(['low', 'medium', 'high']),
     AGENT_API_URL: z.string(),
-    AGENT_TIMEOUT_MS: z.number(),
+    AGENT_TIMEOUT_MS: z.number().default(20_000),
+    CITY_KNOWLEDGEBASE_CSV: z.string(),
+    ATTRACTIONS_KNOWLEDGEBASE_SQLITE: z.string(),
+    AGENT_2_MAX_CANDIDATES: z.number().default(1),
+    AGENT_2_MAX_TOOL_CALLS: z.number().default(3),
+    AGENT_2_MAX_ROWS_PER_TOOL_CALL: z.number().default(50),
     // MONGO_URI: z.string().trim().min(1, 'MONGO_URI is required'),
     // DB_NAME: z.string().trim().min(1).default('api'),
     // ADMIN_API_TOKEN: z.string().trim().min(16, 'ADMIN_API_TOKEN must be at least 16 characters'),
@@ -29,6 +34,11 @@ export interface AppConfig {
     agent_reasoning_effort: 'low' | 'medium' | 'high';
     agent_api_url: string;
     agent_timeout_ms: number;
+    city_knowledgebase_csv_path: string;
+    attractions_knowledgebase_sqlite_path: string;
+    agent_2_max_candidates: number;
+    agent_2_max_tool_calls: number;
+    agent_2_max_rows_per_tool_call: number;
     // mongoUri: string;
     // dbName: string;
     // adminApiToken: string;
@@ -69,6 +79,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
         agent_reasoning_effort: data.AGENT_REASONING_EFFORT,
         agent_api_url: data.AGENT_API_URL,
         agent_timeout_ms: data.AGENT_TIMEOUT_MS,
+        city_knowledgebase_csv_path: data.CITY_KNOWLEDGEBASE_CSV,
+        attractions_knowledgebase_sqlite_path: data.ATTRACTIONS_KNOWLEDGEBASE_SQLITE,
+        agent_2_max_candidates: data.AGENT_2_MAX_CANDIDATES,
+        agent_2_max_tool_calls: data.AGENT_2_MAX_TOOL_CALLS,
+        agent_2_max_rows_per_tool_call: data.AGENT_2_MAX_ROWS_PER_TOOL_CALL,
         // mongoUri: data.MONGO_URI,
         // dbName: data.DB_NAME,
         // adminApiToken: data.ADMIN_API_TOKEN,

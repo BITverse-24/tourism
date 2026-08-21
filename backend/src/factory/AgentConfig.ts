@@ -1,5 +1,5 @@
 import { ProcessDiscoveryOptions } from "../../../ai/discovery";
-import { CandidateDesignOptions } from "../../../ai/candidate-design";
+import { CandidateDesignOptions, CandidateDesignTools } from "../../../ai/candidate-design";
 import { NarrativeOptions } from "../../../ai/narrative";
 
 export function createProcessDiscoveryOptions({
@@ -19,6 +19,20 @@ export function createProcessDiscoveryOptions({
         ...(timeout_ms !== undefined && { timeout_ms }),
         ...(fetcher !== undefined && { fetcher }),
         ...(log_raw_responses !== undefined && { log_raw_responses }),
+    };
+}
+
+export function createCandidateDesignTools({
+    searchCities,
+    getCity,
+    queryAttractions,
+    getAttractionsByIds,
+}: CandidateDesignTools): CandidateDesignTools {
+    return {
+        searchCities,
+        getCity,
+        queryAttractions,
+        getAttractionsByIds,
     };
 }
 
