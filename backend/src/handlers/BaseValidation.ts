@@ -17,6 +17,7 @@ export async function checkBaseCommandRejections<T extends z.ZodObject>(
 
     const curr_workflow_state = await currentWorkflowState(data.session_id);
     const curr_run_id = await getCurrentRunIdForSession(data.session_id);
+    const seq = await nextSequence(data.run_id);
     const rejectionMsg = 
             createCommandRejectedMessage({
                 message_id: `msg_${generateUUID()}`,
@@ -25,7 +26,7 @@ export async function checkBaseCommandRejections<T extends z.ZodObject>(
                 command_id: data.command_id,
                 occurred_at: new Date().toISOString(),
                 workflow_state: curr_workflow_state,
-                sequence: await nextSequence(data.run_id),
+                sequence: seq,
                 code: RejectionCodes.RUN_CANCELLED,
                 message: `not current run id`,
                 retryable: false,
@@ -36,16 +37,16 @@ export async function checkBaseCommandRejections<T extends z.ZodObject>(
         data,
         schema,
         curr_workflow_state,
-        await nextSequence(data.run_id)
+        seq
     ) 
     const sessionIdValidRes = await isValidSession(data.session_id);
     if (!formatValidationRes.valid) {
 
-        // logger.warn(`recieved data in invalid format for ${data.type}`, {
-        //     socketid: socket.id,
-        //     data: data,
-        //     ack: formatValidationRes.ack
-        // })
+        logger.warn(`recieved data in invalid format for ${data.type}`, {
+            socketid: socket.id,
+            data: data,
+            ack: formatValidationRes.ack
+        })
         socket.emit(Acks.COMMAND_REJECTED, formatValidationRes.ack)
         return false;
     }

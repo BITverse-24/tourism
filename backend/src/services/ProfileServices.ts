@@ -147,7 +147,7 @@ export async function profileRequestChangesService(
             question_id: `req-change_${data.command_id}`,
             prompt: 'Are you okay with this profile',  /////////// ToDO
             selection_mode: DiscoveryAnsSelectionModes.SINGLE,
-            required: false,
+            required: true,
             options: [],
             free_text_mode: DiscoveryFreeTextModes.REQUIRED,
             free_text_placeholder: null,

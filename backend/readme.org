@@ -19,6 +19,7 @@ and some more stuff internally defined with defaults that arent stuff to be set
 6. [X] discovery answer - question id, answer selection validation -------- SKIPPING
 7. [X] fix input to agent 2
 8. [ ] test everything
+9. [ ] fix sequence numbers lol
 
 * General flow with associated workflow states
 #+begin_src
