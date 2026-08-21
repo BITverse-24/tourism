@@ -47,9 +47,9 @@ export async function sessionStartService(
         const sessionReadyRes = {event: Events.SESSION_READY, data: sessReadyMsg}
         emit(sessionReadyRes)
 
-        setWorkflowState(newSessionId, WorkflowStates.DISCOVERY)
+        await setWorkflowState(newSessionId, WorkflowStates.DISCOVERY)
 
-        newDiscoveryQuestionService(
+        await newDiscoveryQuestionService(
             emit,
             newSessionId,
             newRunId,
@@ -100,7 +100,7 @@ export async function sessionStartService(
 
             // do checkpoint next service
             if (checkpoint.workflow_state === WorkflowStates.DISCOVERY) {
-                newDiscoveryQuestionService(
+                await newDiscoveryQuestionService(
                     emit,
                     data.session_id,
                     newRunId,
@@ -135,7 +135,7 @@ export async function sessionStartService(
 
             emit({ event: Events.SESSION_READY, data: sessReadyMsg })
 
-            newDiscoveryQuestionService(
+            await newDiscoveryQuestionService(
                 emit,
                 data.session_id,
                 newRunId,

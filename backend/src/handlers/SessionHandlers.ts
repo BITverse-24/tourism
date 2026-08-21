@@ -1,7 +1,7 @@
 import { Socket } from 'socket.io';
 import { logger } from '../modules/logger';
 import { SessionCloseMessage, SessionStartMessage, SessionStartSchema } from '../structures/CommandMessage';
-import { Acks } from '../structures/enums';
+import { Acks, WorkflowStates } from '../structures/enums';
 import { sessionCloseService, sessionStartService } from '../services/SessionServices';
 import { ServiceResult } from '../structures/types';
 import { currentWorkflowState, nextSequence } from '../services/StateServices';
@@ -25,14 +25,18 @@ export async function sessionStartHandler(socket: Socket, data: SessionStartMess
 
     logger.debug('validated message for session.start', { socketid: socket.id, data: data });
 
+    // For a new session (no run_id yet) avoid polluting SequenceNumbers["undefined"];
+    // the service will create the run and emit session.ready as sequence 1 for that run.
+    const ackSequence = data.run_id ? await nextSequence(data.run_id) : 1;
+    const ackWorkflow = isNewSessionMsg ? WorkflowStates.DISCOVERY : await currentWorkflowState(data.session_id as string);
     const ackmsg: AckMessage = createCommandAcceptedMessage({
         message_id: `msg_${generateUUID()}`,
-        session_id: data.session_id,
-        run_id: data.run_id,
+        session_id: (data as unknown as { session_id?: string }).session_id ?? (data as unknown as { payload?: { session_id?: string } }).payload?.session_id ?? "",
+        run_id: (data as unknown as { run_id?: string }).run_id ?? "",
         command_id: data.command_id,
         occurred_at: new Date().toISOString(),
-        workflow_state: await currentWorkflowState(data.session_id),
-        sequence: await nextSequence(data.run_id),
+        workflow_state: ackWorkflow,
+        sequence: ackSequence,
         deduplicated: false,
     })
     socket.emit(Acks.COMMAND_ACCEPTED, ackmsg)
