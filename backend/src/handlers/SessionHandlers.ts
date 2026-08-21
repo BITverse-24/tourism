@@ -34,7 +34,7 @@ export async function sessionStartHandler(socket: Socket, data: SessionStartMess
     })
     socket.emit(Acks.COMMAND_ACCEPTED, ackmsg)
 
-    const reses: ServiceResult[] = await sessionStartService(data, isNewSessionMsg)
+    const reses: ServiceResult[] = await sessionStartService(socket, data, isNewSessionMsg)
 
     for (let res of reses)
         socket.emit(res.event, res.data);

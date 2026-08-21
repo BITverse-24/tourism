@@ -4,6 +4,11 @@ const envSchema = z.object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
     HTTPPORT: z.coerce.number().int().min(1).max(65535).default(3000),
     WSPORT: z.coerce.number().int().min(1).max(65535).default(3001),
+    AGENT_API_KEY: z.string(),
+    AGENT_MODEL: z.string(),
+    AGENT_REASONING_EFFORT: z.enum(['low', 'medium', 'high']),
+    AGENT_API_URL: z.string(),
+    AGENT_TIMEOUT_MS: z.number(),
     // MONGO_URI: z.string().trim().min(1, 'MONGO_URI is required'),
     // DB_NAME: z.string().trim().min(1).default('api'),
     // ADMIN_API_TOKEN: z.string().trim().min(16, 'ADMIN_API_TOKEN must be at least 16 characters'),
@@ -19,6 +24,11 @@ export interface AppConfig {
     nodeEnv: 'development' | 'test' | 'production';
     httpPort: number;
     wsPort: number;
+    agent_api_key: string;
+    agent_model: string;
+    agent_reasoning_effort: 'low' | 'medium' | 'high';
+    agent_api_url: string;
+    agent_timeout_ms: number;
     // mongoUri: string;
     // dbName: string;
     // adminApiToken: string;
@@ -54,6 +64,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
         nodeEnv: data.NODE_ENV,
         httpPort: data.HTTPPORT,
         wsPort: data.WSPORT,
+        agent_api_key: data.AGENT_API_KEY,
+        agent_model: data.AGENT_MODEL,
+        agent_reasoning_effort: data.AGENT_REASONING_EFFORT,
+        agent_api_url: data.AGENT_API_URL,
+        agent_timeout_ms: data.AGENT_TIMEOUT_MS,
         // mongoUri: data.MONGO_URI,
         // dbName: data.DB_NAME,
         // adminApiToken: data.ADMIN_API_TOKEN,

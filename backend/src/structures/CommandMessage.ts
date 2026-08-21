@@ -21,7 +21,7 @@ export const DiscoveryAnswerSchema = CommandMessageEnvelopeSchema.extend({
         question_id: z.string(),
         selected_option_ids: z.array(z.string()),
         free_text: z.string(),
-    }).nullable(),
+    }),
 })
 export type DiscoveryAnswerMessage = z.infer<typeof DiscoveryAnswerSchema>;
 

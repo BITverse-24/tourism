@@ -19,5 +19,6 @@ export type CheckpointType = {
     profile_snapshots: ProfileSnapshot[],
     latest_confirmed: number | null,
     workflow_state: WorkflowStates,
+    // candidate_bundle: CandidateBundle
     // trip plan
 }

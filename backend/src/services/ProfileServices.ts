@@ -1,8 +1,8 @@
 import { createProfileSnapshotMessage } from "../factory/Event";
-import { getSessionCheckpoint, getSessionProfile, setSessionCheckpoint, setWorkflowState } from "../models/data";
+import { addDiscoveryQuestion, getSessionCheckpoint, getSessionProfile, setSessionCheckpoint, setWorkflowState } from "../models/data";
 import { generateUUID } from "../modules/util";
 import { ProfileConfirmMessage, ProfileRequestChangesMessage } from "../structures/CommandMessage";
-import { Events, ProfileSnapshotStates, WorkflowStates } from "../structures/enums";
+import { DiscoveryAnsSelectionModes, DiscoveryFreeTextModes, Events, ProfileSnapshotStates, WorkflowStates } from "../structures/enums";
 import { ProfileSnapshotMessage } from "../structures/EventMessage";
 import { CheckpointType, ProfileSnapshot, ServiceResult } from "../structures/types";
 import { newDiscoveryQuestionService } from "./DiscoveryServices";
@@ -43,6 +43,7 @@ export async function profileConfirmService(
     setWorkflowState(data.session_id, WorkflowStates.PLANNING)
 
     // start planning
+    // TODO
     // agent 2 service
 
     return res
@@ -55,11 +56,30 @@ export async function profileRequestChangesService(
 
     await setWorkflowState(data.session_id, WorkflowStates.DISCOVERY)
     // give agent to ask questions for the requested change topics ?????
+    const question =
+        {
+            question_id: `req-change_${data.command_id}`,
+            prompt: '',  /////////// ToDO
+            selection_mode: DiscoveryAnsSelectionModes.SINGLE,
+            required: false,
+            options: [],
+            free_text_mode: DiscoveryFreeTextModes.REQUIRED,
+            free_text_placeholder: null,
+        };
+
+    await addDiscoveryQuestion(data.run_id, question)
     res.concat(
         await newDiscoveryQuestionService(
             data.session_id,
             data.run_id,
-            data.command_id
+            data.command_id,
+            await getSessionProfile(data.session_id),
+            {
+                question_id: `req-change_${data.command_id}`,
+                question: question,
+                selected_option_ids: [],
+                free_text: data.payload.free_text,
+            }
         )
     )
 

@@ -1,6 +1,7 @@
+import { Socket } from "socket.io";
 import { createDiscoveryAnswerMessage } from "../factory/Command";
-import { createProfileSnapshotMessage, createSessionReadyMessage } from "../factory/Event";
-import { getNewRunId, getNewSessionId, getSessionCheckpoint, getValidSessionIds, moveSessionIdToExpired, setWorkflowState } from "../models/data";
+import { createProfileSnapshotMessage, createSessionExpiredMessage, createSessionReadyMessage } from "../factory/Event";
+import { getNewRunId, getNewSessionId, getSessionCheckpoint, getSessionProfile, getValidSessionIds, moveSessionIdToExpired, setSocketForSession, setWorkflowState, unsetSocketForSession } from "../models/data";
 import { generateUUID } from "../modules/util";
 import { SessionCloseMessage, SessionStartMessage } from "../structures/CommandMessage";
 import { Events, WorkflowStates } from "../structures/enums";
@@ -11,6 +12,7 @@ import { discoveryAnswerService, newDiscoveryQuestionService } from "./Discovery
 import { nextSequence } from "./StateServices";
 
 export async function sessionStartService(
+    socket: Socket,
     data: SessionStartMessage | NewSessionMessage,
     isNewSessMsg: boolean,
 ): Promise<ServiceResult[]>  {
@@ -36,6 +38,8 @@ export async function sessionStartService(
             }
         })
 
+        await setSocketForSession(newSessionId, socket)
+
         res.push({event: Events.SESSION_READY, data: sessReadyMsg})
 
         setWorkflowState(newSessionId, WorkflowStates.DISCOVERY)
@@ -52,6 +56,7 @@ export async function sessionStartService(
 
     else if ("session_id" in data) {
 
+        await setSocketForSession(data.session_id, socket)
         const newRunId = await getNewRunId(data.session_id)
         const checkpoint = await getSessionCheckpoint(data.session_id)
         if (checkpoint) {
@@ -92,10 +97,13 @@ export async function sessionStartService(
                     await newDiscoveryQuestionService(
                         data.session_id,
                         newRunId,
-                        data.command_id
+                        data.command_id,
+                        checkpoint.profile_snapshots[checkpoint.profile_snapshots.length-1].profile
                     )
                 )
             }
+            // if (checkpoint.workflow_state === WorkflowStates.DECISION_REQUIRED) {
+            // }
 
             // other states do if time have
 
@@ -140,6 +148,19 @@ export async function sessionCloseService(data: SessionCloseMessage): Promise<Se
 
     await moveSessionIdToExpired(data.session_id)
     await setWorkflowState(data.session_id, WorkflowStates.EXPIRED)
+    const sessExpiredMsg = createSessionExpiredMessage({
+        message_id: `msg_${generateUUID()}`,
+        session_id: data.session_id,
+        run_id: data.run_id,
+        command_id: data.command_id,
+        occurred_at: new Date().toISOString(),
+        sequence: await nextSequence(data.run_id),
+        payload: {
+            reason: 'closed by request',
+            can_start_new_session: true
+        }
+    })
+    res.push({ event: Events.SESSION_EXPIRED, data: sessExpiredMsg })
 
     return res;
 }

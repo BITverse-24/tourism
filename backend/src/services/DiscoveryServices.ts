@@ -1,12 +1,13 @@
 import { DiscoveryAnswerMessage } from "../structures/CommandMessage";
 import { CheckpointType, ProfileSnapshot, ServiceResult } from "../structures/types";
-import { DiscoveryInput, DiscoveryQuestion, DiscoveryResult, processDiscovery } from "../../../ai/discovery";
-import { getDiscoveryQuestionById, getSessionCheckpoint, getSessionProfile, getWorkflowState, setSessionCheckpoint, setSessionProfile, setWorkflowState } from "../models/data";
+import { DiscoveryInput, DiscoveryQuestion, DiscoveryResult, processDiscovery, ProcessDiscoveryOptions, TravelerProfile, UserAnswer } from "../../../ai/discovery";
+import { addDiscoveryQuestion, getDiscoveryQuestionById, getSessionCheckpoint, getSessionProfile, getWorkflowState, setSessionCheckpoint, setSessionProfile, setWorkflowState } from "../models/data";
 import { Events, ProfileSnapshotStates, WorkflowStates } from "../structures/enums";
-import { DiscoveryQuestionMessage, ProfileSnapshotMessage } from "../structures/EventMessage";
+import { DiscoveryQuestionMessage, ProfileReadyMessage, ProfileSnapshotMessage } from "../structures/EventMessage";
 import { generateUUID } from "../modules/util";
-import { createDiscoveryQuestionMessage, createProfileSnapshotMessage } from "../factory/Event";
-import { nextSequence } from "./StateServices";
+import { createDiscoveryQuestionMessage, createProfileReadyMessage, createProfileSnapshotMessage } from "../factory/Event";
+import { currentWorkflowState, nextSequence } from "./StateServices";
+import { AppConfig, loadConfig } from "../app/config";
 
 export async function discoveryAnswerService(
     data: DiscoveryAnswerMessage
@@ -14,43 +15,31 @@ export async function discoveryAnswerService(
     const res: ServiceResult[] = []
 
     const prof = await getSessionProfile(data.session_id);
-    const discoveryQ = await getDiscoveryQuestionById(data.run_id, data.payload?.question_id!)
+    const discoveryQ = await getDiscoveryQuestionById(data.run_id, data.payload.question_id)
     const discoveryInput: DiscoveryInput = {
         profile: prof,
         answer: {
-            question_id: data.payload?.question_id!,
+            question_id: data.payload.question_id,
             question: discoveryQ,
-            selected_option_ids: data.payload?.selected_option_ids!,
-            free_text: data.payload?.free_text!,
+            selected_option_ids: data.payload.selected_option_ids,
+            free_text: data.payload.free_text,
         }
+    }
+    const config: AppConfig = loadConfig(process.env)
+    const opt: ProcessDiscoveryOptions = {
+        api_key: config.agent_api_key,
+        model: config.agent_model,
+        reasoning_effort: config.agent_reasoning_effort,
+        api_url: config.agent_api_url,
+        timeout_ms: config.agent_timeout_ms,
     }
     // give agent answer
     const discoveryRes: DiscoveryResult = await processDiscovery(
         discoveryInput,
-        {}
+        opt
     )
     // update profile given by agent
     setSessionProfile(data.session_id, discoveryRes.profile)
-
-    // if all questions are done, set workflow to planning/decision_required
-    if (discoveryRes.finished) {
-        setWorkflowState(data.session_id, WorkflowStates.PLANNING)
-        // start agent 2 service
-    }
-    // else add discovery.question msg to res
-    else if (discoveryRes.next_question) {
-        const discoveryQuestionMsg: DiscoveryQuestionMessage =
-            createDiscoveryQuestionMessage({
-                message_id: `msg_${generateUUID()}`,
-                session_id: data.session_id,
-                run_id: data.run_id,
-                command_id: data.command_id,
-                occurred_at: new Date().toISOString(),
-                sequence: await nextSequence(data.session_id),
-                payload: discoveryRes.next_question
-            })
-        res.push({event: Events.DISCOVERY_QUESTION, data: discoveryQuestionMsg})
-    }
 
     // update checkpoint
     let checkpoint: CheckpointType = await getSessionCheckpoint(data.session_id)
@@ -85,46 +74,72 @@ export async function discoveryAnswerService(
     })
     res.push({ event: Events.PROFILE_SNAPSHOT, data: profSnapMsg })
 
+    // if all questions are done, set workflow to profile_review
+    if (discoveryRes.finished) {
+        await setWorkflowState(data.session_id, WorkflowStates.PROFILE_REVIEW)
+        const profReadyMsg: ProfileReadyMessage = createProfileReadyMessage({
+            message_id: `msg_${generateUUID()}`,
+            session_id: data.session_id,
+            run_id: data.run_id,
+            command_id: data.command_id,
+            occurred_at: new Date().toISOString(),
+            sequence: await nextSequence(data.session_id),
+            payload: {
+                profile_revision: snapshot.revision,
+                blocking_unknowns: []
+            }
+        })
+        res.push({ event: Events.PROFILE_READY, data: profReadyMsg })
+    }
+    // else add discovery.question msg to res
+    else if (discoveryRes.next_question) {
+        addDiscoveryQuestion(data.run_id, discoveryRes.next_question)
+        const discoveryQuestionMsg: DiscoveryQuestionMessage =
+            createDiscoveryQuestionMessage({
+                message_id: `msg_${generateUUID()}`,
+                session_id: data.session_id,
+                run_id: data.run_id,
+                command_id: data.command_id,
+                occurred_at: new Date().toISOString(),
+                sequence: await nextSequence(data.session_id),
+                payload: discoveryRes.next_question
+            })
+        res.push({event: Events.DISCOVERY_QUESTION, data: discoveryQuestionMsg})
+    }
+
+    checkpoint.workflow_state = await currentWorkflowState(data.session_id)
+
     return res
 }
 
 export async function newDiscoveryQuestionService(
     session_id: string,
     run_id: string,
-    command_id: string
+    command_id: string,
+    profile: TravelerProfile | null = null,
+    answer: UserAnswer | null = null
 ): Promise<ServiceResult[]> {
     const res: ServiceResult[] = []
 
     const discoveryInput: DiscoveryInput = {
-        answer: null,
-        profile: null,
+        answer:  answer,
+        profile: profile,
+    }
+
+    const config: AppConfig = loadConfig(process.env)
+    const opt: ProcessDiscoveryOptions = {
+        api_key: config.agent_api_key,
+        model: config.agent_model,
+        reasoning_effort: config.agent_reasoning_effort,
+        api_url: config.agent_api_url,
+        timeout_ms: config.agent_timeout_ms,
     }
     const discoveryRes: DiscoveryResult = await processDiscovery(
         discoveryInput,
-        {}
+        opt
     )
     // update profile given by agent
     setSessionProfile(session_id, discoveryRes.profile)
-
-    // if all questions are done, set workflow to planning/decision_required
-    if (discoveryRes.finished) {
-        setWorkflowState(session_id, WorkflowStates.PLANNING)
-        // start agent 2 service
-    }
-    // else add discovery.question msg to res
-    else if (discoveryRes.next_question) {
-        const discoveryQuestionMsg: DiscoveryQuestionMessage =
-            createDiscoveryQuestionMessage({
-                message_id: `msg_${generateUUID()}`,
-                session_id: session_id,
-                run_id: run_id,
-                command_id: command_id,
-                occurred_at: new Date().toISOString(),
-                sequence: await nextSequence(session_id),
-                payload: discoveryRes.next_question
-            })
-        res.push({event: Events.DISCOVERY_QUESTION, data: discoveryQuestionMsg})
-    }
 
     // update checkpoint
     let checkpoint: CheckpointType = await getSessionCheckpoint(session_id)
@@ -158,6 +173,39 @@ export async function newDiscoveryQuestionService(
         payload: snapshot
     })
     res.push({ event: Events.PROFILE_SNAPSHOT, data: profSnapMsg })
+
+    // if all questions are done, set workflow to profile_review
+    if (discoveryRes.finished) {
+        await setWorkflowState(session_id, WorkflowStates.PROFILE_REVIEW)
+        const profReadyMsg: ProfileReadyMessage = createProfileReadyMessage({
+            message_id: `msg_${generateUUID()}`,
+            session_id: session_id,
+            run_id: run_id,
+            command_id: command_id,
+            occurred_at: new Date().toISOString(),
+            sequence: await nextSequence(session_id),
+            payload: {
+                profile_revision: snapshot.revision,
+                blocking_unknowns: []
+            }
+        })
+        res.push({ event: Events.PROFILE_READY, data: profReadyMsg })
+    }
+    // else add discovery.question msg to res
+    else if (discoveryRes.next_question) {
+        addDiscoveryQuestion(run_id, discoveryRes.next_question)
+        const discoveryQuestionMsg: DiscoveryQuestionMessage =
+            createDiscoveryQuestionMessage({
+                message_id: `msg_${generateUUID()}`,
+                session_id: session_id,
+                run_id: run_id,
+                command_id: command_id,
+                occurred_at: new Date().toISOString(),
+                sequence: await nextSequence(session_id),
+                payload: discoveryRes.next_question
+            })
+        res.push({event: Events.DISCOVERY_QUESTION, data: discoveryQuestionMsg})
+    }
 
     return res
 }

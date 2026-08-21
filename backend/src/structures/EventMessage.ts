@@ -88,6 +88,7 @@ const DecisionOptionSchema = z.object({
     label: z.string(),
     tradeoff: z.string(),
 });
+export type DecisionOptionType = z.infer<typeof DecisionOptionSchema>;
 export const DecisionRequestSchema = BaseEventMessageSchema.extend({
     type: z.literal("decision.request"),
     payload: z.object({

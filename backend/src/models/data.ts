@@ -1,3 +1,4 @@
+import { Socket } from "socket.io";
 import { DiscoveryQuestion } from "../../../ai/discovery";
 import { generateUUID } from "../modules/util";
 import { WorkflowStates } from "../structures/enums";
@@ -30,8 +31,23 @@ const DiscoveryQuestions: Record<string, DiscoveryQuestion[]> = {
 const SequenceNumbers: Record<string, number> = {
 }
 
+const SessionSockets: Record<string, Socket> = {
+}
 
 
+
+
+
+
+export async function getSocketForSession(session_id: string): Promise<Socket> {
+    return sessionStorage[session_id]
+}
+export async function setSocketForSession(session_id: string, socket: Socket) {
+    sessionStorage[session_id] = socket
+}
+export async function unsetSocketForSession(session_id: string) {
+    delete sessionStorage[session_id]
+}
 
 
 
@@ -47,6 +63,7 @@ export async function getDiscoveryQuestionById(run_id: string, q_id: string): Pr
     return DiscoveryQuestions[run_id].find((it) => it.question_id === q_id)!
 }
 export async function addDiscoveryQuestion(run_id: string, q: DiscoveryQuestion) {
+    if (!DiscoveryQuestions[run_id]) DiscoveryQuestions[run_id] = []
     DiscoveryQuestions[run_id].push(q)
 }
 
