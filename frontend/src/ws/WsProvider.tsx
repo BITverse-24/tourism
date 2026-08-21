@@ -137,6 +137,9 @@ export function WsProvider({ children }: { children: React.ReactNode }) {
         setConnected(client.getConnectionState() === 'open')
         hasEverConnectedRef.current = true
         setWsFailedAtStart(false)
+      } else if (type === 'workflow.state') {
+        const wf = (payload as Record<string, unknown>).workflow_state as string | undefined
+        if (wf) setWorkflowState(wf as WorkflowState)
       } else if (type === 'session.expired') {
         setIsExpired(true)
         setWorkflowState('expired')

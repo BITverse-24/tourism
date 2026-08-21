@@ -48,8 +48,25 @@ export async function profileConfirmService(
     logger.debug('sending profile.snapshot with the confirmed profile snapshot', {data: profSnapMsg})
     emit({ event: Events.PROFILE_SNAPSHOT, data: profSnapMsg })
 
-    // set workflow to planning
+    // set workflow to planning and emit event to notify frontend
     setWorkflowState(data.session_id, WorkflowStates.PLANNING)
+    
+    // Emit workflow state change event for frontend routing
+    const workflowStateMsg = {
+        message_id: `msg_${generateUUID()}`,
+        session_id: data.session_id,
+        run_id: data.run_id,
+        command_id: data.command_id,
+        occurred_at: new Date().toISOString(),
+        sequence: await nextSequence(data.run_id),
+        kind: 'event',
+        type: Events.WORKFLOW_STATE,
+        payload: {
+            workflow_state: WorkflowStates.PLANNING
+        }
+    }
+    logger.debug('sending workflow.state event', { data: workflowStateMsg })
+    emit({ event: Events.WORKFLOW_STATE, data: workflowStateMsg })
 
     // start planning                                                                       
     // agent 2 service                                                                      

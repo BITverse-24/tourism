@@ -11,11 +11,11 @@ const envSchema = z.object({
     // Agent 1 (discovery, ai/discovery.ts) always uses thinkingBudget: 0 (no reasoning) and ignores this.
     AGENT_REASONING_EFFORT: z.enum(['low', 'medium', 'high']).default('medium'),
     AGENT_API_URL: z.string().default(''),
-    AGENT_TIMEOUT_MS: z.coerce.number().default(20_000_000),
+    AGENT_TIMEOUT_MS: z.coerce.number().default(120_000),
     CITY_KNOWLEDGEBASE_CSV: z.string(),
     ATTRACTIONS_KNOWLEDGEBASE_SQLITE: z.string(),
     AGENT_2_MAX_CANDIDATES: z.coerce.number().default(1),
-    AGENT_2_MAX_TOOL_CALLS: z.coerce.number().default(3),
+    AGENT_2_MAX_TOOL_CALLS: z.coerce.number().default(100),
     AGENT_2_MAX_ROWS_PER_TOOL_CALL: z.coerce.number().default(50),
     // MONGO_URI: z.string().trim().min(1, 'MONGO_URI is required'),
     // DB_NAME: z.string().trim().min(1).default('api'),

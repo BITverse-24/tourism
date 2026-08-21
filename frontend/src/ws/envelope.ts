@@ -106,6 +106,7 @@ export const KNOWN_EVENT_TYPES: readonly string[] = [
   'decision.request',
   'plan.snapshot',
   'workflow.completed',
+  'workflow.state',
   'session.expired',
   'session.superseded',
   // also allow ack types as event? no — keep separate

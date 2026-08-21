@@ -12,6 +12,7 @@ export enum Commands {
 export enum Events {
     SESSION_EXPIRED = 'session.expired',
     WORKFLOW_COMPLETED = 'workflow.completed',
+    WORKFLOW_STATE = 'workflow.state',
     DECISION_REQUEST = 'decision.request',
     PLANNING_STATUS = 'planning.status',
     PROFILE_READY = 'profile.ready',
