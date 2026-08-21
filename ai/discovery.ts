@@ -10,7 +10,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { config as loadEnv } from "dotenv";
-import { GoogleGenAI } from "@google/genai";
+import OpenAI from "openai";
 import * as z from "zod";
 import { DiscoveryAnsSelectionModes, DiscoveryFreeTextModes } from "../backend/src/structures/enums.js";
 
@@ -224,8 +224,8 @@ export interface ProcessDiscoveryOptions {
   api_key?: string;
   model?: string;
   /**
-   * Ignored for Agent 1 — discovery always uses the model's lowest supported thinking_level
-   * (or omits thinking when the model defaults to Off). Kept for Agent 2 (candidate-design).
+   * Ignored for Agent 1 — discovery always uses model's default reasoning (no thinking config).
+   * Kept for Agent 2 (candidate-design) where reasoning_effort is forwarded for reasoning models.
    */
   reasoning_effort?: "low" | "medium" | "high";
   api_url?: string;
@@ -1042,56 +1042,11 @@ export const DISCOVERY_PATCH_RESPONSE_SCHEMA = {
   required: ["finished", "next_question", "completion_reason", "profile_patch"],
 } as const;
 
-const DEFAULT_MODEL = "gemini-3.5-flash";
-// ponytail: TPD/RPD are model-specific -> fallback hierarchy for testing (lite 0 budget loops, use 3.5 regular)
-const MODEL_HIERARCHY = [
-  "gemini-3.6-flash",
-  "gemini-3.5-flash",
-  "gemini-3-flash-preview",
-  "gemini-3.5-flash-lite",
-  "gemini-3.1-flash-lite",
-  "gemma-4-31b-it",
-] as const;
-
-type GeminiThinkingLevel = "minimal" | "low" | "medium" | "high";
-
-/** Lowest → highest. Gemini 3.x rejects thinkingBudget: 0; use thinking_level instead. */
-const MODEL_THINKING_LEVELS: Record<string, readonly GeminiThinkingLevel[]> = {
-  "gemini-3.7-flash": ["low", "medium", "high"],
-  "gemini-3.6-flash": ["minimal", "low", "medium", "high"],
-  "gemini-3.5-flash-lite": ["minimal", "low", "medium", "high"],
-  "gemini-3.1-pro-preview": ["low", "medium", "high"],
-  "gemini-3.1-flash-lite-image": ["minimal", "high"],
-  "gemini-3.1-flash-lite": ["minimal", "low", "medium", "high"],
-  "gemini-3-flash-preview": ["minimal", "low", "medium", "high"],
-  "gemini-3-pro-preview": ["low", "high"],
-  "gemini-3.5-flash": ["minimal", "low", "medium", "high"],
-  "gemini-2.5-pro": ["low", "medium", "high"],
-  "gemini-2.5-flash": ["low", "medium", "high"],
-  "gemini-2.5-flash-lite": ["low", "medium", "high"],
-};
-
-/** Sending a thinking_level on this model would turn thinking on; omit config instead. */
-const THINKING_OFF_BY_DEFAULT = new Set<string>(["gemini-2.5-flash-lite"]);
-
-function lowestThinkingLevel(modelName: string): GeminiThinkingLevel | null {
-  if (THINKING_OFF_BY_DEFAULT.has(modelName)) return null;
-  const listed = MODEL_THINKING_LEVELS[modelName];
-  if (listed && listed.length > 0) return listed[0];
-  if (modelName.startsWith("gemini-3") && modelName.includes("pro")) return "low";
-  if (modelName.startsWith("gemini-3")) return "minimal";
-  if (modelName.startsWith("gemini-2.5")) return "low";
-  return "minimal";
-}
-
-function agent1ThinkingConfig(modelName: string): { thinkingLevel: GeminiThinkingLevel } | undefined {
-  if (!modelName.startsWith("gemini")) return undefined;
-  const level = lowestThinkingLevel(modelName);
-  if (!level) return undefined;
-  return { thinkingLevel: level };
-}
+const DEFAULT_MODEL = "muse-spark-1.2-contributor";
+const FIXED_MODEL = "muse-spark-1.2-contributor";
+const META_BASE_URL = "https://api.meta.ai/v1";
 const DEFAULT_TIMEOUT_MS = 30_000;
-const MAX_COMPLETION_TOKENS = 1_200; // ponytail: patch only, 3k overkill -> 14-26s, 1.2k cuts gen 40%
+const MAX_COMPLETION_TOKENS = 8192;
 const MAX_RATE_LIMIT_RETRIES = 2;
 let responseLogSequence = 0;
 // ponytail: cache zod schema once, was recompiled per request (heavy)
@@ -1625,11 +1580,11 @@ export function applyProfilePatch(
 }
 
 function validateResult(value: unknown): asserts value is DiscoveryResult {
-  if (!isRecord(value)) throw new DiscoveryResponseError("Gemini returned a response that is not an object.");
-  if (!isRecord(value.profile)) throw new DiscoveryResponseError("Gemini returned an invalid traveler profile.");
-  if (typeof value.finished !== "boolean") throw new DiscoveryResponseError("Gemini returned an invalid completion flag.");
+  if (!isRecord(value)) throw new DiscoveryResponseError("Model returned a response that is not an object.");
+  if (!isRecord(value.profile)) throw new DiscoveryResponseError("Model returned an invalid traveler profile.");
+  if (typeof value.finished !== "boolean") throw new DiscoveryResponseError("Model returned an invalid completion flag.");
   if (value.next_question !== null && !isRecord(value.next_question)) {
-    throw new DiscoveryResponseError("Gemini returned an invalid next question.");
+    throw new DiscoveryResponseError("Model returned an invalid next question.");
   }
   if (value.finished && value.next_question !== null) {
     throw new DiscoveryResponseError("A finished discovery response cannot contain a next question.");
@@ -1638,7 +1593,7 @@ function validateResult(value: unknown): asserts value is DiscoveryResult {
     throw new DiscoveryResponseError("An unfinished discovery response must contain a next question.");
   }
   if (value.completion_reason !== null && typeof value.completion_reason !== "string") {
-    throw new DiscoveryResponseError("Gemini returned an invalid completion reason.");
+    throw new DiscoveryResponseError("Model returned an invalid completion reason.");
   }
   if (value.finished && typeof value.completion_reason !== "string") {
     throw new DiscoveryResponseError("A finished discovery response must explain why it is complete.");
@@ -1646,11 +1601,11 @@ function validateResult(value: unknown): asserts value is DiscoveryResult {
 }
 
 function validatePatchResult(value: unknown): asserts value is DiscoveryPatchResult {
-  if (!isRecord(value)) throw new DiscoveryResponseError("Gemini returned a response that is not an object.");
-  if (!isRecord(value.profile_patch)) throw new DiscoveryResponseError("Gemini returned an invalid profile_patch.");
-  if (typeof value.finished !== "boolean") throw new DiscoveryResponseError("Gemini returned an invalid completion flag.");
+  if (!isRecord(value)) throw new DiscoveryResponseError("Model returned a response that is not an object.");
+  if (!isRecord(value.profile_patch)) throw new DiscoveryResponseError("Model returned an invalid profile_patch.");
+  if (typeof value.finished !== "boolean") throw new DiscoveryResponseError("Model returned an invalid completion flag.");
   if (value.next_question !== null && !isRecord(value.next_question)) {
-    throw new DiscoveryResponseError("Gemini returned an invalid next question.");
+    throw new DiscoveryResponseError("Model returned an invalid next question.");
   }
   if (value.finished && value.next_question !== null) {
     throw new DiscoveryResponseError("A finished discovery response cannot contain a next question.");
@@ -1659,7 +1614,7 @@ function validatePatchResult(value: unknown): asserts value is DiscoveryPatchRes
     throw new DiscoveryResponseError("An unfinished discovery response must contain a next question.");
   }
   if (value.completion_reason !== null && typeof value.completion_reason !== "string") {
-    throw new DiscoveryResponseError("Gemini returned an invalid completion reason.");
+    throw new DiscoveryResponseError("Model returned an invalid completion reason.");
   }
   if (value.finished && typeof value.completion_reason !== "string") {
     throw new DiscoveryResponseError("A finished discovery response must explain why it is complete.");
@@ -1806,7 +1761,7 @@ async function logRawResponse(responseText: string, status: number, attempt: num
     `status: ${status}`,
     `attempt: ${attempt}`,
     "",
-    "----- raw Gemini response -----",
+    "----- raw model response -----",
     responseText,
     "",
   ].join("\n");
@@ -1820,7 +1775,7 @@ async function logRawResponse(responseText: string, status: number, attempt: num
   }
 }
 
-/** Processes one discovery turn with exactly one Gemini request. */
+/** Processes one discovery turn with exactly one OpenAI request. */
 export async function processDiscovery(
   input: DiscoveryInput,
   options: ProcessDiscoveryOptions & { genAiClient?: any } = {},
@@ -1833,6 +1788,7 @@ export async function processDiscovery(
 
   const apiKey =
     options.api_key ??
+    process.env.OPENAI_API_KEY ??
     process.env.GEMINI_API_KEY ??
     process.env.GOOGLE_API_KEY ??
     process.env.GOOGLE_GENAI_API_KEY ??
@@ -1842,11 +1798,11 @@ export async function processDiscovery(
   
   if (!apiKey) {
     throw new DiscoveryConfigurationError(
-      "Missing GEMINI_API_KEY. Set it in the environment or pass api_key for this request.",
+      "Missing OPENAI_API_KEY. Set it in the environment or pass api_key for this request.",
     );
   }
 
-  const requestedModel = options.model ?? process.env.GEMINI_MODEL ?? process.env.GOOGLE_MODEL ?? DEFAULT_MODEL;
+  const requestedModel = FIXED_MODEL;
   const timeoutMs = options.timeout_ms ?? DEFAULT_TIMEOUT_MS;
   const logResponses = options.log_raw_responses ?? true;
   
@@ -1854,16 +1810,14 @@ export async function processDiscovery(
     requestedModel,
     timeoutMs,
     logResponses,
-    thinkingLevel: lowestThinkingLevel(requestedModel),
     // Backend may still pass AGENT_REASONING_EFFORT; Agent 1 never uses it.
     ignored_reasoning_effort: options.reasoning_effort ?? null,
     hasFetcher: !!options.fetcher,
     hasInjectedClient: !!options.genAiClient
   });
   
-  // Build hierarchy starting from requested model, fallback through list
-  const startIdx = MODEL_HIERARCHY.indexOf(requestedModel as any);
-  const modelsToTry = startIdx >= 0 ? MODEL_HIERARCHY.slice(startIdx) : [requestedModel, ...MODEL_HIERARCHY.filter(m => m !== requestedModel)];
+  // Fixed model — no hierarchy/fallback
+  const modelsToTry = [FIXED_MODEL] as const;
   
   console.log('[processDiscovery] Models to try (in order):', modelsToTry);
 
@@ -1883,7 +1837,11 @@ export async function processDiscovery(
     if (!interaction) return "";
     if (typeof interaction.output_text === "string") return interaction.output_text;
     if (typeof interaction.outputText === "string") return interaction.outputText;
-    // Fallback: try candidates/parts shape (Gemini generateContent)
+    // OpenAI choices envelope
+    if (Array.isArray(interaction.choices) && typeof interaction.choices[0]?.message?.content === "string") {
+      return interaction.choices[0].message.content as string;
+    }
+    // Fallback: legacy Gemini candidates/parts shape
     if (Array.isArray(interaction.candidates) && interaction.candidates[0]?.content?.parts?.[0]?.text) {
       return interaction.candidates[0].content.parts[0].text as string;
     }
@@ -1892,12 +1850,26 @@ export async function processDiscovery(
   };
 
   const createInteraction = async (client: any, modelName: string, signal?: AbortSignal): Promise<any> => {
-    const thinkingConfig = agent1ThinkingConfig(modelName);
-    const thinkingLevel = thinkingConfig?.thinkingLevel ?? null;
-    // Prefer generateContent: GoogleGenAI always exposes interactions.create, and that
-    // path previously sent thinkingBudget: 0 which Gemini 3.x rejects as INVALID_ARGUMENT.
+    // OpenAI path: prefer chat.completions; keep fallback for injected clients exposing chat.completions
+    if (client.chat?.completions?.create) {
+      console.log(`[processDiscovery] Using OpenAI chat.completions for ${modelName}`);
+      const res = await client.chat.completions.create({
+        model: modelName,
+        messages: [
+          { role: "system", content: DISCOVERY_SYSTEM_PROMPT },
+          { role: "user", content: buildUserMessage(input) },
+        ],
+        response_format: { type: "json_schema", json_schema: { name: "discovery_patch", strict: false, schema: discoveryPatchJsonSchema as any } },
+        temperature: 0.2,
+        max_tokens: MAX_COMPLETION_TOKENS,
+        reasoning_effort: "low",
+      } as any, signal ? { signal } as any : undefined);
+      // Normalize to choices envelope for downstream handling
+      return res;
+    }
     if (client.models && typeof client.models.generateContent === "function") {
-      console.log(`[processDiscovery] Using generateContent with thinkingLevel=${thinkingLevel ?? "omit"} for ${modelName}`);
+      // Legacy Gemini injected client fallback
+      console.log(`[processDiscovery] Using generateContent (legacy) for ${modelName}`);
       const res = await client.models.generateContent({
         model: `models/${modelName}`,
         contents: [{ role: "user", parts: [{ text: fullPrompt }] }],
@@ -1906,7 +1878,6 @@ export async function processDiscovery(
           responseJsonSchema: discoveryPatchJsonSchema,
           temperature: 0.2,
           maxOutputTokens: MAX_COMPLETION_TOKENS,
-          ...(thinkingConfig ? { thinkingConfig } : {}),
           httpOptions: signal ? { signal } as any : undefined,
         } as any,
       });
@@ -1925,11 +1896,10 @@ export async function processDiscovery(
         generation_config: {
           temperature: 0.2,
           max_output_tokens: MAX_COMPLETION_TOKENS,
-          ...(thinkingLevel ? { thinking_level: thinkingLevel, thinking_summaries: "none" } : {}),
         },
       }, signal ? { signal } as any : undefined);
     }
-    throw new DiscoveryApiError("Unsupported GoogleGenAI client shape.", 0);
+    throw new DiscoveryApiError("Unsupported client shape.", 0);
   };
 
   const withTimeout = async <T>(promise: Promise<T>, ms: number, controller?: AbortController): Promise<T> => {
@@ -1967,24 +1937,24 @@ export async function processDiscovery(
         interaction = await withTimeout(createInteraction(injectedClient, model, ctrl.signal), timeoutMs, ctrl);
       } else if (fetcher) {
         console.log(`[processDiscovery] Using fetcher for model ${model}`);
-        // Legacy fetch-style mock: allow tests to provide fetcher that returns Gemini-like envelope.
-        // We synthesize a Gemini interaction from fetcher response to keep migration testable without real API.
-        const mockUrl = "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent";
+        const mockUrl = `${META_BASE_URL}/chat/completions`;
         const mockBody = JSON.stringify({
           model,
-          input: fullPrompt,
-          response_format: {
-            type: "text",
-            mime_type: "application/json",
-            schema: discoveryPatchJsonSchema,
-          },
+          messages: [
+            { role: "system", content: DISCOVERY_SYSTEM_PROMPT },
+            { role: "user", content: buildUserMessage(input) },
+          ],
+          response_format: { type: "json_schema", json_schema: { name: "discovery_patch", strict: false, schema: discoveryPatchJsonSchema } },
+          temperature: 0.2,
+          max_tokens: MAX_COMPLETION_TOKENS,
+          reasoning_effort: "low",
         });
         const ctrl = new AbortController();
         const response = await withTimeout(
           fetcher(mockUrl, {
             method: "POST",
             headers: {
-              "x-goog-api-key": apiKey,
+              "Authorization": `Bearer ${apiKey}`,
               "Content-Type": "application/json",
             },
             body: mockBody,
@@ -2002,35 +1972,33 @@ export async function processDiscovery(
         }
         if (!response.ok) {
           throw new DiscoveryApiError(
-            `Gemini request failed with status ${response.status}: ${responseText.slice(0, 500)}`,
+            `OpenAI request failed with status ${response.status}: ${responseText.slice(0, 500)}`,
             response.status,
           );
         }
-        // Try to parse fetcher's envelope as Gemini output
+        // Parse fetcher's envelope as OpenAI output
         let envelope: any;
         try {
           envelope = JSON.parse(responseText);
         } catch {
-          throw new DiscoveryResponseError("Gemini returned invalid JSON outside the response content.");
+          throw new DiscoveryResponseError("OpenAI returned invalid JSON outside the response content.");
         }
-        // If fetcher returned { output_text: "..." } use it directly
         if (typeof envelope.output_text === "string") {
           interaction = envelope;
         } else if (typeof envelope.outputText === "string") {
           interaction = { output_text: envelope.outputText };
+        } else if (envelope.choices) {
+          const content = envelope.choices?.[0]?.message?.content;
+          if (typeof content === "string") interaction = envelope;
+          else interaction = envelope;
         } else if (Array.isArray(envelope.candidates)) {
           interaction = envelope;
-        } else if (envelope.choices) {
-          // Backward compat: Groq-style envelope -> extract content
-          const content = envelope.choices?.[0]?.message?.content;
-          if (typeof content === "string") interaction = { output_text: content };
-          else interaction = envelope;
         } else {
           interaction = envelope;
         }
       } else {
-        console.log(`[processDiscovery] Creating GoogleGenAI client for model ${model}`);
-        const client = new GoogleGenAI({ apiKey } as any);
+        console.log(`[processDiscovery] Creating OpenAI client for model ${model}`);
+        const client = new OpenAI({ apiKey, baseURL: META_BASE_URL } as any);
         const ctrl = new AbortController();
         interaction = await withTimeout(createInteraction(client, model, ctrl.signal), timeoutMs, ctrl);
       }
@@ -2046,7 +2014,7 @@ export async function processDiscovery(
 
       if (!lastOutputText || lastOutputText.trim().length === 0) {
         console.log('[processDiscovery] Error: Empty response from API');
-        throw new DiscoveryResponseError("Gemini returned an empty discovery response.");
+        throw new DiscoveryResponseError("OpenAI returned an empty discovery response.");
       }
 
       let result: unknown;
@@ -2055,7 +2023,7 @@ export async function processDiscovery(
         console.log('[processDiscovery] Successfully parsed JSON response');
       } catch (parseError) {
         console.log('[processDiscovery] Error: Failed to parse JSON from API response');
-        throw new DiscoveryResponseError("Gemini returned discovery content that is not valid JSON.");
+        throw new DiscoveryResponseError("OpenAI returned discovery content that is not valid JSON.");
       }
 
       // Validate with zod (ensures schema compliance) then with manual validator for error messages
@@ -2065,7 +2033,7 @@ export async function processDiscovery(
       } catch (zErr: any) {
         console.log('[processDiscovery] Error: Zod validation failed', zErr?.message);
         throw new DiscoveryResponseError(
-          `Gemini returned invalid patch shape: ${zErr?.message ?? String(zErr)}`,
+          `OpenAI returned invalid patch shape: ${zErr?.message ?? String(zErr)}`,
         );
       }
 
@@ -2129,21 +2097,21 @@ export async function processDiscovery(
 
       if (error instanceof DiscoveryApiError || error instanceof DiscoveryResponseError) throw error;
       if (error instanceof DOMException && error.name === "AbortError") {
-        throw new DiscoveryApiError(`Gemini request timed out after ${timeoutMs}ms.`, 408);
+        throw new DiscoveryApiError(`OpenAI request timed out after ${timeoutMs}ms.`, 408);
       }
-      const message = error instanceof Error ? error.message : "Unknown Gemini request failure.";
+      const message = error instanceof Error ? error.message : "Unknown OpenAI request failure.";
       const status = typeof error?.status === "number" ? error.status : 0;
       if (status === 429 || status >= 400) {
         // if rate limited and has next model, already handled above -> throw only if last model
-        throw new DiscoveryApiError(`Gemini request failed: ${message}`, status);
+        throw new DiscoveryApiError(`OpenAI request failed: ${message}`, status);
       }
-      throw new DiscoveryApiError(`Unable to reach Gemini: ${message}`, 0);
+      throw new DiscoveryApiError(`Unable to reach OpenAI: ${message}`, 0);
     }
   }
   } // end model loop
 
   console.log('[processDiscovery] All models failed to return a response');
   if (lastRateLimitError) throw lastRateLimitError;
-  throw new DiscoveryApiError("Gemini did not return a response.", 0);
+  throw new DiscoveryApiError("OpenAI did not return a response.", 0);
 }
 

@@ -8,7 +8,7 @@
  */
 
 import "dotenv/config";
-import { GoogleGenAI } from "@google/genai";
+import OpenAI from "openai";
 import type { TravelerProfile, CandidateBundle } from "./candidate-design.js";
 
 // --- types ---
@@ -130,7 +130,9 @@ export class NarrativeTimeoutError extends Error {
   constructor(message: string) { super(message); this.name = "NarrativeTimeoutError"; }
 }
 
-const DEFAULT_MODEL = "gemini-3.6-flash";
+const DEFAULT_MODEL = "muse-spark-1.2-contributor";
+const FIXED_MODEL = "muse-spark-1.2-contributor";
+const META_BASE_URL = "https://api.meta.ai/v1";
 const DEFAULT_TIMEOUT_MS = 60_000;
 
 const stringOrNull = { type: ["string", "null"] } as const;
@@ -300,9 +302,9 @@ async function withDeadline<T>(promise: Promise<T>, deadline: number, label: str
 }
 
 async function requestModel(deadline: number, options: NarrativeOptions, messages: Array<Record<string, unknown>>): Promise<string> {
-  const apiKey = options.api_key ?? process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY ?? process.env.GOOGLE_GENAI_API_KEY;
-  if (!apiKey) throw new NarrativeConfigurationError("Missing GEMINI_API_KEY (or pass api_key)");
-  const model = options.model ?? process.env.GEMINI_MODEL ?? process.env.GOOGLE_MODEL ?? DEFAULT_MODEL;
+  const apiKey = options.api_key ?? process.env.OPENAI_API_KEY ?? process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY ?? process.env.GOOGLE_GENAI_API_KEY;
+  if (!apiKey) throw new NarrativeConfigurationError("Missing OPENAI_API_KEY (or pass api_key)");
+  const model = FIXED_MODEL;
   const fetcher = options.fetcher;
 
   if (fetcher) {
@@ -312,11 +314,11 @@ async function requestModel(deadline: number, options: NarrativeOptions, message
       const remaining = Math.max(1, deadline - Date.now());
       const t = setTimeout(() => controller.abort(), remaining);
       try {
-        const res = await withDeadline(fetcher("https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent", {
+        const res = await withDeadline(fetcher(`${META_BASE_URL}/chat/completions`, {
           method: "POST",
-          headers: { "x-goog-api-key": apiKey, "Content-Type": "application/json" },
+          headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
           signal: controller.signal,
-          body: JSON.stringify({ model, messages, response_format: { type: "json_schema", json_schema: { name: "final_trip_plan", strict: true, schema: NARRATIVE_RESPONSE_SCHEMA } } }),
+          body: JSON.stringify({ model, messages, response_format: { type: "json_schema", json_schema: { name: "final_trip_plan", strict: true, schema: NARRATIVE_RESPONSE_SCHEMA } }, temperature: 0.2, max_tokens: 8192, reasoning_effort: "low" }),
         } as any), deadline, "model request");
         const raw = await withDeadline(res.text(), deadline, "model response read");
         if (res.status === 429 && attempt < 4) {
@@ -330,35 +332,26 @@ async function requestModel(deadline: number, options: NarrativeOptions, message
         if (!res.ok) throw new NarrativeApiError(`model request failed ${res.status}: ${raw}`, res.status);
         let payload: unknown;
         try { payload = JSON.parse(raw); } catch { throw new NarrativeResponseError("model API returned malformed JSON", ["api_response: valid JSON required"]); }
-        // support both Groq choices and Gemini candidates envelope
+        // OpenAI envelope: { choices: [{ message: { content } }] } plus legacy fallbacks
         if (isRecord(payload) && Array.isArray((payload as any).choices)) {
           const content = (payload as any).choices[0]?.message?.content;
           if (typeof content !== "string" || !content.trim()) throw new NarrativeResponseError("model returned empty content", ["message.content: non-empty string required"]);
           return content;
         }
+        if (isRecord(payload) && typeof (payload as any).output_text === "string") return (payload as any).output_text;
         if (isRecord(payload) && Array.isArray((payload as any).candidates)) {
           const parts = (payload as any).candidates[0]?.content?.parts ?? [];
           const text = parts.filter((p: any) => typeof p.text === "string").map((p: any) => p.text).join("");
           if (text.trim()) return text;
-          if ((payload as any).output_text) return String((payload as any).output_text);
         }
-        if (isRecord(payload) && typeof (payload as any).output_text === "string") return (payload as any).output_text;
-        throw new NarrativeResponseError("model response did not contain choices/candidates", ["choices: response array required"]);
+        throw new NarrativeResponseError("model response did not contain choices", ["choices: response array required"]);
       } finally { clearTimeout(t); }
     }
     throw new NarrativeApiError("model request failed after retries", 429);
   }
 
-  // live Gemini SDK path — single bundle, no tools
-  const client = new GoogleGenAI({ apiKey } as any);
-  const contents: any[] = [];
-  for (const m of messages) {
-    const role = (m as any).role;
-    const content = String((m as any).content ?? "");
-    if (role === "system") contents.push({ role: "user", parts: [{ text: `[System] ${content}` }] });
-    else if (role === "user") contents.push({ role: "user", parts: [{ text: content }] });
-    else if (role === "assistant") contents.push({ role: "model", parts: [{ text: content }] });
-  }
+  // live OpenAI SDK path — single bundle, no tools
+  const client = new OpenAI({ apiKey, baseURL: META_BASE_URL } as any);
   const withTimeout = async <T>(p: Promise<T>, ms: number): Promise<T> => {
     let tid: ReturnType<typeof setTimeout>;
     const tp = new Promise<never>((_, rej) => { tid = setTimeout(() => rej(new DOMException("Timeout", "AbortError")), ms); });
@@ -367,17 +360,15 @@ async function requestModel(deadline: number, options: NarrativeOptions, message
   for (let attempt = 0; attempt < 5; attempt += 1) {
     try {
       const remaining = Math.max(1, deadline - Date.now());
-      const response: any = await withTimeout(client.models.generateContent({
-        model, contents,
-        config: {
-          systemInstruction: SYSTEM_PROMPT,
-          responseMimeType: "application/json",
-          responseJsonSchema: NARRATIVE_RESPONSE_SCHEMA as any,
-          temperature: 0.2,
-          maxOutputTokens: 4000,
-        },
+      const response: any = await withTimeout(client.chat.completions.create({
+        model,
+        messages: messages as any,
+        response_format: { type: "json_schema", json_schema: { name: "final_trip_plan", strict: true, schema: NARRATIVE_RESPONSE_SCHEMA as any } },
+        temperature: 0.2,
+        max_tokens: 8192,
+        reasoning_effort: "low",
       } as any), remaining);
-      const text: string = response?.text ?? "";
+      const text: string = response?.choices?.[0]?.message?.content ?? "";
       if (!text.trim()) throw new NarrativeResponseError("model returned empty content", ["response: non-empty JSON required"]);
       return text;
     } catch (e: any) {

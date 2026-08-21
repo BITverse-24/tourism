@@ -4,7 +4,7 @@
         "test": "npm run build && node ./dist/test/*.test.js"
     },
     "dependencies": {
-        "@google/genai": "^2.18.0",
+        "openai": "^4.72.0",
         "better-sqlite3": "^13.0.3",
         "csv-parse": "^7.0.2",
         "dotenv": "^17.4.2",
