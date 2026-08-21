@@ -1,205 +1,66 @@
-import { loadConfig } from "../app/config";
 import { readFile } from "node:fs/promises";
 import { parse } from "csv-parse/sync";
 import { CityRecord, GetCityInput, GetCityResult, SearchCitiesInput, SearchCitiesResult } from "../../../ai/candidate-design";
+import { loadConfig } from "../app/config";
 
-// -----------------------------------------------------------------------------
-// CSV configuration
-// -----------------------------------------------------------------------------
+type CsvRow = Record<string, string>;
 
-function getCsvPath(): string {
-    const path = loadConfig(process.env).city_knowledgebase_csv_path
+let cachedCities: CityRecord[] | null = null;
+let cachedCsvPath: string | null = null;
 
-    if (!path) {
-        throw new Error(
-            `Missing CITY_KNOWLEDGEBASE_CSV environment variable. ` +
-                `Set it to the path of the cities CSV file.`,
-        );
-    }
-
-    return path;
-}
-
-// -----------------------------------------------------------------------------
-// CSV parsing
-// -----------------------------------------------------------------------------
-
-const ARRAY_COLUMNS = new Set([
-    "destination_type",
-    // Add more here if the CSV later gains array-valued columns.
-    // "source",
-]);
-
-const NUMBER_COLUMNS = new Set([
-    "latitude",
-    "longitude",
-    "elevation_m",
-    "recommended_days_min",
-    "recommended_days_max",
-]);
-
-function parsePipeSeparated(value: string): string[] {
-    return value
-        .split("|")
-        .map((item) => item.trim())
-        .filter(Boolean);
-}
-
-function parseCsvValue(
-    column: string,
-    value: string | undefined,
-): unknown {
-    if (value === undefined || value === "") {
-        return undefined;
-    }
-
-    if (ARRAY_COLUMNS.has(column)) {
-        return parsePipeSeparated(value);
-    }
-
-    if (NUMBER_COLUMNS.has(column)) {
-        const number = Number(value);
-
-        // Don't silently turn malformed numbers into NaN.
-        if (Number.isNaN(number)) {
-            throw new Error(
-                `Invalid numeric value "${value}" in column "${column}".`,
-            );
-        }
-
-        return number;
-    }
-
-    return value;
-}
-
-function rowToCityRecord(row: Record<string, string>): CityRecord {
-    const record: Record<string, unknown> = {};
-
-    for (const [column, value] of Object.entries(row)) {
-        const parsed = parseCsvValue(column, value);
-
-        // Omit empty/undefined optional fields.
-        if (parsed !== undefined) {
-            record[column] = parsed;
-        }
-    }
-
-    if (typeof record.city_id !== "string" || !record.city_id) {
-        throw new Error("CSV contains a row without a valid city_id.");
-    }
-
-    if (typeof record.city_name !== "string" || !record.city_name) {
-        throw new Error(
-            `CSV row for city_id "${record.city_id}" has no valid city_name.`,
-        );
-    }
-
-    return record as CityRecord;
-}
-
-async function loadCities(): Promise<CityRecord[]> {
-    const csvPath = getCsvPath();
-
-    const csv = await readFile(csvPath, "utf8");
-
-    const rows = parse(csv, {
-        columns: true,
-        skip_empty_lines: true,
-        bom: true,
-        trim: true,
-    }) as Record<string, string>[];
-
-    return rows.map(rowToCityRecord);
-}
-
-// -----------------------------------------------------------------------------
-// Filtering helpers
-// -----------------------------------------------------------------------------
-
-function normalize(value: string): string {
-    return value.trim().toLowerCase();
-}
-
-function matchesOneOf(
-    actual: string | undefined,
-    requested: string[],
-): boolean {
-    if (requested.length === 0) {
-        return true;
-    }
-
-    if (!actual) {
-        return false;
-    }
-
-    const normalizedActual = normalize(actual);
-
-    return requested.some(
-        (value) => normalize(value) === normalizedActual,
-    );
-}
-
-function matchesDestinationTypes(
-    actual: string[] | undefined,
-    requested: string[],
-): boolean {
-    if (requested.length === 0) {
-        return true;
-    }
-
-    if (!actual || actual.length === 0) {
-        return false;
-    }
-
-    const actualSet = new Set(actual.map(normalize));
-
-    // A city matches if it has at least one requested destination type.
-    return requested.some((type) => actualSet.has(normalize(type)));
-}
-
-// -----------------------------------------------------------------------------
-// Public API
-// -----------------------------------------------------------------------------
-
+/**
+ * Searches cities from the CSV file specified by CITIES_CSV_PATH.
+ */
 export async function searchCities(
     input: SearchCitiesInput,
 ): Promise<SearchCitiesResult> {
     const cities = await loadCities();
 
+    const region = normalize(input.region);
+    const tourismPopularity = normalize(input.tourism_popularity);
+
+    const destinationTypes = new Set(
+        input.destination_types
+            .map(normalize)
+            .filter((value): value is string => value !== null),
+    );
+
+    const climateTypes = new Set(
+        input.climate_types
+            .map(normalize)
+            .filter((value): value is string => value !== null),
+    );
+
     const filtered = cities.filter((city) => {
-        // Region
+        if (region !== null && normalize(city.region) !== region) {
+            return false;
+        }
+
         if (
-            input.region !== null &&
-                normalize(city.region ?? "") !== normalize(input.region)
+            tourismPopularity !== null &&
+                normalize(city.tourism_popularity) !== tourismPopularity
         ) {
             return false;
         }
 
-        // Destination type
         if (
-            !matchesDestinationTypes(
-                city.destination_type,
-                input.destination_types,
-            )
+            climateTypes.size > 0 &&
+                !climateTypes.has(normalize(city.climate_type) ?? "")
         ) {
             return false;
         }
 
-        // Climate type
-        if (
-            !matchesOneOf(city.climate_type, input.climate_types)
-        ) {
-            return false;
-        }
+        if (destinationTypes.size > 0) {
+            const cityDestinationTypes = city.destination_type ?? [];
 
-        // Tourism popularity
-        if (
-            input.tourism_popularity !== null &&
-                normalize(city.tourism_popularity ?? "") !==
-                normalize(input.tourism_popularity)
-        ) {
-            return false;
+            const hasMatchingDestinationType = cityDestinationTypes.some(
+                (destinationType) =>
+                    destinationTypes.has(normalize(destinationType) ?? ""),
+            );
+
+            if (!hasMatchingDestinationType) {
+                return false;
+            }
         }
 
         return true;
@@ -211,9 +72,16 @@ export async function searchCities(
     };
 }
 
+/**
+ * Gets one city by city_id from the CSV file specified by CITIES_CSV_PATH.
+ */
 export async function getCity(
     input: GetCityInput,
 ): Promise<GetCityResult> {
+    if (!input.city_id?.trim()) {
+        throw new Error("city_id is required");
+    }
+
     const cities = await loadCities();
 
     const city = cities.find(
@@ -224,7 +92,158 @@ export async function getCity(
         throw new Error(`City not found: ${input.city_id}`);
     }
 
-    return {
-        city,
+    return { city };
+}
+
+async function loadCities(): Promise<CityRecord[]> {
+    const csvPath = loadConfig(process.env).city_knowledgebase_csv_path
+
+    if (!csvPath) {
+        throw new Error(
+            "Missing required environment variable for cities csv",
+        );
+    }
+
+    // Reuse the cache when the same CSV is being used.
+    if (cachedCities !== null && cachedCsvPath === csvPath) {
+        return cachedCities;
+    }
+
+    const csvContents = await readFile(csvPath, "utf8");
+
+    const rows = parse(csvContents, {
+        columns: true,
+        skip_empty_lines: true,
+        trim: true,
+        relax_column_count: true,
+    }) as CsvRow[];
+
+    cachedCities = rows.map(csvRowToCityRecord);
+    cachedCsvPath = csvPath;
+
+    return cachedCities;
+}
+
+function csvRowToCityRecord(row: CsvRow): CityRecord {
+    const destination_type = [
+        row.destination_type__001,
+        row.destination_type__002,
+        row.destination_type__003,
+        row.destination_type__004,
+        row.destination_type__005,
+        row.destination_type__006,
+    ].filter(isNonEmptyString);
+
+    const city: CityRecord = {
+        city_id: requireString(row.city_id, "city_id"),
+        city_name: requireString(row.city_name, "city_name"),
     };
+
+    addOptionalString(city, "state", row.state);
+    addOptionalString(city, "region", row.region);
+    addOptionalNumber(city, "latitude", row.latitude);
+    addOptionalNumber(city, "longitude", row.longitude);
+    addOptionalNumber(city, "elevation_m", row.elevation_m);
+    addOptionalString(city, "climate_type", row.climate_type);
+
+    if (destination_type.length > 0) {
+        city.destination_type = destination_type;
+    }
+
+    addOptionalString(
+        city,
+        "tourism_popularity",
+        row.tourism_popularity,
+    );
+    addOptionalString(
+        city,
+        "primary_airport",
+        row.primary_airport,
+    );
+    addOptionalString(
+        city,
+        "primary_airport_iata",
+        row.primary_airport_iata,
+    );
+    addOptionalString(
+        city,
+        "primary_railway_station",
+        row.primary_railway_station,
+    );
+    addOptionalString(
+        city,
+        "primary_railway_station_code",
+        row.primary_railway_station_code,
+    );
+    addOptionalNumber(
+        city,
+        "recommended_days_min",
+        row.recommended_days_min,
+    );
+    addOptionalNumber(
+        city,
+        "recommended_days_max",
+        row.recommended_days_max,
+    );
+
+    return city;
+}
+
+function requireString(
+    value: string | undefined,
+    fieldName: string,
+): string {
+    const trimmed = value?.trim();
+
+    if (!trimmed) {
+        throw new Error(`CSV row is missing required field: ${fieldName}`);
+    }
+
+    return trimmed;
+}
+
+function addOptionalString(
+    target: CityRecord,
+    key: string,
+    value: string | undefined,
+): void {
+    const trimmed = value?.trim();
+
+    if (trimmed) {
+        target[key] = trimmed;
+    }
+}
+
+function addOptionalNumber(
+    target: CityRecord,
+    key: string,
+    value: string | undefined,
+): void {
+    const trimmed = value?.trim();
+
+    if (!trimmed) {
+        return;
+    }
+
+    const numberValue = Number(trimmed);
+
+    if (!Number.isFinite(numberValue)) {
+        throw new Error(
+            `Invalid numeric value for ${key}: ${JSON.stringify(value)}`,
+        );
+    }
+
+    target[key] = numberValue;
+}
+
+function normalize(value: string | null | undefined): string | null {
+    const trimmed = value?.trim();
+
+    return trimmed ? trimmed.toLowerCase() : null;
+}
+
+function isNonEmptyString(
+    value: string | undefined,
+): value is string {
+    return Boolean(value?.trim());
 }

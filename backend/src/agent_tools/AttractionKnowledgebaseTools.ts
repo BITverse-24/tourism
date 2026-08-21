@@ -1,47 +1,17 @@
 import Database from "better-sqlite3";
-import { randomUUID } from "node:crypto";
 import { loadConfig } from "../app/config";
 import { AttractionRecord, GetAttractionsByIdsInput, GetAttractionsByIdsResult, QueryAttractionsInput, QueryAttractionsResult } from "../../../ai/candidate-design";
 
-
-// -----------------------------------------------------------------------------
-// Database
-// -----------------------------------------------------------------------------
-
-const DB_PATH = loadConfig(process.env).attractions_knowledgebase_sqlite_path
-
-if (!DB_PATH) {
-    throw new Error(
-        "Missing required environment variable: ATTRACTIONS_DB_PATH"
-    );
-}
-
 /**
- * Read-only connection.
+ * These are all JSON-array columns in the SQLite schema.
  *
- * fileMustExist prevents accidentally creating an empty SQLite database if
- * ATTRACTIONS_DB_PATH is misspelled.
+ * When rows are read from SQLite, they are converted from JSON strings
+ * into normal JavaScript arrays.
  */
-const db = new Database(DB_PATH, {
-    readonly: true,
-    fileMustExist: true,
-});
-
-// SQLite can otherwise have an unnecessarily low busy timeout in some setups.
-db.pragma("busy_timeout = 5000");
-
-// -----------------------------------------------------------------------------
-// Configuration
-// -----------------------------------------------------------------------------
-
-const MAX_QUERY_RESULTS = 100;
-
-/**
- * These DB columns contain pipe-separated arrays.
- */
-const ARRAY_COLUMNS = new Set([
+const JSON_ARRAY_COLUMNS = new Set([
     "alternate_names",
     "subtypes",
+    "significance",
     "best_time_of_day",
     "best_months",
     "avoid_months",
@@ -49,70 +19,88 @@ const ARRAY_COLUMNS = new Set([
     "source",
 ]);
 
-/**
- * Split a pipe-separated DB value.
- *
- * Empty/null values become [].
- */
-function parsePipeArray(value: unknown): string[] {
+let database: Database.Database | undefined;
+
+function getDatabase(): Database.Database {
+    if (database) {
+        return database;
+    }
+
+    const dbPath = loadConfig(process.env).attractions_knowledgebase_sqlite_path
+
+    if (!dbPath) {
+        throw new Error(
+            "Missing sqlite attractions db environment variable. " +
+                "Set it to the path of your SQLite database.",
+        );
+    }
+
+    database = new Database(dbPath, {
+        readonly: true,
+        fileMustExist: true,
+    });
+
+    return database;
+}
+
+function parseJsonArray(value: unknown): unknown {
     if (value === null || value === undefined) {
-        return [];
+        return value;
     }
 
     if (typeof value !== "string") {
-        return [String(value)];
+        return value;
     }
 
-    return value
-        .split("|")
-        .map((x) => x.trim())
-        .filter(Boolean);
+    try {
+        const parsed: unknown = JSON.parse(value);
+
+        // The schema guarantees these should be arrays, but this makes the
+        // application layer defensive against malformed database contents.
+        return Array.isArray(parsed) ? parsed : value;
+    } catch {
+        return value;
+    }
 }
 
-/**
- * Convert a raw SQLite row into the API's AttractionRecord.
- *
- * All DB columns are retained, but pipe-separated columns are converted
- * into string arrays.
- */
-function rowToAttraction(row: Record<string, unknown>): AttractionRecord {
+function normalizeAttractionRow(
+    row: Record<string, unknown>,
+): AttractionRecord {
     const result: Record<string, unknown> = {};
 
     for (const [key, value] of Object.entries(row)) {
-        if (ARRAY_COLUMNS.has(key)) {
-            result[key] = parsePipeArray(value);
-        } else {
-            result[key] = value;
-        }
+        result[key] = JSON_ARRAY_COLUMNS.has(key)
+            ? parseJsonArray(value)
+            : value;
     }
 
     return result as AttractionRecord;
 }
 
-// -----------------------------------------------------------------------------
-// Helpers
-// -----------------------------------------------------------------------------
-
-function assertNonEmptyString(value: unknown, field: string): asserts value is string {
-    if (typeof value !== "string" || value.trim() === "") {
-        throw new TypeError(`${field} must be a non-empty string`);
+function normalizeStringArray(
+    values: string[] | undefined,
+): string[] {
+    if (!values || values.length === 0) {
+        return [];
     }
+
+    return [
+        ...new Set(
+            values
+                .map((value) => value.trim())
+                .filter((value) => value.length > 0),
+        ),
+    ];
 }
 
-function assertStringArray(value: unknown, field: string): asserts value is string[] {
-    if (!Array.isArray(value)) {
-        throw new TypeError(`${field} must be an array`);
-    }
-
-    for (const item of value) {
-        if (typeof item !== "string") {
-            throw new TypeError(`${field} must contain only strings`);
-        }
-    }
+function createQueryId(): string {
+    return `query_${crypto.randomUUID().replace(/-/g, "")}`;
 }
 
 /**
- * Escape SQLite LIKE special characters.
+ * Escapes LIKE wildcards so that user input is treated as ordinary text.
+ *
+ * We use "\" as the SQLite LIKE escape character.
  */
 function escapeLike(value: string): string {
     return value
@@ -122,230 +110,102 @@ function escapeLike(value: string): string {
 }
 
 /**
- * Produces:
+ * Searches attractions within a city.
  *
- *   ('|' || column || '|') LIKE '%|value|%'
+ * Matching semantics:
+ * - query:
+ *     case-insensitive substring match against:
+ *     name, alternate_names, description, location_area, attraction_type
  *
- * which allows exact token matching in a pipe-separated field.
+ * - best_for:
+ *     OR semantics. An attraction matches when at least one requested value
+ *     exists in its JSON best_for array.
  *
- * Example:
- *   best_for = "Family|Photography|History"
- *
- * searching for "Photography" matches, while "Photo" doesn't.
+ * - attraction_types:
+ *     OR semantics. An attraction matches when at least one requested value
+ *     matches either attraction_type or an item in subtypes.
  */
-function pipeTokenCondition(
-    column: string,
-    value: string
-): { sql: string; params: string[] } {
-    return {
-        sql: `(
-('|' || LOWER(COALESCE(${column}, '')) || '|')
-LIKE ?
-ESCAPE '\\'
-)`,
-        params: [`%|${escapeLike(value.toLowerCase())}|%`],
-    };
-}
-
-/**
- * Build an OR expression for a set of exact tokens.
- */
-function pipeTokenAnyCondition(
-    column: string,
-    values: string[]
-): { sql: string; params: string[] } | null {
-    if (values.length === 0) {
-        return null;
-    }
-
-    const conditions: string[] = [];
-    const params: string[] = [];
-
-    for (const value of values) {
-        const condition = pipeTokenCondition(column, value);
-        conditions.push(condition.sql);
-        params.push(...condition.params);
-    }
-
-    return {
-        sql: `(${conditions.join(" OR ")})`,
-        params,
-    };
-}
-
-// -----------------------------------------------------------------------------
-// queryAttractions
-// -----------------------------------------------------------------------------
-
 export async function queryAttractions(
-    input: QueryAttractionsInput
+    input: QueryAttractionsInput,
 ): Promise<QueryAttractionsResult> {
-    assertNonEmptyString(input.city_id, "city_id");
-    assertStringArray(input.best_for, "best_for");
-    assertStringArray(input.attraction_types, "attraction_types");
-
-    if (typeof input.query !== "string") {
-        throw new TypeError("query must be a string");
-    }
+    const db = getDatabase();
 
     const cityId = input.city_id.trim();
-    const query = input.query.trim();
 
-    const bestFor = [...new Set(
-        input.best_for
-            .map((x) => x.trim())
-            .filter(Boolean)
-    )];
-
-    const attractionTypes = [...new Set(
-        input.attraction_types
-            .map((x) => x.trim())
-            .filter(Boolean)
-    )];
-
-    const where: string[] = ["city_id = ?"];
-    const params: unknown[] = [cityId];
-
-    // ---------------------------------------------------------------------------
-    // best_for filter
-    // ---------------------------------------------------------------------------
-
-    const bestForCondition = pipeTokenAnyCondition("best_for", bestFor);
-
-    if (bestForCondition) {
-        where.push(bestForCondition.sql);
-        params.push(...bestForCondition.params);
+    if (!cityId) {
+        throw new Error("input.city_id must not be empty");
     }
 
-    // ---------------------------------------------------------------------------
-    // attraction_types filter
-    // ---------------------------------------------------------------------------
+    const query = input.query.trim();
+    const bestFor = normalizeStringArray(input.best_for);
+    const attractionTypes = normalizeStringArray(input.attraction_types);
+
+    const where: string[] = ["a.city_id = ?"];
+    const params: unknown[] = [cityId];
+
+    if (query.length > 0) {
+        const likeQuery = `%${escapeLike(query)}%`;
+
+        where.push(`
+(
+a.name LIKE ? ESCAPE '\\' COLLATE NOCASE
+OR a.description LIKE ? ESCAPE '\\' COLLATE NOCASE
+OR a.location_area LIKE ? ESCAPE '\\' COLLATE NOCASE
+OR a.attraction_type LIKE ? ESCAPE '\\' COLLATE NOCASE
+OR EXISTS (
+SELECT 1
+FROM json_each(a.alternate_names)
+WHERE json_each.value LIKE ? ESCAPE '\\' COLLATE NOCASE
+)
+)
+`);
+
+        params.push(
+            likeQuery,
+            likeQuery,
+            likeQuery,
+            likeQuery,
+            likeQuery,
+        );
+    }
+
+    if (bestFor.length > 0) {
+        const placeholders = bestFor.map(() => "?").join(", ");
+
+        where.push(`
+EXISTS (
+SELECT 1
+FROM json_each(a.best_for)
+WHERE json_each.value IN (${placeholders})
+)
+`);
+
+        params.push(...bestFor);
+    }
 
     if (attractionTypes.length > 0) {
         const placeholders = attractionTypes.map(() => "?").join(", ");
 
         where.push(`
-LOWER(attraction_type) IN (
-${placeholders}
-)
-`);
-
-        params.push(...attractionTypes.map((x) => x.toLowerCase()));
-    }
-
-    // ---------------------------------------------------------------------------
-    // Free-text search
-    // ---------------------------------------------------------------------------
-
-    let scoreSql = "0";
-
-    if (query.length > 0) {
-        const search = `%${escapeLike(query.toLowerCase())}%`;
-
-        const textColumns = [
-            "name",
-            "alternate_names",
-            "description",
-            "significance",
-            "location_area",
-            "subtypes",
-            "attraction_type",
-        ];
-
-        const textConditions = textColumns.map(
-            (column) => `
-LOWER(COALESCE(${column}, '')) LIKE ?
-ESCAPE '\\'
-`
-        );
-
-        where.push(`
-(${textConditions.join(" OR ")})
-`);
-
-        for (const _ of textColumns) {
-            params.push(search);
-        }
-
-        // Simple deterministic relevance scoring.
-        //
-        // Exact-ish name matches get highest weight, followed by alternate names,
-        // then the other searchable fields.
-        scoreSql = `
 (
-CASE
-WHEN LOWER(name) = ? THEN 100
-WHEN LOWER(name) LIKE ? ESCAPE '\\' THEN 80
-WHEN LOWER(COALESCE(alternate_names, '')) LIKE ? ESCAPE '\\' THEN 60
-WHEN LOWER(COALESCE(attraction_type, '')) LIKE ? ESCAPE '\\' THEN 40
-WHEN LOWER(COALESCE(subtypes, '')) LIKE ? ESCAPE '\\' THEN 30
-WHEN LOWER(COALESCE(significance, '')) LIKE ? ESCAPE '\\' THEN 20
-WHEN LOWER(COALESCE(description, '')) LIKE ? ESCAPE '\\' THEN 10
-WHEN LOWER(COALESCE(location_area, '')) LIKE ? ESCAPE '\\' THEN 5
-ELSE 0
-END
+a.attraction_type IN (${placeholders})
+OR EXISTS (
+SELECT 1
+FROM json_each(a.subtypes)
+WHERE json_each.value IN (${placeholders})
 )
-`;
+)
+`);
 
-        // These parameters belong to scoreSql and must appear before the WHERE
-        // parameters when the complete SQL is assembled below.
+        // The placeholder list appears twice.
+        params.push(...attractionTypes, ...attractionTypes);
     }
 
-    let sql: string;
-
-    if (query.length > 0) {
-        const q = query.toLowerCase();
-        const exact = q;
-        const contains = `%${escapeLike(q)}%`;
-
-        const scoreParams = [
-            exact,
-            contains,
-            contains,
-            contains,
-            contains,
-            contains,
-            contains,
-            contains,
-        ];
-
-        sql = `
-SELECT
-attraction.*,
-${scoreSql} AS _search_score
-FROM attraction
-WHERE ${where.join(" AND ")}
-ORDER BY
-_search_score DESC,
-attraction.name COLLATE NOCASE ASC,
-attraction.attraction_id ASC
-LIMIT ${MAX_QUERY_RESULTS}
-`;
-
-        const rows = db
-            .prepare(sql)
-            .all(...scoreParams, ...params) as Record<string, unknown>[];
-
-        return {
-            attractions: rows.map((row) => {
-                // Don't expose our internal ranking column.
-                const { _search_score: _, ...attractionRow } = row;
-                return rowToAttraction(attractionRow);
-            }),
-            query_id: randomUUID(),
-            next_cursor: null,
-        };
-    }
-
-    // No free-text query: deterministic ordering.
-    sql = `
-SELECT attraction.*
-FROM attraction
-WHERE ${where.join(" AND ")}
-ORDER BY
-attraction.name COLLATE NOCASE ASC,
-attraction.attraction_id ASC
-LIMIT ${MAX_QUERY_RESULTS}
+    const sql = `
+SELECT a.*
+FROM attraction AS a
+WHERE ${where.join("\nAND ")}
+ORDER BY a.name COLLATE NOCASE ASC, a.attraction_id ASC
 `;
 
     const rows = db
@@ -353,30 +213,30 @@ LIMIT ${MAX_QUERY_RESULTS}
         .all(...params) as Record<string, unknown>[];
 
     return {
-        attractions: rows.map(rowToAttraction),
-        query_id: randomUUID(),
+        attractions: rows.map(normalizeAttractionRow),
+        query_id: createQueryId(),
         next_cursor: null,
     };
 }
 
-// -----------------------------------------------------------------------------
-// getAttractionsByIds
-// -----------------------------------------------------------------------------
-
+/**
+ * Fetches attractions by ID within a specific city.
+ *
+ * The returned attractions preserve the order of input.attraction_ids.
+ * IDs that do not exist, or belong to another city, are omitted.
+ */
 export async function getAttractionsByIds(
-    input: GetAttractionsByIdsInput
+    input: GetAttractionsByIdsInput,
 ): Promise<GetAttractionsByIdsResult> {
-    assertNonEmptyString(input.city_id, "city_id");
-    assertStringArray(input.attraction_ids, "attraction_ids");
+    const db = getDatabase();
 
     const cityId = input.city_id.trim();
 
-    // Remove duplicates while retaining caller's order.
-    const attractionIds = [...new Set(
-        input.attraction_ids
-            .map((x) => x.trim())
-            .filter(Boolean)
-    )];
+    if (!cityId) {
+        throw new Error("input.city_id must not be empty");
+    }
+
+    const attractionIds = normalizeStringArray(input.attraction_ids);
 
     if (attractionIds.length === 0) {
         return {
@@ -384,43 +244,48 @@ export async function getAttractionsByIds(
         };
     }
 
-    const placeholders = attractionIds.map(() => "?").join(", ");
+    /*
+     * SQLite has a maximum number of bound parameters. Chunking keeps this
+     * reliable even if a caller supplies a very large list of IDs.
+     *
+     * The exact SQLite limit varies by build, so 900 leaves room below the
+     * common 999-variable limit.
+     */
+    const CHUNK_SIZE = 900;
 
-    const sql = `
-SELECT attraction.*
-FROM attraction
-WHERE city_id = ?
-AND attraction_id IN (${placeholders})
+    const attractionsById = new Map<string, AttractionRecord>();
+
+    for (let start = 0; start < attractionIds.length; start += CHUNK_SIZE) {
+        const chunk = attractionIds.slice(start, start + CHUNK_SIZE);
+        const placeholders = chunk.map(() => "?").join(", ");
+
+        const sql = `
+SELECT a.*
+FROM attraction AS a
+WHERE a.city_id = ?
+AND a.attraction_id IN (${placeholders})
 `;
 
-    const rows = db
-        .prepare(sql)
-        .all(cityId, ...attractionIds) as Record<string, unknown>[];
+        const rows = db
+            .prepare(sql)
+            .all(cityId, ...chunk) as Record<string, unknown>[];
 
-    /*
-     * SQL IN does not guarantee input order.
-     *
-     * Return results in the same order as attraction_ids, which is generally
-     * much more useful to API consumers.
-     */
-    const byId = new Map<string, AttractionRecord>();
+        for (const row of rows) {
+            const attraction = normalizeAttractionRow(row);
 
-    for (const row of rows) {
-        const attraction = rowToAttraction(row);
-        byId.set(attraction.attraction_id, attraction);
-    }
-
-    const attractions: AttractionRecord[] = [];
-
-    for (const id of attractionIds) {
-        const attraction = byId.get(id);
-
-        if (attraction) {
-            attractions.push(attraction);
+            attractionsById.set(
+                attraction.attraction_id,
+                attraction,
+            );
         }
     }
 
     return {
-        attractions,
+        attractions: attractionIds
+            .map((id) => attractionsById.get(id))
+            .filter(
+                (attraction): attraction is AttractionRecord =>
+                    attraction !== undefined,
+            ),
     };
 }

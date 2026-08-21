@@ -10,14 +10,14 @@
 - WSPORT                           - port for ws server [default: 3001]
 and some more stuff internally defined with defaults that arent stuff to be set
 
-* Todo [6/8] [75%]
+* Todo [7/8] [87%]
 1. [X] add agent 1 calls
 2. [X] add agent 2 calls
 3. [X] add agent 3 calls
 4. [X] profile request changes - give request topics to agent 1 somehow
 5. [X] profile confirm - revision number, blocking unknowns validation ---------- SKIPPING
 6. [X] discovery answer - question id, answer selection validation -------- SKIPPING
-7. [ ] fix input to agent 2
+7. [X] fix input to agent 2
 8. [ ] test everything
 
 * General flow with associated workflow states
