@@ -2,21 +2,18 @@
 
 ## 1) Two-minute point-wise script of the product
 
-1. We built an **Agentic Travel Planner** that converts raw traveler conversation into a usable, explainable trip plan.
-2. The product is designed around a strict transformation: **Discovery Answers → Traveler Profile → Final Trip Plan**.
-3. The Traveler Profile is not chat history; it is a normalized planning input with priorities, constraints, unknowns, and assumptions made explicit.
-4. The system never hides missing information. Unknowns stay visible, and hard constraints are never silently violated.
-5. Planning is **traveler-guided**, not black-box auto-ranking: when tradeoffs are material, the system asks the traveler to choose explicitly.
-6. The architecture uses three clear reasoning roles:
-   - Agent 1: builds and validates profile understanding,
-   - Agent 2: designs one grounded itinerary,
-   - Agent 3: turns that into a clear, user-facing final plan.
-7. The backend, via a Planning Controller, enforces validation, state correctness, and publication authority so agents cannot bypass safety rules.
-8. Frontend/backend integration is contract-first over WebSocket with typed commands, acknowledgements, lifecycle events, and full snapshots.
-9. Every destination and attraction is grounded in curated knowledge datasets with stable IDs, controlled taxonomies, and provenance.
-10. The final plan is practical and transparent: route, day-wise sequence, movement, costs, fit explanation, tradeoffs, warnings, and unresolved details.
-11. This makes the product trustworthy for real travelers and auditable for technical teams.
-12. In short, we deliver **human-centered personalization with system-level rigor**: explainable decisions, resilient workflow, and grounded outputs.
+1. Our product solves a real traveler pain: most planners optimize for routes and popular spots, not for the **human experience** of the trip.
+2. Our USP is simple and strong: **we optimize for how the traveler wants to feel and experience the journey**, not just where they should go.
+3. Two travelers with the same city, budget, and dates can get very different plans, because the system adapts to pace, comfort, energy, interests, and tradeoff priorities.
+4. We start by understanding the person deeply through adaptive discovery, not a static form—purpose, tolerance, preferences, constraints, and what “a successful trip” means to them.
+5. Then we shape a personalized itinerary that balances experience quality with real-world feasibility.
+6. Unlike popularity-first planners, we do not blindly push “top attractions”; we choose experiences that match the traveler profile, even when they are less mainstream.
+7. The plan is continuously improved against traveler-centric signals like fatigue, walking load, comfort, crowd exposure, regret risk, and preference fit.
+8. When tradeoffs matter—comfort vs coverage, budget vs hotel quality, depth vs variety—the traveler decides explicitly instead of being overruled by a hidden score.
+9. The final output is practical and transparent: day-wise flow, movement, costs, rationale, assumptions, warnings, and unresolved details.
+10. This creates trust: no fake certainty, no silent compromises, and no one-size-fits-all itinerary.
+11. In short, this is not a destination recommender—it is a **human-centric trip experience optimizer**.
+12. Our product promise: better trips are defined by better traveler outcomes, not by checking off the most popular places.
 
 ---
 
