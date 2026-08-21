@@ -1,7 +1,7 @@
 import Database from "better-sqlite3";
-import { loadConfig } from "../app/config";
 import { AttractionRecord, GetAttractionsByIdsInput, GetAttractionsByIdsResult, QueryAttractionsInput, QueryAttractionsResult } from "../../../ai/candidate-design";
 import { logger } from "../modules/logger";
+import { loadConfig } from "../app/config";
 
 /**
  * These are all JSON-array columns in the SQLite schema.
@@ -27,7 +27,7 @@ function getDatabase(): Database.Database {
         return database;
     }
 
-    const dbPath = loadConfig(process.env).attractions_knowledgebase_sqlite_path
+    const dbPath = loadConfig().attractions_knowledgebase_sqlite_path
 
     if (!dbPath) {
         throw new Error(

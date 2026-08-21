@@ -1,8 +1,8 @@
 import { readFile } from "node:fs/promises";
 import { parse } from "csv-parse/sync";
 import { CityRecord, GetCityInput, GetCityResult, SearchCitiesInput, SearchCitiesResult } from "../../../ai/candidate-design";
-import { loadConfig } from "../app/config";
 import { logger } from "../modules/logger";
+import { loadConfig } from "../app/config";
 
 type CsvRow = Record<string, string>;
 
@@ -15,8 +15,16 @@ let cachedCsvPath: string | null = null;
 export async function searchCities(
     input: SearchCitiesInput,
 ): Promise<SearchCitiesResult> {
-    logger.debug('agent 2 is using searchCities tool call', { req: input })
+    logger.debug(
+        "agent 2 is using searchCities tool call",
+        { req: input },
+    );
+
     const cities = await loadCities();
+
+    logger.debug("cities loaded", {
+        count: cities.length,
+    });
 
     const region = normalize(input.region);
     const tourismPopularity = normalize(input.tourism_popularity);
@@ -33,32 +41,60 @@ export async function searchCities(
             .filter((value): value is string => value !== null),
     );
 
+    logger.debug("normalized search input", {
+        region,
+        tourismPopularity,
+        destinationTypes: [...destinationTypes],
+        climateTypes: [...climateTypes],
+    });
+
     const filtered = cities.filter((city) => {
-        if (region !== null && normalize(city.region) !== region) {
-            return false;
-        }
+        const cityRegion = normalize(city.region);
+        const cityTourismPopularity =
+            normalize(city.tourism_popularity);
+        const cityClimateType =
+            normalize(city.climate_type);
+
+if (
+    region !== null &&
+    !cityRegion?.includes(region)
+) {
+    return false;
+}
 
         if (
             tourismPopularity !== null &&
-                normalize(city.tourism_popularity) !== tourismPopularity
+            cityTourismPopularity !== tourismPopularity
         ) {
             return false;
         }
 
         if (
             climateTypes.size > 0 &&
-                !climateTypes.has(normalize(city.climate_type) ?? "")
+            !climateTypes.has(cityClimateType ?? "")
         ) {
             return false;
         }
 
         if (destinationTypes.size > 0) {
-            const cityDestinationTypes = city.destination_type ?? [];
+            const cityDestinationTypes =
+                city.destination_type ?? [];
 
-            const hasMatchingDestinationType = cityDestinationTypes.some(
-                (destinationType) =>
-                    destinationTypes.has(normalize(destinationType) ?? ""),
-            );
+            const normalizedDestinationTypes =
+                cityDestinationTypes
+                    .map(normalize)
+                    .filter(
+                        (value): value is string =>
+                            value !== null,
+                    );
+
+const hasMatchingDestinationType =
+    normalizedDestinationTypes.some((csvType) =>
+        [...destinationTypes].some((requestedType) =>
+            csvType.includes(requestedType) ||
+            requestedType.includes(csvType)
+        )
+    );
 
             if (!hasMatchingDestinationType) {
                 return false;
@@ -68,12 +104,87 @@ export async function searchCities(
         return true;
     });
 
-    logger.debug('sending agent 2 searchCities res', { res: { cities: filtered } });
+    logger.debug(
+        "sending agent 2 searchCities res",
+        {
+            resultCount: filtered.length,
+            cities: filtered.map((city) => ({
+                city_id: city.city_id,
+                city_name: city.city_name,
+            })),
+        },
+    );
+
     return {
         cities: filtered,
         next_cursor: null,
     };
 }
+
+// export async function searchCities(
+//     input: SearchCitiesInput,
+// ): Promise<SearchCitiesResult> {
+//     logger.debug('agent 2 is using searchCities tool call', { req: input })
+//     const cities = await loadCities();
+//     logger.debug('cities loaded');
+
+//     const region = normalize(input.region);
+//     const tourismPopularity = normalize(input.tourism_popularity);
+
+//     const destinationTypes = new Set(
+//         input.destination_types
+//             .map(normalize)
+//             .filter((value): value is string => value !== null),
+//     );
+
+//     const climateTypes = new Set(
+//         input.climate_types
+//             .map(normalize)
+//             .filter((value): value is string => value !== null),
+//     );
+
+//     logger.debug('test1')
+//     const filtered = cities.filter((city) => {
+//         if (region !== null && normalize(city.region) !== region) {
+//             return false;
+//         }
+
+//         if (
+//             tourismPopularity !== null &&
+//                 normalize(city.tourism_popularity) !== tourismPopularity
+//         ) {
+//             return false;
+//         }
+
+//         if (
+//             climateTypes.size > 0 &&
+//                 !climateTypes.has(normalize(city.climate_type) ?? "")
+//         ) {
+//             return false;
+//         }
+
+//         if (destinationTypes.size > 0) {
+//             const cityDestinationTypes = city.destination_type ?? [];
+
+//             const hasMatchingDestinationType = cityDestinationTypes.some(
+//                 (destinationType) =>
+//                     destinationTypes.has(normalize(destinationType) ?? ""),
+//             );
+
+//             if (!hasMatchingDestinationType) {
+//                 return false;
+//             }
+//         }
+
+//         return true;
+//     });
+
+//     logger.debug('sending agent 2 searchCities res', { res: { cities: filtered } });
+//     return {
+//         cities: filtered,
+//         next_cursor: null,
+//     };
+// }
 
 /**
  * Gets one city by city_id from the CSV file specified by CITIES_CSV_PATH.
@@ -101,7 +212,8 @@ export async function getCity(
 }
 
 async function loadCities(): Promise<CityRecord[]> {
-    const csvPath = loadConfig(process.env).city_knowledgebase_csv_path
+    const csvPath = loadConfig().city_knowledgebase_csv_path
+
 
     if (!csvPath) {
         throw new Error(
@@ -241,10 +353,25 @@ function addOptionalNumber(
     target[key] = numberValue;
 }
 
-function normalize(value: string | null | undefined): string | null {
-    const trimmed = value?.trim();
+// function normalize(value: string | null | undefined): string | null {
+//     const trimmed = value?.trim();
 
-    return trimmed ? trimmed.toLowerCase() : null;
+//     return trimmed ? trimmed.toLowerCase() : null;
+// }
+
+function normalize(
+    value: string | null | undefined,
+): string | null {
+    if (value == null) {
+        return null;
+    }
+
+    const normalized = value
+        .trim()
+        .toLowerCase()
+        .replace(/[\s_-]+/g, "_");
+
+    return normalized || null;
 }
 
 function isNonEmptyString(
