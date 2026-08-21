@@ -103,7 +103,7 @@ export class SocketTransport {
       'command.accepted', 'command.rejected',
       'session.ready', 'session.expired', 'session.superseded',
       'discovery.question','profile.snapshot','profile.ready',
-      'agent.lifecycle','planning.status','decision.request','plan.snapshot','workflow.completed',
+      'agent.lifecycle','planning.status','decision.request','plan.snapshot','workflow.completed','workflow.state',
       'error'
     ]
     for (const ev of knownEvents) {

@@ -45,6 +45,7 @@ export function createCandidateDesignOptions({
     timeout_ms,
     fetcher,
     askUserDecision,
+    onProgress,
 }: CandidateDesignOptions): CandidateDesignOptions {
     return {
         tools,
@@ -55,6 +56,7 @@ export function createCandidateDesignOptions({
         ...(timeout_ms !== undefined && { timeout_ms }),
         ...(fetcher !== undefined && { fetcher }),
         ...(askUserDecision !== undefined && { askUserDecision }),
+        ...(onProgress !== undefined && { onProgress }),
     };
 }
 

@@ -183,9 +183,19 @@ export default function ProfileReview() {
         setPendingConfirmId(null)
         setNotice(userMsg)
       } else if (e.type === 'command.accepted') {
-        // Accepted — keep spin until workflow.state -> planning (above effect will navigate).
-        // Keep pendingConfirmId until workflow transition clears it; the 800ms optimistic
-        // fallback is handled by the workflowState effect, so no extra timer here.
+        // Accepted — navigate eagerly to consultation to avoid 30s spin if workflow.state is delayed by sequencing.
+        // Keep pending id until workflow transition; navigate optimistically.
+        const wsState = (e.payload as Record<string, unknown>)?.workflow_state as string | undefined;
+        // If server says planning already, or just accepted, move to consultation quickly
+        const t = setTimeout(() => {
+          setConfirming(false);
+          setBusy(false);
+          setPendingConfirmId(null);
+          // Only navigate if still on this screen and not already planning
+          try { navigate('/consultation'); } catch {}
+        }, 400);
+        // Also let workflowState effect handle it if it arrives sooner — clear on unmount
+        return () => clearTimeout(t);
       }
     })
     return () => { unsub() }

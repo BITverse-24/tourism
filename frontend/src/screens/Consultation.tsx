@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { getWsClient } from "../ws/index";
-import { PlanningLifecycleStore } from "../ws/planning";
 import {
   initialDecisionPlanState,
   handleDecisionRequest,
@@ -10,85 +9,18 @@ import {
 } from "../ws/decisionPlan";
 
 /**
- * Consultation — Voyager Consultation (One screen, three states)
- * WORKING → DECISION_REQUIRED → RESUMING → WORKING
- * Dark navy/charcoal (#18232A / #1B252C), amber orb, 320px lifecycle rail.
- * Decision surfaces as warm light emerging from dark: panel #202B30 / #263137
- * with ivory typography, no cream modal, no navigation.
+ * Consultation — Voyager Consultation (orb-only)
+ * Center ripple + statusLine + decision panel. No lifecycle rail.
  */
 
-type StageStatus = "queued" | "started" | "progressed" | "completed" | "failed";
-
-type Stage = {
-  key: string;
-  label: string;
-  status: StageStatus;
-  summary?: string;
-};
-
-const STAGE_DEFS: { key: string; label: string }[] = [
-  { key: "discovery", label: "Discovery" },
-  { key: "constraint_preference", label: "Constraint & Preference" },
-  { key: "experience_designer", label: "Attraction & Experience Designer" },
-  { key: "mobility_logistics", label: "Mobility & Logistics" },
-  { key: "cost_optimization", label: "Cost Optimization" },
-  { key: "local_intelligence", label: "Local Intelligence" },
-  { key: "simulation_risk", label: "Simulation & Risk" },
-  { key: "optimization", label: "Optimization" },
-  { key: "narrative_explanation", label: "Narrative & Explanation" },
-  { key: "continuous_replanning", label: "Continuous Replanning" },
-];
-
-const PLANNING_MESSAGES: string[] = [
-  "Preparing a thoughtful plan for you.",
-  "Consulting on comfort and feasibility.",
-  "Shaping routes with care for your pace.",
-  "Balancing walking load, cost and attraction fit.",
-  "Weaving your preferences into each day.",
-  "Refining the journey so time feels well spent.",
-];
-
-const LIFECYCLE_SUMMARIES: Record<string, string> = {
-  discovery: "Understanding how you travel best.",
-  constraint_preference: "Honouring your priorities and constraints.",
-  experience_designer: "Selecting places that fit your story.",
-  mobility_logistics: "Checking routes and timing with care.",
-  cost_optimization: "Balancing cost and comfort.",
-  local_intelligence: "Gathering local nuance for your days.",
-  simulation_risk: "Testing the plan for ease and resilience.",
-  optimization: "Choosing the most thoughtful arrangement.",
-  narrative_explanation: "Writing your journey in plain words.",
-  continuous_replanning: "Standing by for future adjustments.",
-};
-
-function statusText(s: StageStatus): string {
-  if (s === "queued") return "Queued";
-  if (s === "started" || s === "progressed") return "In progress";
-  if (s === "completed") return "Completed";
-  return "Needs attention";
-}
-
-// Decision types — mirrors DecisionRequired payload
 export type DecisionOption = { option_id: string; label: string; tradeoff: string };
 export type DecisionRequest = {
   decision_id: string;
   prompt: string;
   reason?: string;
-  sequenceLabel?: string; // e.g. "01  ·  TRADE-OFF"
-  kicker?: string; // e.g. "A CHOICE IS NEEDED"
+  sequenceLabel?: string;
+  kicker?: string;
   options: DecisionOption[];
-};
-
-const DEFAULT_DECISION: DecisionRequest = {
-  decision_id: "decision_profile7_route_a_route_b",
-  sequenceLabel: "01  ·  TRADE-OFF",
-  kicker: "A CHOICE IS NEEDED",
-  prompt: "Would you rather keep the pace gentle or see a little more, even if it means more walking?",
-  reason: "material_tradeoff",
-  options: [
-    { option_id: "comfort", label: "Prioritize comfort", tradeoff: "Fewer attraction visits and less movement — more rest, less transit." },
-    { option_id: "coverage", label: "Prioritize coverage", tradeoff: "More attraction visits and a higher movement burden — see more, walk more." },
-  ],
 };
 
 function mapDecisionPayloadToRequest(payload: { decision_id: string; prompt: string; reason?: string; options: DecisionOption[] }): DecisionRequest {
@@ -104,45 +36,12 @@ function mapDecisionPayloadToRequest(payload: { decision_id: string; prompt: str
 
 function useLiveConsultation() {
   const [connected, setConnected] = useState(false);
-  const [liveStages, setLiveStages] = useState<Stage[]>(() =>
-    STAGE_DEFS.map((d) => ({ ...d, status: "queued" as StageStatus, summary: undefined }))
-  );
   const [livePlanningMessage, setLivePlanningMessage] = useState<string | null>(null);
   const [liveLastSeq, setLiveLastSeq] = useState<number>(() => Date.now());
   const [liveDecision, setLiveDecision] = useState<DecisionRequest | null>(null);
   const [decisionPlanState, setDecisionPlanState] = useState<DecisionPlanState>(() => initialDecisionPlanState("planning"));
-  const storeRef = useRef<PlanningLifecycleStore | null>(null);
   const wsRef = useRef<ReturnType<typeof getWsClient> | null>(null);
   const seqRef = useRef<number>(Date.now());
-
-  // init store
-  if (!storeRef.current) {
-    storeRef.current = new PlanningLifecycleStore({
-      onStagesChanged: (stages) => {
-        setLiveStages(
-          stages.map((s) => ({
-            key: s.key,
-            label: s.label,
-            status: s.status as StageStatus,
-            summary: s.summary,
-          }))
-        );
-      },
-      onPlanningStatusChanged: (latest) => {
-        if (latest?.message) setLivePlanningMessage(latest.message);
-      },
-      onDiagnostics: () => {},
-    });
-    const init = storeRef.current.getStages();
-    setLiveStages(
-      init.map((s) => ({
-        key: s.key,
-        label: s.label,
-        status: s.status as StageStatus,
-        summary: s.summary,
-      }))
-    );
-  }
 
   useEffect(() => {
     let unsub: (() => void) | null = null;
@@ -151,7 +50,6 @@ function useLiveConsultation() {
     try {
       ws = getWsClient();
       wsRef.current = ws;
-      // ensure connected — attempt connect if idle/closed and not already connecting
       const snapshot = ws.snapshot();
       setConnected(!!snapshot.connected);
       if (!snapshot.connected) {
@@ -171,27 +69,18 @@ function useLiveConsultation() {
           const now = Date.now();
           seqRef.current = now;
           setLiveLastSeq(now);
-        } else if (envelope.type === "agent.lifecycle" || envelope.type === "planning.status" || envelope.type === "decision.request") {
+        } else if (envelope.type === "planning.status" || envelope.type === "decision.request") {
           const now = Date.now();
           seqRef.current = now;
           setLiveLastSeq(now);
         }
 
-        const store = storeRef.current;
-        if (!store) return;
-
-        if (envelope.type === "agent.lifecycle" && envelope.kind === "event") {
-          store.handleAgentLifecycle(envelope.payload);
-        } else if (envelope.type === "planning.status" && envelope.kind === "event") {
-          store.handlePlanningStatus(envelope.payload);
+        if (envelope.type === "planning.status" && envelope.kind === "event") {
           const p = envelope.payload as Record<string, unknown>;
           if (typeof p.message === "string" && p.message.trim().length > 0) {
             setLivePlanningMessage(p.message as string);
-          } else if (typeof p.phase === "string") {
-            // fallback handled inside store but ensure message
           }
         } else if (envelope.type === "decision.request" && envelope.kind === "event") {
-          // Use functional update to avoid stale closure on decisionPlanState
           setDecisionPlanState((prev) => {
             const res = handleDecisionRequest(prev, envelope.payload, { workflowState: "decision_required" });
             if (res.valid) {
@@ -201,15 +90,10 @@ function useLiveConsultation() {
               }
               return res.state;
             }
-            // invalid decision.request — keep previous state
             return prev;
           });
-        } else if (envelope.type === "workflow.completed" || envelope.type === "plan.snapshot") {
-          // planning may return to working; clear decision if workflow moved out of decision_required via ack
-          // we rely on decisionPlanState workflowState but also clear liveDecision when planning resumes with new lifecycle events
         }
 
-        // also keep connected snapshot fresh
         try {
           const snap = ws!.snapshot();
           setConnected(!!snap.connected);
@@ -218,7 +102,6 @@ function useLiveConsultation() {
         }
       });
 
-      // poll connected state (handles open/close without envelope)
       poll = setInterval(() => {
         try {
           const snap = ws!.snapshot();
@@ -228,7 +111,6 @@ function useLiveConsultation() {
         }
       }, 750);
 
-      // initial snapshot check
       try {
         const snap = ws.snapshot();
         setConnected(!!snap.connected);
@@ -247,7 +129,6 @@ function useLiveConsultation() {
     (decisionId: string, optionId: string): { sent: boolean; stale?: boolean; duplicate?: boolean; noSideEffect?: boolean; error?: string } => {
       const ws = wsRef.current;
       if (!ws) return { sent: false, error: "no ws" };
-      // must be in decision_required — check live store workflow
       try {
         const snap = ws.snapshot();
         const wf = snap.workflowState;
@@ -255,13 +136,11 @@ function useLiveConsultation() {
           return { sent: false, stale: true, noSideEffect: true };
         }
       } catch {
-        // fallback to decisionPlanState
         if (decisionPlanState.workflowState !== "decision_required") {
           return { sent: false, stale: true, noSideEffect: true };
         }
       }
 
-      // freshness: decision_id must match currentDecision
       const currentId = liveDecision?.decision_id ?? decisionPlanState.currentDecision?.decision_id ?? null;
       if (!currentId || decisionId !== currentId) {
         return { sent: false, stale: true, noSideEffect: true };
@@ -270,21 +149,18 @@ function useLiveConsultation() {
       const v = validateDecisionRespond(decisionPlanState, { decision_id: decisionId, option_id: optionId });
       if (!v.valid || !v.accepted) {
         if (v.noSideEffect) return { sent: false, stale: true, noSideEffect: true, error: v.error };
-        // allow stale handling
         if (v.code === "invalid_workflow_state" || v.code === "invalid_envelope") {
           return { sent: false, stale: true, noSideEffect: !!v.noSideEffect, error: v.error };
         }
         return { sent: false, error: v.error, noSideEffect: !!v.noSideEffect };
       }
 
-      // send via WsClient — only in decision_required
       try {
         ws.sendDecisionRespond(decisionId, optionId);
       } catch (e) {
         return { sent: false, error: String(e) };
       }
 
-      // locally apply to prevent duplicate and to allow stale/duplicate no-op on next click
       setDecisionPlanState((prev) => applyDecisionRespond(prev, { decision_id: decisionId, option_id: optionId }));
       setLiveDecision(null);
       return { sent: true };
@@ -294,23 +170,10 @@ function useLiveConsultation() {
 
   const clearLiveDecisionForResuming = useCallback(() => {
     setLiveDecision(null);
-    // keep decisionPlanState hasReturnedToPlanning — already handled in send
   }, []);
-
-  // expose helper to reset decisionPlanState when server indicates planning resumed without decision
-  useEffect(() => {
-    // if ws connected and workflowState returns to planning without decision.request, clear stale decision
-    if (!connected) return;
-    if (decisionPlanState.workflowState === "planning" && liveDecision) {
-      // decision still shows but workflow already planning — could happen if server cleared decision_required via ack
-      // keep showing until user responds? But spec says after respond server returns to planning — we already cleared on send.
-      // So no auto-clear here; only clear when send succeeded.
-    }
-  }, [connected, decisionPlanState.workflowState, liveDecision]);
 
   return {
     connected,
-    stages: liveStages,
     planningMessage: livePlanningMessage,
     lastSeq: liveLastSeq,
     decision: liveDecision,
@@ -322,18 +185,16 @@ function useLiveConsultation() {
 }
 
 export type ConsultationProps = {
-  stages?: Stage[];
+  stages?: unknown;
   planningMessage?: string | null;
   lastSequenceAt?: number;
   onRetry?: () => void;
   expanded?: boolean;
-  /** Decision integration — if provided, consultation enters decision_required */
   decisionRequest?: DecisionRequest | null;
   onDecisionSubmit?: (optionId: string, decisionId: string) => void;
 };
 
 export default function Consultation({
-  stages: externalStages,
   planningMessage: externalPlanningMessage,
   lastSequenceAt: externalSeq,
   onRetry,
@@ -341,17 +202,12 @@ export default function Consultation({
   decisionRequest: externalDecision,
   onDecisionSubmit,
 }: ConsultationProps) {
-  const [internalStages, setInternalStages] = useState<Stage[]>(() =>
-    STAGE_DEFS.map((d) => ({ ...d, status: "queued" as StageStatus, summary: undefined }))
-  );
-  const [planningIdx, setPlanningIdx] = useState(0);
   const [seqTick, setSeqTick] = useState<number>(() => Date.now());
   const [timedOut, setTimedOut] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const retryCountRef = useRef(0);
   const seqRef = useRef<number>(Date.now());
 
-  // Decision state machine
   const [selected, setSelected] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [resuming, setResuming] = useState(false);
@@ -360,15 +216,10 @@ export default function Consultation({
   const live = useLiveConsultation();
   const wsConnected = live.connected;
 
-  // Effective stages / planningMessage / lastSeq
-  const stages = wsConnected ? live.stages : externalStages ?? internalStages;
-
-  // Determine if we have an active decision — live takes precedence when connected
-  const hasExternalDecision = externalDecision !== undefined && externalDecision !== null;
   let activeDecision: DecisionRequest | null = null;
   if (wsConnected) {
     activeDecision = live.decision;
-  } else if (hasExternalDecision) {
+  } else if (externalDecision !== undefined && externalDecision !== null) {
     activeDecision = externalDecision as DecisionRequest;
   } else {
     activeDecision = null;
@@ -378,19 +229,11 @@ export default function Consultation({
   const isResuming = resuming;
   const isWorking = !isDecisionRequired && !isResuming;
 
-  const planningMessage = wsConnected
-    ? live.planningMessage ?? PLANNING_MESSAGES[planningIdx] ?? PLANNING_MESSAGES[0]
-    : externalPlanningMessage ?? PLANNING_MESSAGES[planningIdx] ?? PLANNING_MESSAGES[0];
-  const lastSummary = (() => {
-    for (let i = stages.length - 1; i >= 0; i--) {
-      if (stages[i].summary && stages[i].status !== "queued") return stages[i].summary!;
-    }
-    return null;
-  })();
-  const statusLine = planningMessage || lastSummary || "Preparing a thoughtful plan for you.";
+  const FALLBACK_MESSAGE = "Agent is optimising routes and selecting places — this takes a moment.";
+  const planningMessage = wsConnected ? (live.planningMessage ?? FALLBACK_MESSAGE) : (externalPlanningMessage ?? FALLBACK_MESSAGE);
+  const statusLine = planningMessage || FALLBACK_MESSAGE;
   const lastSeq = wsConnected ? live.lastSeq : externalSeq ?? seqTick;
 
-  // Keep seqRef synced with live lastSeq when connected
   useEffect(() => {
     if (wsConnected) {
       seqRef.current = live.lastSeq;
@@ -399,7 +242,7 @@ export default function Consultation({
     }
   }, [wsConnected, live.lastSeq]);
 
-  // Graceful timeout: ~12s without newer sequence event, paused during decision — also disabled when ws.connected uses live seq
+  // Non-blocking timeout: 60s+ without sequence, paused during decision/resuming. Only shows retry — never hides orb.
   useEffect(() => {
     if (timedOut) return;
     if (isDecisionRequired || isResuming) return;
@@ -410,19 +253,18 @@ export default function Consultation({
       const now = Date.now();
       const diff = now - seqRef.current;
       setElapsed(diff);
-      if (diff >= 12000) {
-        setTimedOut(true);
+      if (diff >= 65000) {
+        if (wsConnected) setTimedOut(true);
         window.clearInterval(tick);
       }
-    }, 250);
+    }, 500);
     return () => window.clearInterval(tick);
-  }, [lastSeq, timedOut, isDecisionRequired, isResuming]);
+  }, [lastSeq, timedOut, isDecisionRequired, isResuming, wsConnected]);
 
   useEffect(() => {
     seqRef.current = lastSeq;
   }, [lastSeq]);
 
-  // Reset selection when decision changes
   useEffect(() => {
     if (activeDecision) {
       setSelected(null);
@@ -438,25 +280,20 @@ export default function Consultation({
     const now = Date.now();
     seqRef.current = now;
     setSeqTick(now);
-    setPlanningIdx((p) => Math.max(0, p - 0));
     onRetry?.();
   }, [onRetry]);
 
   const handleContinue = useCallback(() => {
     if (!selected || !activeDecision || confirming || resuming) return;
 
-    // Live path: only in decision_required, validate freshness, stale/duplicate no-op
     if (wsConnected) {
       const res = live.sendDecisionRespond(activeDecision.decision_id, selected);
       if (!res.sent) {
-        // stale/duplicate no-op — do not transition, do not call onDecisionSubmit
         if (res.noSideEffect || res.stale || res.duplicate) {
           return;
         }
-        // validation error without stale flag — also no-op
         return;
       }
-      // successful live send — show confirming then resuming, then let live planning.status drive working state
       setConfirming(true);
       window.setTimeout(() => {
         setDecisionFadingOut(true);
@@ -474,7 +311,6 @@ export default function Consultation({
       return;
     }
 
-    // Fallback path when not connected — still allow local resuming transition
     setConfirming(true);
     window.setTimeout(() => {
       setDecisionFadingOut(true);
@@ -491,9 +327,6 @@ export default function Consultation({
     }, 520);
   }, [selected, activeDecision, confirming, resuming, onDecisionSubmit, wsConnected, live]);
 
-  // Determine which stage is the decision point (constraint_preference by default)
-  const decisionStageKey = "constraint_preference";
-
   return (
     <main
       className={`consultation${expanded ? " is-expanded" : " is-collapsed"}${isDecisionRequired ? " is-decision" : ""}${isResuming ? " is-resuming" : ""}`}
@@ -507,29 +340,26 @@ export default function Consultation({
 
       <div className="consultation-layout">
         <div className="consultation-center">
-          {/* Orb — remains as visual anchor, stronger glow in decision */}
           <div className="ripple-stage" aria-hidden="true">
-            {timedOut && !isDecisionRequired && !isResuming ? (
-              <div className="timeout-dot" data-testid="timeout-dot" aria-hidden="true" />
-            ) : (
-              <div
-                className={`ripple${isDecisionRequired ? " ripple--decision" : ""}${isResuming ? " ripple--resuming" : ""}`}
-                data-testid="ripple"
-                aria-hidden="true"
-              >
-                <div className="ripple-glow" />
-                <div className="ripple-core" />
-                {isDecisionRequired && (
-                  <>
-                    <span className="ripple-orbit ripple-orbit--a" />
-                    <span className="ripple-orbit ripple-orbit--b" />
-                  </>
-                )}
-              </div>
+            <div
+              className={`ripple${isDecisionRequired ? " ripple--decision" : ""}${isResuming ? " ripple--resuming" : ""}`}
+              data-testid="ripple"
+              aria-hidden="true"
+            >
+              <div className="ripple-glow" />
+              <div className="ripple-core" />
+              {isDecisionRequired && (
+                <>
+                  <span className="ripple-orbit ripple-orbit--a" />
+                  <span className="ripple-orbit ripple-orbit--b" />
+                </>
+              )}
+            </div>
+            {timedOut && !isDecisionRequired && !isResuming && (
+              <div className="timeout-dot" data-testid="timeout-dot" aria-hidden="true" style={{ marginTop: 12 }} />
             )}
           </div>
 
-          {/* WORKING status line */}
           {isWorking && !timedOut && (
             <p
               className="status-line"
@@ -542,7 +372,6 @@ export default function Consultation({
             </p>
           )}
 
-          {/* RESUMING status */}
           {isResuming && (
             <div className="resuming-block" aria-live="polite" data-testid="resuming-block">
               <p className="resuming-title">Preference recorded.</p>
@@ -550,7 +379,6 @@ export default function Consultation({
             </div>
           )}
 
-          {/* DECISION surface — replaces status line, not a modal */}
           {isDecisionRequired && activeDecision && (
             <section
               className={`decision-surface${decisionFadingOut ? " is-exiting" : " is-entering"}`}
@@ -643,74 +471,6 @@ export default function Consultation({
             {timedOut ? "Consultation paused. You can try again." : `Consulting — ${Math.floor(elapsed / 1000)} seconds`}
           </span>
         </div>
-
-        {/* Lifecycle rail — acknowledges interruption */}
-        <aside
-          className="lifecycle-rail"
-          aria-label="Planning stages"
-          data-testid="lifecycle-rail"
-          data-expanded={expanded ? "true" : "false"}
-        >
-          <div className="rail-inner">
-            <p className="rail-heading">Progress</p>
-            <ol className="rail-list" role="list">
-              {stages.map((stage, idx) => {
-                const isActive = stage.status === "started" || stage.status === "progressed";
-                const isCompleted = stage.status === "completed";
-                const isFailed = stage.status === "failed";
-                const isQueued = stage.status === "queued";
-                const isDecisionStage = stage.key === decisionStageKey;
-                const showDecisionInterrupt = isDecisionStage && (isDecisionRequired || isResuming);
-                const dimQueuedAfterDecision = isDecisionRequired && isQueued && idx > 1;
-
-                return (
-                  <li
-                    key={stage.key}
-                    className={`rail-item rail-item--${stage.status}${showDecisionInterrupt ? " rail-item--decision" : ""}${dimQueuedAfterDecision ? " rail-item--dimmed" : ""}`}
-                    data-testid={`stage-${stage.key}`}
-                    data-status={showDecisionInterrupt ? "decision_required" : stage.status}
-                    style={{ animationDelay: `${idx * 60}ms` } as React.CSSProperties}
-                  >
-                    <div className="rail-item-row">
-                      <span className="rail-indicator" aria-hidden="true" data-status={showDecisionInterrupt ? "decision_required" : stage.status}>
-                        {showDecisionInterrupt ? (
-                          <span className="indicator-decision" />
-                        ) : isQueued ? (
-                          <span className="indicator-ring" />
-                        ) : isActive ? (
-                          <span className="indicator-breathing" />
-                        ) : isCompleted ? (
-                          <span className="indicator-sage" />
-                        ) : isFailed ? (
-                          <span className="indicator-clay" />
-                        ) : null}
-                      </span>
-                      <div className="rail-text">
-                        <span className="rail-label">{stage.label}</span>
-                        <span className={`rail-status-text${showDecisionInterrupt ? " rail-status-text--decision" : ""}`}>
-                          {showDecisionInterrupt ? (isResuming ? "In progress" : "Decision required") : statusText(stage.status)}
-                        </span>
-                      </div>
-                    </div>
-                    {(showDecisionInterrupt || stage.summary) && (
-                      <p className={`rail-summary${showDecisionInterrupt ? " rail-summary--decision" : ""}`}>
-                        {showDecisionInterrupt
-                          ? isResuming
-                            ? "Preference recorded. Reworking…"
-                            : "Your input is needed to continue."
-                          : stage.summary}
-                      </p>
-                    )}
-                    {isFailed && !stage.summary && !showDecisionInterrupt && (
-                      <p className="rail-summary rail-summary--failed">This check will be retried — your plan is still being shaped.</p>
-                    )}
-                    {showDecisionInterrupt && <div className="rail-decision-rule" aria-hidden="true" />}
-                  </li>
-                );
-              })}
-            </ol>
-          </div>
-        </aside>
       </div>
 
       <style>{`
@@ -732,7 +492,6 @@ export default function Consultation({
           --voyager-sage: #708A77;
           --voyager-radius-sm: 6px;
           --voyager-radius-md: 12px;
-          --voyager-shadow-night-rail: -12px 0 30px rgba(0, 0, 0, .12);
           --voyager-focus-ring: 0 0 0 3px rgba(216, 193, 154, .72);
           --voyager-decision-panel: #202B30;
           --voyager-decision-card: #263137;
@@ -802,11 +561,6 @@ export default function Consultation({
           justify-content: center;
           padding: 48px 32px 64px;
           text-align: center;
-        }
-        @media (min-width: 1200px) {
-          .consultation.is-expanded .consultation-center {
-            margin-right: 320px;
-          }
         }
         .ripple-stage {
           width: 192px;
@@ -958,8 +712,6 @@ export default function Consultation({
           box-shadow: var(--voyager-focus-ring);
           border-radius: 6px;
         }
-
-        /* Decision surface — warm light emerging from dark */
         .decision-surface {
           width: min(560px, 92vw);
           background: var(--voyager-decision-panel);
@@ -1202,213 +954,6 @@ export default function Consultation({
           color: rgba(242,235,221,0.38);
           line-height: 14px;
         }
-
-        /* Lifecycle rail — 320px ledger */
-        .lifecycle-rail {
-          width: 320px;
-          flex: 0 0 320px;
-          background: var(--voyager-ink-deep);
-          border-left: 1px solid rgba(242,235,221,0.08);
-          box-shadow: var(--voyager-shadow-night-rail);
-          overflow-y: auto;
-          display: flex;
-          flex-direction: column;
-        }
-        .rail-inner {
-          padding: 28px 28px 32px;
-        }
-        .rail-heading {
-          font-family: General Sans, Inter, ui-sans-serif, sans-serif;
-          font-size: 13px;
-          font-weight: 500;
-          letter-spacing: 0.12em;
-          text-transform: uppercase;
-          color: rgba(242,235,221,0.56);
-          margin: 0 0 20px;
-        }
-        .rail-list {
-          list-style: none;
-          margin: 0;
-          padding: 0;
-          display: flex;
-          flex-direction: column;
-          gap: 18px;
-        }
-        .rail-item {
-          padding-bottom: 18px;
-          border-bottom: 1px solid rgba(242,235,221,0.06);
-          animation: rail-settle 520ms cubic-bezier(0.22,1,0.36,1) both;
-          transition: opacity 240ms ease;
-        }
-        .rail-item:last-child { border-bottom: none; }
-        .rail-item--dimmed { opacity: 0.42; }
-        .rail-item--decision {
-          border-bottom-color: rgba(216,193,154,0.14);
-          background: linear-gradient(90deg, rgba(216,193,154,0.06) 0%, transparent 70%);
-          margin: -6px -8px;
-          padding: 10px 8px 14px;
-          border-radius: 8px;
-        }
-        @keyframes rail-settle {
-          from { opacity: 0; transform: translateY(8px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        .rail-item-row {
-          display: flex;
-          align-items: flex-start;
-          gap: 12px;
-        }
-        .rail-indicator {
-          flex: 0 0 14px;
-          width: 14px;
-          height: 14px;
-          display: grid;
-          place-items: center;
-          margin-top: 2px;
-        }
-        .indicator-ring {
-          width: 12px; height: 12px;
-          border-radius: 999px;
-          border: 1.5px solid rgba(242,235,221,0.28);
-          display: block;
-        }
-        .indicator-breathing {
-          width: 8px; height: 8px;
-          border-radius: 999px;
-          background: var(--voyager-brass-2);
-          box-shadow: 0 0 10px rgba(216,193,154,0.45);
-          animation: dot-breathe 1.9s ease-in-out infinite;
-          display: block;
-        }
-        @keyframes dot-breathe {
-          0%,100% { transform: scale(0.9); opacity: 0.85; }
-          50% { transform: scale(1.15); opacity: 1; }
-        }
-        .indicator-sage {
-          width: 8px; height: 8px;
-          border-radius: 999px;
-          background: var(--voyager-sage);
-          display: block;
-        }
-        .indicator-clay {
-          width: 8px; height: 8px;
-          border-radius: 999px;
-          background: var(--voyager-clay);
-          display: block;
-        }
-        .indicator-decision {
-          width: 9px; height: 9px;
-          border-radius: 999px;
-          background: var(--voyager-brass-1);
-          box-shadow: 0 0 0 6px rgba(179,138,85,0.14), 0 0 10px rgba(216,193,154,0.38);
-          display: block;
-          animation: decision-dot-pulse 1.6s ease-in-out infinite;
-        }
-        @keyframes decision-dot-pulse {
-          0%,100% { transform: scale(1); box-shadow: 0 0 0 6px rgba(179,138,85,0.14), 0 0 10px rgba(216,193,154,0.38); }
-          50% { transform: scale(1.08); box-shadow: 0 0 0 8px rgba(179,138,85,0.10), 0 0 14px rgba(216,193,154,0.46); }
-        }
-        .rail-text {
-          flex: 1;
-          display: flex;
-          flex-direction: column;
-          gap: 2px;
-          min-width: 0;
-        }
-        .rail-label {
-          font-family: General Sans, Inter, ui-sans-serif, sans-serif;
-          font-size: 14px;
-          font-weight: 500;
-          line-height: 18px;
-          color: rgba(242,235,221,0.88);
-        }
-        .rail-status-text {
-          font-family: General Sans, Inter, ui-sans-serif, sans-serif;
-          font-size: 12px;
-          font-weight: 500;
-          letter-spacing: 0.06em;
-          text-transform: uppercase;
-          color: rgba(242,235,221,0.46);
-        }
-        .rail-status-text--decision {
-          color: var(--voyager-brass-2);
-          letter-spacing: 0.08em;
-        }
-        .rail-summary {
-          margin: 8px 0 0 26px;
-          font-family: General Sans, Inter, ui-sans-serif, sans-serif;
-          font-size: 13px;
-          line-height: 18px;
-          color: rgba(242,235,221,0.62);
-        }
-        .rail-summary--decision {
-          color: rgba(242,235,221,0.72);
-          font-style: italic;
-        }
-        .rail-summary--failed {
-          color: rgba(242,235,221,0.66);
-        }
-        .rail-decision-rule {
-          margin-top: 10px;
-          margin-left: 26px;
-          height: 1px;
-          background: linear-gradient(90deg, rgba(216,193,154,0.32) 0%, rgba(216,193,154,0.08) 60%, transparent 100%);
-        }
-
-        /* Collapsed rail — 4px brass edge */
-        .consultation.is-collapsed .lifecycle-rail,
-        .lifecycle-rail[data-expanded="false"] {
-          width: 4px !important;
-          flex: 0 0 4px !important;
-          min-width: 4px;
-          overflow: hidden;
-          border-left: none;
-          background: var(--voyager-brass-1);
-          box-shadow: none;
-        }
-        .consultation.is-collapsed .lifecycle-rail .rail-inner,
-        .lifecycle-rail[data-expanded="false"] .rail-inner { display: none; }
-
-        @media (max-width: 1199px) {
-          .consultation.is-expanded .lifecycle-rail {
-            width: 4px;
-            flex: 0 0 4px;
-            min-width: 4px;
-            overflow: hidden;
-            border-left: none;
-            background: var(--voyager-brass-1);
-            box-shadow: none;
-          }
-          .consultation.is-expanded .lifecycle-rail .rail-inner { display: none; }
-          .consultation.is-expanded .consultation-center { margin-right: 0; }
-        }
-        @media (max-width: 1023px) {
-          .lifecycle-rail { display: none !important; }
-          .consultation-center { padding: 32px 20px 48px; }
-          .ripple-stage { width: 160px; height: 160px; }
-          .ripple, .ripple-glow { width: 160px; height: 160px; }
-          .ripple-core { width: 84px; height: 84px; }
-          .decision-surface { padding: 22px 18px 18px; }
-          .decision-prompt { font-size: 19px; line-height: 26px; }
-        }
-
-        @media (prefers-reduced-motion: reduce) {
-          .ripple-glow, .ripple-core, .indicator-breathing, .indicator-decision { animation: none !important; }
-          .ripple-glow { opacity: 0.22; transform: none; }
-          .ripple-core {
-            width: 16px; height: 16px;
-            opacity: 1;
-            box-shadow: none;
-            background: var(--voyager-brass-1);
-          }
-          .ripple-stage { width: 96px; height: 96px; }
-          .ripple { width: 96px; height: 96px; }
-          .rail-item { animation: none; }
-          .decision-surface.is-entering, .decision-surface.is-exiting { animation: none; }
-          .decision-card { animation: none; }
-        }
-
-        .consultation progress, .consultation [role="progressbar"] { display: none !important; }
       `}</style>
     </main>
   );

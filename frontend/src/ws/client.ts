@@ -593,7 +593,7 @@ export class WsClient {
   // cold-start sequence gap handling — backend may start at seq > 1 (e.g., 4/5) for a new run;
   // strict buffering would deadlock discovery. Fast-forward after a short grace.
   private seqGapTimer: ReturnType<typeof setTimeout> | null = null;
-  private seqGapGraceMs = 500;
+  private seqGapGraceMs = 100;
   private runStartAt: number | null = null;
 
   constructor(opts: WsClientOptions = {}) {
@@ -670,10 +670,19 @@ export class WsClient {
     if (buffered.length === 0) return;
     const smallest = buffered[0];
     if (smallest <= 1) return;
+    // planning/workflow events should not be held by a cold-start gap — flush immediately
+    const hasPlanningOrWorkflow = [...(this.seq as unknown as { buffer: Map<number, Envelope> })['buffer']?.values?.() ?? []].some(
+      (e: Envelope) => e.type === 'planning.status' || e.type === 'workflow.state'
+    );
+    const grace = hasPlanningOrWorkflow ? 0 : this.seqGapGraceMs;
+    if (grace === 0) {
+      this.flushSequenceGap();
+      return;
+    }
     this.seqGapTimer = setTimeout(() => {
       this.seqGapTimer = null;
       this.flushSequenceGap();
-    }, this.seqGapGraceMs);
+    }, grace);
   }
 
   private flushSequenceGap(): void {
@@ -1031,12 +1040,28 @@ export class WsClient {
       return;
     }
     if (env.kind === 'event') {
+      // workflow.state and planning.status bypass strict sequencing — orb must open even with lifecycle gaps
+      if (env.type === 'workflow.state' || env.type === 'planning.status') {
+        if (this.seq.hasPending()) this.flushSequenceGap();
+        // if this event itself is buffered behind a cold-start gap (seq > 1 while expected === 1),
+        // deliver it immediately instead of waiting for gap fill
+        if (env.sequence != null && this.seq.getExpected() === 1 && (env.sequence as number) > 1) {
+          this.handleEvent(env);
+          return;
+        }
+        // still offer for ordering, but with immediate flush fallback via schedule above
+      }
       const ordered = this.seq.offer(env);
       for (const o of ordered) this.handleEvent(o);
       if (ordered.length > 0) {
         if (this.seqGapTimer) { clearTimeout(this.seqGapTimer); this.seqGapTimer = null; }
       } else if (this.seq.hasPending()) {
         this.scheduleSequenceGapFlush();
+      }
+      // if planning/workflow event was buffered, flush immediately (seqGapGraceMs path already handles it,
+      // but ensure it doesn't wait 100ms when offer returned empty)
+      if (ordered.length === 0 && this.seq.hasPending() && (env.type === 'workflow.state' || env.type === 'planning.status')) {
+        this.flushSequenceGap();
       }
       return;
     }
@@ -1167,6 +1192,23 @@ export class WsClient {
       return;
     }
 
+    // workflow.state — must update workflowState even if value is unknown (forward-compat)
+    if (t === 'workflow.state' || t === 'workflow_state') {
+      const payload = env.payload as Record<string, unknown>;
+      const wf = (payload.workflow_state ?? payload.state ?? payload.workflowState) as string | undefined;
+      if (typeof wf === 'string' && wf.trim().length > 0) {
+        this.workflowState = wf.trim() as WorkflowState;
+      } else if (typeof payload.state === 'string' && (payload.state as string).trim().length > 0) {
+        // fallback for state field variant
+        this.workflowState = (payload.state as string).trim() as WorkflowState;
+      }
+      // still emit — callers (WsProvider, Consultation) depend on this event to open orb
+      this.opts.onEvent?.(env);
+      for (const l of this.listeners) l(env);
+      this.emitState();
+      return;
+    }
+
     // workflow events — forward compat: unknown types already recorded, known types update state
     if (t === 'discovery.question') {
       // single active question
@@ -1240,6 +1282,9 @@ const KNOWN_SERVER_EVENT_TYPES = [
   'workflow.completed',
   'session.expired',
   'session.superseded',
+  'workflow.state',
+  'command.accepted',
+  'command.rejected',
 ] as const;
 
 export function isUnknownServerEventType(t: string): boolean {

@@ -9,6 +9,7 @@ import { AckMessage } from '../structures/AckMessage';
 import { currentWorkflowState, nextSequence } from '../services/StateServices';
 import { ServiceResult } from '../structures/types';
 import { generateUUID } from '../modules/util';
+import { getSocketById, getSocketIdForSession } from '../models/data';
 
 export async function profileConfirmHandler(socket: Socket, data: ProfileConfirmMessage) {
     logger.debug('socket sent profile.confirm', { socketid: socket.id, data: data });
@@ -34,8 +35,20 @@ export async function profileConfirmHandler(socket: Socket, data: ProfileConfirm
     })
     socket.emit(Acks.COMMAND_ACCEPTED, ackmsg)
 
+    // Session-aware emitter — survives reconnects (fixes consultation timeout while backend heartbeats)
+    const emitToSession = async (res: ServiceResult) => {
+        try {
+            const sid = await getSocketIdForSession(data.session_id)
+            const cur = sid ? await getSocketById(sid) : null
+            const target = cur ?? socket
+            // @ts-ignore dynamic event name
+            target.emit(res.event, res.data)
+        } catch {
+            try { socket.emit(res.event, res.data) } catch {}
+        }
+    }
     const reses: ServiceResult[] = await profileConfirmService(
-        (res: ServiceResult) => socket.emit(res.event, res.data),
+        emitToSession as (res: ServiceResult) => void,
         data,
     )
 

@@ -68,7 +68,8 @@ export async function profileConfirmService(
     logger.debug('sending workflow.state event', { data: workflowStateMsg })
     emit({ event: Events.WORKFLOW_STATE, data: workflowStateMsg })
 
-    // Emit initial planning.status immediately so Consultation's 12s idle timer resets
+    // Emit initial planning.status immediately so Consultation opens even with no lifecycle events
+    const SIMPLE_MESSAGE = "Agent is optimising routes and selecting places — this takes a moment."
     try {
         const initialPlanningStatus = createPlanningStatusMessage({
             message_id: `msg_${generateUUID()}`,
@@ -80,7 +81,7 @@ export async function profileConfirmService(
             payload: {
                 phase: PlanningPhases.DESTINATION_DESIGN,
                 status: PlanningStatus.RUNNING,
-                message: "Designing your itinerary — searching cities and experiences.",
+                message: SIMPLE_MESSAGE,
                 progress: 10,
             }
         })
@@ -90,12 +91,22 @@ export async function profileConfirmService(
         logger.warn('failed to send initial planning.status', serializeError(e))
     }
 
-    // Heartbeat to keep frontend consultation alive during long LLM calls (avoids 12s timeout)
+    // Heartbeat every 5s with same simple message and monotonic progress 10->25->40->60
+    // Backend does not need to know frontend stages — just generic messages frontend can display.
+    let lastProgress = 10
+    const heartbeatSteps = [25, 40, 60]
+    let heartbeatIdx = 0
     let heartbeat: ReturnType<typeof setInterval> | null = null
-    const startHeartbeat = (phase: PlanningPhases, baseProgress: number) => {
+    const startHeartbeat = () => {
         if (heartbeat) clearInterval(heartbeat)
         heartbeat = setInterval(async () => {
             try {
+                // advance monotonically through 25->40->60, never regress
+                const next = heartbeatSteps[heartbeatIdx]
+                if (next !== undefined && next > lastProgress) {
+                    lastProgress = next
+                    if (heartbeatIdx < heartbeatSteps.length - 1) heartbeatIdx++
+                }
                 const hbMsg = createPlanningStatusMessage({
                     message_id: `msg_${generateUUID()}`,
                     session_id: data.session_id,
@@ -104,10 +115,10 @@ export async function profileConfirmService(
                     occurred_at: new Date().toISOString(),
                     sequence: await nextSequence(data.run_id),
                     payload: {
-                        phase,
+                        phase: PlanningPhases.DESTINATION_DESIGN,
                         status: PlanningStatus.RUNNING,
-                        message: phase === PlanningPhases.EXPLANATION ? "Writing your journey narrative." : "Designing your itinerary — still consulting.",
-                        progress: baseProgress,
+                        message: SIMPLE_MESSAGE,
+                        progress: lastProgress,
                     }
                 })
                 logger.debug('sending planning.status heartbeat', { data: hbMsg })
@@ -115,9 +126,43 @@ export async function profileConfirmService(
             } catch (e) {
                 logger.warn('failed to send planning.status heartbeat', serializeError(e))
             }
-        }, 4000)
+        }, 5000)
     }
-    startHeartbeat(PlanningPhases.DESTINATION_DESIGN, 25)
+    startHeartbeat()
+
+    // Simplified onProgress: emit generic planning.status, no phaseMessageMap complexity
+    const emitPlanningPhase = async (phase: string, status: string, progress: number, _message: string) => {
+        try {
+            // Map any phase to one of the two generic phases frontend understands without strict mapping
+            const genericPhase = phase === PlanningPhases.COST ? PlanningPhases.COST : PlanningPhases.DESTINATION_DESIGN
+            const safeProgress = typeof progress === 'number' ? progress : lastProgress
+            if (safeProgress <= lastProgress) return
+            lastProgress = safeProgress
+            // Keep heartbeat in sync so it never regresses
+            // advance heartbeatIdx to match lastProgress
+            for (let i = heartbeatSteps.length - 1; i >= 0; i--) {
+                if (lastProgress >= heartbeatSteps[i]) { heartbeatIdx = Math.min(i + 1, heartbeatSteps.length - 1); break }
+            }
+            const psMsg = createPlanningStatusMessage({
+                message_id: `msg_${generateUUID()}`,
+                session_id: data.session_id,
+                run_id: data.run_id,
+                command_id: data.command_id,
+                occurred_at: new Date().toISOString(),
+                sequence: await nextSequence(data.run_id),
+                payload: {
+                    phase: genericPhase,
+                    status: status as PlanningStatus,
+                    message: SIMPLE_MESSAGE,
+                    progress: safeProgress,
+                }
+            })
+            logger.debug('sending planning.status progress', { data: psMsg })
+            emit({ event: Events.PLANNING_STATUS, data: psMsg })
+        } catch (e) {
+            logger.warn('failed to send planning.status progress', serializeError(e))
+        }
+    }
 
     // start planning with error handling so Consultation never silently times out
     try {
@@ -133,6 +178,13 @@ export async function profileConfirmService(
             profile: profile,
             run_budget: runBudget,
             session_id: data.session_id,
+            profile_revision: revision,
+        }
+
+        // capture snapshot revision for decision requests (closure ensures correct profile_revision)
+        const wrappedAskUserDecision: typeof askUserDecisionTool = async (req) => {
+            const patched = { ...req, profile_revision: req.profile_revision ?? revision }
+            return askUserDecisionTool(patched as any)
         }
 
         const candidateDesignOpt: CandidateDesignOptions = createCandidateDesignOptions({
@@ -147,7 +199,11 @@ export async function profileConfirmService(
             reasoning_effort: conf.agent_reasoning_effort,
             api_url: conf.agent_api_url,
             timeout_ms: conf.agent_timeout_ms,
-            askUserDecision: askUserDecisionTool,
+            askUserDecision: wrappedAskUserDecision,
+            onProgress: async (payload) => {
+                // delegated to emitPlanningPhase; wrap in try/catch already handled inside
+                await emitPlanningPhase(payload.phase, payload.status, payload.progress, payload.message)
+            },
         })
         logger.debug('calling agent 2 for candidate bundle', {input: candidateDesignInput})
         const candidateDesignRes: CandidateDesignResult = await processCandidateDesign(
@@ -156,28 +212,7 @@ export async function profileConfirmService(
         )
         logger.debug('recieved candidate result from agent 2', {res: candidateDesignRes})
 
-        // Transition heartbeat to explanation phase
-        if (heartbeat) { clearInterval(heartbeat); heartbeat = null }
-        try {
-            const phase2Status = createPlanningStatusMessage({
-                message_id: `msg_${generateUUID()}`,
-                session_id: data.session_id,
-                run_id: data.run_id,
-                command_id: data.command_id,
-                occurred_at: new Date().toISOString(),
-                sequence: await nextSequence(data.run_id),
-                payload: {
-                    phase: PlanningPhases.EXPLANATION,
-                    status: PlanningStatus.RUNNING,
-                    message: "Itinerary drafted — writing your journey narrative.",
-                    progress: 70,
-                }
-            })
-            emit({ event: Events.PLANNING_STATUS, data: phase2Status })
-        } catch (e) {
-            logger.warn('failed to send explanation planning.status', serializeError(e))
-        }
-        startHeartbeat(PlanningPhases.EXPLANATION, 75)
+        // Keep same simple heartbeat through narrative — no phase-specific lifecycle
 
         // agent 3 service
         const narrativeInput: NarrativeInput = {
@@ -226,7 +261,7 @@ export async function profileConfirmService(
                 occurred_at: new Date().toISOString(),
                 sequence: await nextSequence(data.run_id),
                 payload: {
-                    phase: PlanningPhases.EXPLANATION,
+                    phase: PlanningPhases.DESTINATION_DESIGN,
                     status: PlanningStatus.COMPLETED,
                     message: "Planning completed.",
                     progress: 100,

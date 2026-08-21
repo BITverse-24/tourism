@@ -21,20 +21,30 @@
 // Constants — exact contract values (unknowns ignored for forward compat)
 // ---------------------------------------------------------------------------
 
+/**
+ * @deprecated Lifecycle rail removed — kept for backwards compat only.
+ * Consultation no longer depends on lifecycle keys to open; backend may
+ * omit agent.lifecycle events entirely. Do not gate navigation on these.
+ */
 export const LIFECYCLE_KEYS = [
   "discovery",
   "constraint_preference",
   "experience_designer",
-  "mobility_logistics",
   "cost_optimization",
-  "local_intelligence",
-  "simulation_risk",
   "optimization",
   "narrative_explanation",
-  "continuous_replanning",
 ] as const;
 
 export type LifecycleKey = (typeof LIFECYCLE_KEYS)[number];
+
+// Removed lifecycle keys — retained only for diagnostic handling (do not re-add to LIFECYCLE_KEYS)
+export const REMOVED_LIFECYCLE_KEYS = [
+  "mobility_logistics",
+  "local_intelligence",
+  "simulation_risk",
+  "continuous_replanning",
+] as const;
+export type RemovedLifecycleKey = (typeof REMOVED_LIFECYCLE_KEYS)[number];
 
 export const LIFECYCLE_STATUSES = [
   "started",
@@ -69,18 +79,20 @@ export const PLANNING_STATUSES = [
 
 export type PlanningStatus = (typeof PLANNING_STATUSES)[number];
 
-// For frontend display ordering (Planning Controller phases map onto lifecycle keys)
+// Simplified: lifecycle rail removed. All phases map to null so no stage
+// hint is required to succeed; rail will be removed entirely. Kept as
+// Record for backwards compat; values are intentionally all null.
 export const PHASE_TO_LIFECYCLE_HINT: Record<PlanningPhase, LifecycleKey | null> = {
-  profile_validation: "constraint_preference",
-  destination_design: "experience_designer",
-  experience_selection: "experience_designer",
-  mobility: "mobility_logistics",
-  cost: "cost_optimization",
-  simulation: "simulation_risk",
-  optimization: "optimization",
-  decision_required: "optimization", // decision is surfaced via decision_required phase + decision.request
-  explanation: "narrative_explanation",
-  replanning: "continuous_replanning",
+  profile_validation: null,
+  destination_design: null,
+  experience_selection: null,
+  mobility: null,
+  cost: null,
+  simulation: null,
+  optimization: null,
+  decision_required: null,
+  explanation: null,
+  replanning: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -444,13 +456,14 @@ export function applyProfileRequestChangesAccepted(state: PlanningSessionState):
 // agent.lifecycle — legacy event name
 // Payload: agent/stage/status/progress/summary
 // statuses: started/progressed/completed/failed
-// keys: discovery/constraint_preference/experience_designer/mobility_logistics/
-//       cost_optimization/local_intelligence/simulation_risk/optimization/
-//       narrative_explanation/continuous_replanning
+// keys: discovery/constraint_preference/experience_designer/
+//       cost_optimization/optimization/narrative_explanation
+//       (removed: mobility_logistics, local_intelligence, simulation_risk, continuous_replanning — diagnostic only)
 // ---------------------------------------------------------------------------
 
+/** @deprecated Accept any non-empty string — unknown keys no longer block consultation */
 export function isLifecycleKey(v: unknown): v is LifecycleKey {
-  return typeof v === "string" && (LIFECYCLE_KEYS as readonly string[]).includes(v);
+  return typeof v === "string" && (v as string).trim().length > 0;
 }
 
 export function isLifecycleStatus(v: unknown): v is LifecycleStatus {
@@ -572,13 +585,13 @@ function defaultMessageForPhase(phase: PlanningPhase, status: PlanningStatus): s
     profile_validation: "Validating your profile before planning.",
     destination_design: "Choosing the best places for your journey.",
     experience_selection: "Selecting experiences aligned with your preferences.",
-    mobility: "Checking routes and timing with care.",
+    mobility: "Checking routes and timing with care.", // fallback: collapsed to cost_optimization
     cost: "Balancing cost and comfort.",
-    simulation: "Testing the plan for ease and resilience.",
+    simulation: "Testing the plan for ease and resilience.", // fallback: collapsed to optimization
     optimization: "Balancing walking load, cost, and attraction fit.",
     decision_required: "A choice is needed to continue.",
     explanation: "Writing your journey in plain words.",
-    replanning: "Standing by for future adjustments.",
+    replanning: "Standing by for future adjustments.", // reserved: collapsed (no stage)
   };
   const base = map[phase] ?? "Refining the journey so time feels well spent.";
   if (status === "failed") return "This check will be retried — your plan is still being shaped.";
@@ -606,21 +619,14 @@ const LIFECYCLE_LABELS: Record<LifecycleKey, string> = {
   discovery: "Discovery",
   constraint_preference: "Constraint & Preference",
   experience_designer: "Attraction & Experience Designer",
-  mobility_logistics: "Mobility & Logistics",
   cost_optimization: "Cost Optimization",
-  local_intelligence: "Local Intelligence",
-  simulation_risk: "Simulation & Risk",
   optimization: "Optimization",
   narrative_explanation: "Narrative & Explanation",
-  continuous_replanning: "Continuous Replanning",
 };
 
+/** Simplified: consultation does not gate on lifecycle stages. Returns empty rail. */
 export function createInitialStages(): StageUiState[] {
-  return LIFECYCLE_KEYS.map((k) => ({
-    key: k,
-    label: LIFECYCLE_LABELS[k],
-    status: "queued" as StageUiStatus,
-  }));
+  return [];
 }
 
 /** Map lifecycle agent key + status onto UI stage status */
@@ -691,34 +697,13 @@ export class PlanningLifecycleStore {
   }
 
   handleAgentLifecycle(rawPayload: unknown): ValidationResult {
-    const res = validateAgentLifecyclePayload(rawPayload);
-    if (!res.valid || !res.sanitized) return res;
-
-    const payload = res.sanitized;
-    // continuous_replanning is reserved and not emitted during initial planning;
-    // accept it defensively but mark diagnostic so UI can keep it queued/dimmed.
-    if (payload.agent === "continuous_replanning") {
-      this.opts.onDiagnostics?.({
-        type: "agent.lifecycle",
-        payload,
-        reason: "continuous_replanning is reserved for later phase; received during initial planning",
-      });
-    }
-
-    this.latestLifecycleByKey.set(payload.agent, payload);
-    this.opts.onLifecycleEvent?.(payload);
-
-    this.stages = this.stages.map((s) => {
-      if (s.key !== payload.agent) return s;
-      return {
-        ...s,
-        status: mapLifecycleStatusToUi(payload.status),
-        summary: payload.summary,
-        progress: payload.progress,
-      };
+    // Simplified: lifecycle rail removed. Never block consultation.
+    // Record diagnostic for observability and return valid true regardless of payload shape.
+    this.opts.onDiagnostics?.({
+      type: "agent.lifecycle",
+      payload: rawPayload,
+      reason: "lifecycle event received (no-op, rail removed)",
     });
-
-    this.opts.onStagesChanged?.([...this.stages]);
     return { valid: true };
   }
 
@@ -728,44 +713,9 @@ export class PlanningLifecycleStore {
 
     const payload = res.sanitized;
 
-    // replanning phase is reserved for continuous replanning — not available in initial workflow
-    if (payload.phase === "replanning") {
-      this.opts.onDiagnostics?.({
-        type: "planning.status",
-        payload,
-        reason: "replanning phase is reserved for continuous replanning; received during initial workflow",
-      });
-    }
-
+    // Always update planning message/history — never gate on stage hint (rail removed).
     this.latestPlanningStatus = payload;
     this.planningHistory.push(payload);
-
-    // Reflect into the rail stage that corresponds to the phase
-    const hintKey = stageForPlanningPhase(payload.phase);
-    if (hintKey) {
-      const phaseToStageStatus: Record<PlanningStatus, StageUiStatus> = {
-        queued: "queued",
-        running: "started",
-        completed: "completed",
-        failed: "failed",
-      };
-      this.stages = this.stages.map((s) => {
-        if (s.key !== hintKey) return s;
-        // Do not downgrade a completed lifecycle stage back to queued based on planning.status
-        if (s.status === "completed" && phaseToStageStatus[payload.status] === "queued") return s;
-        // If planning.status marks failed, surface it; lifecycle failed also surfaces separately
-        return {
-          ...s,
-          status: phaseToStageStatus[payload.status],
-          phase: payload.phase,
-          phaseStatus: payload.status,
-          // Prefer lifecycle summary when present; otherwise use planning message as fallback
-          summary: s.summary ?? payload.message,
-        };
-      });
-      this.opts.onStagesChanged?.([...this.stages]);
-    }
-
     this.opts.onPlanningStatusChanged?.(this.latestPlanningStatus, [...this.planningHistory]);
     return { valid: true };
   }

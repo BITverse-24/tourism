@@ -58,7 +58,29 @@ export async function registerSocket(socket: Socket) {
 }
 export async function unregisterSocketById(socketid: string) {
     delete SocketIdtoSocket[socketid]
-    delete SessionSocketIds[socketid]
+    // SessionSocketIds is keyed by session_id, not socketid — delete the entry whose value matches
+    for (const [sess, sid] of Object.entries(SessionSocketIds)) {
+        if (sid === socketid) delete SessionSocketIds[sess]
+    }
+}
+
+// Pending decision resolvers — survive reconnects (keyed by session_id)
+type DecisionPendingEntry = {
+    resolve: (choice: string) => void
+    reject: (err: Error) => void
+    decision_id: string
+    run_id: string
+}
+const DecisionPending: Record<string, DecisionPendingEntry> = {}
+
+export function setDecisionPending(session_id: string, entry: DecisionPendingEntry): void {
+    DecisionPending[session_id] = entry
+}
+export function getDecisionPending(session_id: string): DecisionPendingEntry | undefined {
+    return DecisionPending[session_id]
+}
+export function clearDecisionPending(session_id: string): void {
+    delete DecisionPending[session_id]
 }
 export async function getSocketById(socketid: string): Promise<Socket> {
     return SocketIdtoSocket[socketid]
