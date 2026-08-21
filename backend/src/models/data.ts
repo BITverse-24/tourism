@@ -45,6 +45,10 @@ const SocketIdtoSocket: Record<string, Socket> = {
 export async function registerSocket(socket: Socket) {
     SocketIdtoSocket[socket.id] = socket
 }
+export async function unregisterSocketById(socketid: string) {
+    delete SocketIdtoSocket[socketid]
+    delete SessionSocketIds[socketid]
+}
 export async function getSocketById(socketid: string): Promise<Socket> {
     return SocketIdtoSocket[socketid]
 }

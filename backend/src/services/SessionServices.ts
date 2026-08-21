@@ -10,6 +10,7 @@ import { NewSessionMessage, NewSessionMessageSchema } from "../structures/NewSes
 import { ServiceResult } from "../structures/types";
 import { discoveryAnswerService, newDiscoveryQuestionService } from "./DiscoveryServices";
 import { nextSequence } from "./StateServices";
+import { logger } from "../modules/logger";
 
 export async function sessionStartService(
     emit: (res: ServiceResult) => void,
@@ -18,6 +19,7 @@ export async function sessionStartService(
     isNewSessMsg: boolean,
 ): Promise<ServiceResult[]>  {
     const res: ServiceResult[] = []
+    logger.debug('starting service for session.start', { socketid: socketid, data: data });
 
     if (isNewSessMsg) {
         const newSessionId = await getNewSessionId()
@@ -41,12 +43,13 @@ export async function sessionStartService(
 
         await setSocketIdForSession(newSessionId, socketid)
 
+        logger.debug('sending session.ready', { data: data });
         const sessionReadyRes = {event: Events.SESSION_READY, data: sessReadyMsg}
         emit(sessionReadyRes)
 
         setWorkflowState(newSessionId, WorkflowStates.DISCOVERY)
 
-        await newDiscoveryQuestionService(
+        newDiscoveryQuestionService(
             emit,
             newSessionId,
             newRunId,
@@ -77,10 +80,11 @@ export async function sessionStartService(
                     confirmed_profile_revision: checkpoint.latest_confirmed,
                 }
             })
+            logger.debug('sending session.ready', { data: data });
             const sessionReadyRes = { event: Events.SESSION_READY, data: sessReadyMsg }
             emit(sessionReadyRes)
 
-
+            logger.debug('sending checkpoint profile.snapshot s', { data: data });
             for (let snapshot of checkpoint.profile_snapshots) {
                 const profSnapMsg: ProfileSnapshotMessage = createProfileSnapshotMessage({
                     message_id: `msg_${generateUUID()}`,
@@ -96,7 +100,7 @@ export async function sessionStartService(
 
             // do checkpoint next service
             if (checkpoint.workflow_state === WorkflowStates.DISCOVERY) {
-                await newDiscoveryQuestionService(
+                newDiscoveryQuestionService(
                     emit,
                     data.session_id,
                     newRunId,
@@ -131,7 +135,7 @@ export async function sessionStartService(
 
             emit({ event: Events.SESSION_READY, data: sessReadyMsg })
 
-            await newDiscoveryQuestionService(
+            newDiscoveryQuestionService(
                 emit,
                 data.session_id,
                 newRunId,
@@ -141,6 +145,7 @@ export async function sessionStartService(
         }
     }
 
+    logger.debug('service completed for session.start', { socketid: socketid, data: data });
     return res;
 }
 
@@ -149,6 +154,7 @@ export async function sessionCloseService(
     data: SessionCloseMessage,
 ): Promise<ServiceResult[]> {
     const res: ServiceResult[] = []
+    logger.debug('starting service for session.close', { data: data });
 
     await moveSessionIdToExpired(data.session_id)
     await setWorkflowState(data.session_id, WorkflowStates.EXPIRED)
@@ -165,8 +171,10 @@ export async function sessionCloseService(
             can_start_new_session: true
         }
     })
+    logger.debug('sending event session.expired')
     emit({ event: Events.SESSION_EXPIRED, data: sessExpiredMsg })
 
+    logger.debug('service completed for session.close', { data: data });
     return res;
 }
 

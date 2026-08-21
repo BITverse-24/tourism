@@ -8,6 +8,7 @@ import { generateUUID } from "../modules/util";
 import { createDiscoveryQuestionMessage, createProfileReadyMessage, createProfileSnapshotMessage } from "../factory/Event";
 import { currentWorkflowState, nextSequence } from "./StateServices";
 import { AppConfig, loadConfig } from "../app/config";
+import { logger } from "../modules/logger";
 
 export async function discoveryAnswerService(
     emit: (res: ServiceResult) => void,
@@ -35,10 +36,12 @@ export async function discoveryAnswerService(
         timeout_ms: config.agent_timeout_ms,
     }
     // give agent answer
+    logger.debug('calling agent 1', {input: discoveryInput})
     const discoveryRes: DiscoveryResult = await processDiscovery(
         discoveryInput,
         opt
     )
+    logger.debug('got discovery question', {res: discoveryRes})
     // update profile given by agent
     setSessionProfile(data.session_id, discoveryRes.profile)
 
@@ -73,10 +76,12 @@ export async function discoveryAnswerService(
         sequence: await nextSequence(data.session_id),
         payload: snapshot
     })
+    logger.debug('sending profile.snapshot', {data: profSnapMsg})
     emit({ event: Events.PROFILE_SNAPSHOT, data: profSnapMsg })
 
     // if all questions are done, set workflow to profile_review
     if (discoveryRes.finished) {
+        logger.debug('discovery process finished')
         await setWorkflowState(data.session_id, WorkflowStates.PROFILE_REVIEW)
         const profReadyMsg: ProfileReadyMessage = createProfileReadyMessage({
             message_id: `msg_${generateUUID()}`,
@@ -90,10 +95,12 @@ export async function discoveryAnswerService(
                 blocking_unknowns: []
             }
         })
+        logger.debug('sending profile.ready event', {data: profReadyMsg})
         emit({ event: Events.PROFILE_READY, data: profReadyMsg })
     }
     // else add discovery.question msg to res
     else if (discoveryRes.next_question) {
+        logger.debug('got another question to send');
         addDiscoveryQuestion(data.run_id, discoveryRes.next_question)
         const discoveryQuestionMsg: DiscoveryQuestionMessage =
             createDiscoveryQuestionMessage({
@@ -105,6 +112,7 @@ export async function discoveryAnswerService(
                 sequence: await nextSequence(data.session_id),
                 payload: discoveryRes.next_question
             })
+        logger.debug('sending discovery.question', {data: discoveryQuestionMsg})
         emit({event: Events.DISCOVERY_QUESTION, data: discoveryQuestionMsg})
     }
 
@@ -122,6 +130,7 @@ export async function newDiscoveryQuestionService(
     answer: UserAnswer | null = null
 ): Promise<ServiceResult[]> {
     const res: ServiceResult[] = []
+    logger.debug('starting service for new discovery question', { session_id: session_id, run_id: run_id, command_id: command_id, profile: profile, answer: answer });
 
     const discoveryInput: DiscoveryInput = {
         answer:  answer,
@@ -136,10 +145,12 @@ export async function newDiscoveryQuestionService(
         api_url: config.agent_api_url,
         timeout_ms: config.agent_timeout_ms,
     }
+    logger.debug('calling agent 1', {input: discoveryInput})
     const discoveryRes: DiscoveryResult = await processDiscovery(
         discoveryInput,
         opt
     )
+    logger.debug('got discovery question', {res: discoveryRes})
     // update profile given by agent
     setSessionProfile(session_id, discoveryRes.profile)
 
@@ -174,6 +185,7 @@ export async function newDiscoveryQuestionService(
         sequence: await nextSequence(session_id),
         payload: snapshot
     })
+    logger.debug('sending profile.snapshot', {data: profSnapMsg})
     emit({ event: Events.PROFILE_SNAPSHOT, data: profSnapMsg })
 
     // if all questions are done, set workflow to profile_review
@@ -206,6 +218,7 @@ export async function newDiscoveryQuestionService(
                 sequence: await nextSequence(session_id),
                 payload: discoveryRes.next_question
             })
+        logger.debug('sending discovery.question', {data: discoveryQuestionMsg})
         emit({event: Events.DISCOVERY_QUESTION, data: discoveryQuestionMsg})
     }
 

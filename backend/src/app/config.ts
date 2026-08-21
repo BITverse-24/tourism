@@ -9,7 +9,7 @@ const envSchema = z.object({
     AGENT_MODEL: z.string().default('gemini-3.6-flash'),
     AGENT_REASONING_EFFORT: z.enum(['low', 'medium', 'high']).default('medium'),
     AGENT_API_URL: z.string().default(''),
-    AGENT_TIMEOUT_MS: z.coerce.number().default(20_000),
+    AGENT_TIMEOUT_MS: z.coerce.number().default(20_000_000),
     CITY_KNOWLEDGEBASE_CSV: z.string(),
     ATTRACTIONS_KNOWLEDGEBASE_SQLITE: z.string(),
     AGENT_2_MAX_CANDIDATES: z.coerce.number().default(1),

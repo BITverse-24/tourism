@@ -15,38 +15,42 @@ import { getCity, searchCities } from "../agent_tools/CityKnowledgebaseTools";
 import { getAttractionsByIds, queryAttractions } from "../agent_tools/AttractionKnowledgebaseTools";
 import { askUserDecisionTool } from "../agent_tools/CandidateDecision";
 import { NarrativeInput, NarrativeOptions, NarrativeResult, processNarrative } from "../../../ai/narrative";
+import { logger } from "../modules/logger";
 
 export async function profileConfirmService(
-    emit: (res: ServiceResult) => void,
-    data: ProfileConfirmMessage,
+        emit: (res: ServiceResult) => void,
+        data: ProfileConfirmMessage,
 ): Promise<ServiceResult[]> {
-    const res: ServiceResult[] = []
+        const res: ServiceResult[] = []
 
-    // mark the confirmed profile
-    const checkpoint: CheckpointType = await getSessionCheckpoint(data.session_id)
-    const profile: TravelerProfile = await getSessionProfile(data.session_id);
-    const revision = (checkpoint.profile_snapshots.length == 0) ?
-            1 :
-            checkpoint.profile_snapshots[checkpoint.profile_snapshots.length - 1].revision + 1
-    const snapshot: ProfileSnapshot = {
-        revision: revision,
-        state: ProfileSnapshotStates.CONFIRMED,
-        profile: profile,
-    }
-    checkpoint.profile_snapshots.push(snapshot)
+        logger.debug('started profile.confirm service', { data: data })
 
-    await setSessionCheckpoint(data.session_id, checkpoint)
+        // mark the confirmed profile
+        const checkpoint: CheckpointType = await getSessionCheckpoint(data.session_id)
+        const profile: TravelerProfile = await getSessionProfile(data.session_id);
+        const revision = (checkpoint.profile_snapshots.length == 0) ?
+                1 :
+                checkpoint.profile_snapshots[checkpoint.profile_snapshots.length - 1].revision + 1
+        const snapshot: ProfileSnapshot = {
+                revision: revision,
+                state: ProfileSnapshotStates.CONFIRMED,
+                profile: profile,
+        }
+        checkpoint.profile_snapshots.push(snapshot)
 
-    // send confirmed profile snapshot
-    const profSnapMsg: ProfileSnapshotMessage = createProfileSnapshotMessage({
-        message_id: `msg_${generateUUID()}`,
-        session_id: data.session_id,
-        run_id: data.run_id,
-        command_id: data.command_id,
-        occurred_at: new Date().toISOString(),
-        sequence: await nextSequence(data.session_id),
-        payload: snapshot
-    })
+        await setSessionCheckpoint(data.session_id, checkpoint)
+
+        // send confirmed profile snapshot
+        const profSnapMsg: ProfileSnapshotMessage = createProfileSnapshotMessage({
+                message_id: `msg_${generateUUID()}`,
+                session_id: data.session_id,
+                run_id: data.run_id,
+                command_id: data.command_id,
+                occurred_at: new Date().toISOString(),
+                sequence: await nextSequence(data.session_id),
+                payload: snapshot
+        })
+    logger.debug('sending profile.snapshot with the confirmed profile snapshot', {data: profSnapMsg})
     emit({ event: Events.PROFILE_SNAPSHOT, data: profSnapMsg })
 
     // set workflow to planning
@@ -81,10 +85,12 @@ export async function profileConfirmService(
         timeout_ms: conf.agent_timeout_ms,                                                  
         askUserDecision: askUserDecisionTool,                                               
     })                                                                                      
+    logger.debug('calling agent 2 for candidate bundle', {input: candidateDesignInput})
     const candidateDesignRes: CandidateDesignResult = await processCandidateDesign(         
         candidateDesignInput,                                                               
         candidateDesignOpt                                                                  
     )                                                                                       
+    logger.debug('recieved candidate result from agent 2', {res: candidateDesignRes})
                                                                                             
                                                                                             
     // agent 3 service                                                                      
@@ -99,10 +105,12 @@ export async function profileConfirmService(
         model: conf.agent_model,                                                            
         timeout_ms: conf.agent_timeout_ms,                                                  
     })                                                                                      
+    logger.debug('calling agent 3 for final trip plan', {input: narrativeInput})
     const narrativeRes: NarrativeResult = await processNarrative(                           
         narrativeInput,                                                                     
         narrativeOpt                                                                        
     )                                                                                       
+    logger.debug('recieved final trip plan from agent 3', {res: narrativeRes})
                                                                                             
     // plan snapshot message                                                                
     const planSnapMsg: PlanSnapshotMessage = createPlanSnapshotMessage({                    
@@ -118,10 +126,10 @@ export async function profileConfirmService(
             plan: narrativeRes.plan                                                         
         }                                                                                   
     })                                                                                      
+    logger.debug('sending plan snapshot of the final trup plan', {data: planSnapMsg})
     emit({ event: Events.PLAN_SNAPSHOT, data: planSnapMsg })                                
     
-
-
+    logger.debug('completed profile.confirm service', {data: data})
     return res
 }
 
@@ -130,13 +138,14 @@ export async function profileRequestChangesService(
     data: ProfileRequestChangesMessage,
 ): Promise<ServiceResult[]> {
     const res: ServiceResult[] = []
+    logger.debug('started profile.request_changes service', {data: data})
 
     await setWorkflowState(data.session_id, WorkflowStates.DISCOVERY)
     // give agent to ask questions for the requested change topics ?????
     const question =
         {
             question_id: `req-change_${data.command_id}`,
-            prompt: '',  /////////// ToDO
+            prompt: 'Are you okay with this profile',  /////////// ToDO
             selection_mode: DiscoveryAnsSelectionModes.SINGLE,
             required: false,
             options: [],
@@ -159,5 +168,6 @@ export async function profileRequestChangesService(
         },
     )
 
+    logger.debug('completed profile.request_changes service', {data: data})
     return res
 }

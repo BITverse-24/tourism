@@ -23,6 +23,8 @@ export async function sessionStartHandler(socket: Socket, data: SessionStartMess
         if (!baseValid) return;
     }
 
+    logger.debug('validated message for session.start', { socketid: socket.id, data: data });
+
     const ackmsg: AckMessage = createCommandAcceptedMessage({
         message_id: `msg_${generateUUID()}`,
         session_id: data.session_id,

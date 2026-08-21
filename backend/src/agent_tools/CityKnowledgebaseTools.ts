@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { parse } from "csv-parse/sync";
 import { CityRecord, GetCityInput, GetCityResult, SearchCitiesInput, SearchCitiesResult } from "../../../ai/candidate-design";
 import { loadConfig } from "../app/config";
+import { logger } from "../modules/logger";
 
 type CsvRow = Record<string, string>;
 
@@ -14,6 +15,7 @@ let cachedCsvPath: string | null = null;
 export async function searchCities(
     input: SearchCitiesInput,
 ): Promise<SearchCitiesResult> {
+    logger.debug('agent 2 is using searchCities tool call', { req: input })
     const cities = await loadCities();
 
     const region = normalize(input.region);
@@ -66,6 +68,7 @@ export async function searchCities(
         return true;
     });
 
+    logger.debug('sending agent 2 searchCities res', { res: { cities: filtered } });
     return {
         cities: filtered,
         next_cursor: null,
@@ -78,6 +81,7 @@ export async function searchCities(
 export async function getCity(
     input: GetCityInput,
 ): Promise<GetCityResult> {
+    logger.debug('agent 2 is using getCity tool call', { req: input })
     if (!input.city_id?.trim()) {
         throw new Error("city_id is required");
     }
@@ -92,6 +96,7 @@ export async function getCity(
         throw new Error(`City not found: ${input.city_id}`);
     }
 
+    logger.debug('sending agent 2 getCity res', { res: city });
     return { city };
 }
 

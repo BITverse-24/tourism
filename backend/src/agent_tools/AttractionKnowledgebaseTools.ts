@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import { loadConfig } from "../app/config";
 import { AttractionRecord, GetAttractionsByIdsInput, GetAttractionsByIdsResult, QueryAttractionsInput, QueryAttractionsResult } from "../../../ai/candidate-design";
+import { logger } from "../modules/logger";
 
 /**
  * These are all JSON-array columns in the SQLite schema.
@@ -128,6 +129,7 @@ function escapeLike(value: string): string {
 export async function queryAttractions(
     input: QueryAttractionsInput,
 ): Promise<QueryAttractionsResult> {
+    logger.debug('agent 2 is using the queryAttractions tool call', { req: input })
     const db = getDatabase();
 
     const cityId = input.city_id.trim();
@@ -212,6 +214,8 @@ ORDER BY a.name COLLATE NOCASE ASC, a.attraction_id ASC
         .prepare(sql)
         .all(...params) as Record<string, unknown>[];
 
+    logger.debug('sending agent 2 result of queryAttractions res')
+
     return {
         attractions: rows.map(normalizeAttractionRow),
         query_id: createQueryId(),
@@ -228,6 +232,7 @@ ORDER BY a.name COLLATE NOCASE ASC, a.attraction_id ASC
 export async function getAttractionsByIds(
     input: GetAttractionsByIdsInput,
 ): Promise<GetAttractionsByIdsResult> {
+    logger.debug('agent 2 is using the getAttractionsByIds tool call', { req: input })
     const db = getDatabase();
 
     const cityId = input.city_id.trim();
@@ -280,6 +285,7 @@ AND a.attraction_id IN (${placeholders})
         }
     }
 
+    logger.debug('sending agent 2 result of getAttractionsById res')
     return {
         attractions: attractionIds
             .map((id) => attractionsById.get(id))

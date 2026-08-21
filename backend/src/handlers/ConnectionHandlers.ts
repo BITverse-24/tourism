@@ -2,11 +2,10 @@ import { Socket, Server } from 'socket.io';
 import { logger } from '../modules/logger';
 import { runEvents } from '../events/RunEvents';
 import { profileEvents } from '../events/ProfileEvents';
-import { decisionEvents } from '../events/DecisionEvents';
 import { discoveryEvents } from '../events/DiscoveryEvents';
 import { replanEvents } from '../events/ReplanEvents';
 import { sessionEvents } from '../events/SessionEvents';
-import { registerSocket } from '../models/data';
+import { registerSocket, unregisterSocketById } from '../models/data';
 
 export async function onConnect(socket: Socket) {
     logger.debug('socket connected', { socketid: socket.id });
@@ -14,11 +13,11 @@ export async function onConnect(socket: Socket) {
     sessionEvents(socket)
     runEvents(socket)
     profileEvents(socket)
-    // decisionEvents(socket)  all handled in tool calls
     discoveryEvents(socket)
     replanEvents(socket)
 }
 
 export function onDisconnect(socket: Socket) {
     logger.debug('socket disconnected', { socketid: socket.id });
+    unregisterSocketById(socket.id)
 }
