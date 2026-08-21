@@ -13,7 +13,7 @@ export function useWsBannerState(client?: WsClient) {
   const ownedClientRef = useRef<WsClient | null>(null)
   const ws = useMemo(() => {
     if (client) return client
-    const url = getWsUrl() || 'ws://localhost:3000/ws'
+    const url = getWsUrl() || 'ws://localhost:8000/ws'
     const c = new WsClient({
       url,
       // no auto-connect; App can call connect explicitly

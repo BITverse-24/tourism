@@ -7,6 +7,8 @@ const envSchema = z.object({
     WSPORT: z.coerce.number().int().min(1).max(65535).default(3001),
     AGENT_API_KEY: z.string(),
     AGENT_MODEL: z.string().default('gemini-3.6-flash'),
+    // AGENT_REASONING_EFFORT is for Agent 2 (candidate-design) only.
+    // Agent 1 (discovery, ai/discovery.ts) always uses thinkingBudget: 0 (no reasoning) and ignores this.
     AGENT_REASONING_EFFORT: z.enum(['low', 'medium', 'high']).default('medium'),
     AGENT_API_URL: z.string().default(''),
     AGENT_TIMEOUT_MS: z.coerce.number().default(20_000_000),
@@ -32,6 +34,7 @@ export interface AppConfig {
     wsPort: number;
     agent_api_key: string;
     agent_model: string;
+    /** For Agent 2 (candidate-design) only — Agent 1 (discovery) always uses thinkingBudget: 0 and ignores this. */
     agent_reasoning_effort: 'low' | 'medium' | 'high';
     agent_api_url: string;
     agent_timeout_ms: number;

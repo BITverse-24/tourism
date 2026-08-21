@@ -493,11 +493,14 @@ export default function Discovery({
   const paddedSeq = sequence != null ? String(sequence).padStart(2, "0") : "--";
   const paddedTotal = sequenceTotal != null ? String(sequenceTotal).padStart(2, "0") : "--";
 
-  // Busy overlay — keep same ivory background, center sphere; fade out when next question arrives
+  // Busy overlay — same aesthetic as after answering, also for initial wait for first question
+  // After Arrival, Discovery mounts with !question — show same sphere as between questions until first discovery.question arrives.
+  const isInitialWaiting = !question && isLiveMode
+  const showBusy = busy || isInitialWaiting
   const [busyOverlayMounted, setBusyOverlayMounted] = useState(false)
   const [busyExiting, setBusyExiting] = useState(false)
   useEffect(() => {
-    if (busy) {
+    if (showBusy) {
       setBusyOverlayMounted(true)
       setBusyExiting(false)
     } else if (busyOverlayMounted) {
@@ -508,7 +511,7 @@ export default function Discovery({
       }, 420)
       return () => window.clearTimeout(t)
     }
-  }, [busy, busyOverlayMounted])
+  }, [showBusy, busyOverlayMounted])
 
   return (
     <>
@@ -529,8 +532,8 @@ export default function Discovery({
                 <div className="discovery-busy-glow" />
                 <div className="discovery-busy-core" />
               </div>
-              <p className="discovery__busyText">Weaving your answers…</p>
-              <p className="discovery__busySub">Shaping the next question — this can take 10–15s</p>
+              <p className="discovery__busyText">{isInitialWaiting ? "Shaping your first question…" : "Weaving your answers…"}</p>
+              <p className="discovery__busySub">{isInitialWaiting ? "Listening to your intent — this takes a moment" : "Shaping the next question — this can take 10–15s"}</p>
             </div>
           </div>
         )}
@@ -558,15 +561,20 @@ export default function Discovery({
             </div>
 
             {!question ? (
-              <div className="discovery__empty">
-                <div className="discovery__eyebrow discovery__pour discovery__pour--1">
-                  <span className="discovery__eyebrowNum">01</span>
-                  <span className="discovery__eyebrowSep">/</span>
-                  <span>DISCOVERY</span>
-                  <span className="discovery__eyebrowMeta">· {paddedSeq} / {paddedTotal}</span>
+              isInitialWaiting ? (
+                // Initial wait — show nothing behind the sphere (same as between-questions busy, but no previous question to dim)
+                <div className="discovery__empty" aria-hidden="true" />
+              ) : (
+                <div className="discovery__empty">
+                  <div className="discovery__eyebrow discovery__pour discovery__pour--1">
+                    <span className="discovery__eyebrowNum">01</span>
+                    <span className="discovery__eyebrowSep">/</span>
+                    <span>DISCOVERY</span>
+                    <span className="discovery__eyebrowMeta">· {paddedSeq} / {paddedTotal}</span>
+                  </div>
+                  <p className="discovery__prompt discovery__prompt--empty">Waiting for the next question…</p>
                 </div>
-                <p className="discovery__prompt discovery__prompt--empty">Waiting for the next question…</p>
-              </div>
+              )
             ) : (
               <div
                 key={questionKey}
@@ -653,6 +661,16 @@ export default function Discovery({
                     <span className="discovery__continueArrow" aria-hidden="true">→</span>
                   </button>
                   <span className="discovery__continueHint">Press Enter to continue</span>
+                  <button
+                    type="button"
+                    className="discovery__cancelGhost"
+                    onClick={() => { try { getWsClient().sendRunCancel('Traveler cancelled discovery') } catch {} }}
+                    aria-label="Cancel and return to start"
+                    disabled={busy}
+                    style={{ marginLeft: 12, fontSize: 12, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--voyager-ink-3)', background: 'transparent', border: '1px solid transparent', cursor: busy ? 'not-allowed' : 'pointer', opacity: busy ? 0.4 : 0.72, padding: '6px 10px', borderRadius: 8 }}
+                  >
+                    Cancel
+                  </button>
                 </div>
 
                 <div

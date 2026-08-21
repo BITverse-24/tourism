@@ -364,11 +364,45 @@ export class SequenceManager {
    * Whether we have buffered gaps — indicates out-of-order arrival.
    */
   hasPending(): boolean { return this.buffer.size > 0; }
+
+  getBufferedSequences(): number[] {
+    return [...this.buffer.keys()].sort((a, b) => a - b);
+  }
+
+  getBufferSize(): number { return this.buffer.size; }
+
+  /**
+   * Flush buffered envelopes in sequence order when a cold-start gap
+   * is deemed unrecoverable (e.g., server started at seq > 1 or
+   * seq 1 was lost before subscription). Advances expected to
+   * one past the highest flushed sequence.
+   */
+  flushWithGap(): Envelope[] {
+    if (this.buffer.size === 0) return [];
+    const seqs = [...this.buffer.keys()].sort((a, b) => a - b);
+    const out: Envelope[] = [];
+    for (const s of seqs) {
+      const env = this.buffer.get(s)!;
+      this.buffer.delete(s);
+      out.push(env);
+    }
+    const max = seqs[seqs.length - 1];
+    this.expected = max + 1;
+    return out;
+  }
 }
 
 // ---------------------------------------------------------------------------
-// Snapshot revision handling — replace only when revision newer
+// Snapshot revision handling — replace when revision newer, or same-rev promote
 // ---------------------------------------------------------------------------
+
+/** Rank for same-revision profile/plan state promotion. */
+const SNAPSHOT_STATE_RANK: Record<string, number> = {
+  draft: 0,
+  ready: 1,
+  confirmed: 2,
+  final: 2,
+};
 
 export class SnapshotStore<T extends { revision: number }> {
   private currentRevision = 0;
@@ -382,6 +416,7 @@ export class SnapshotStore<T extends { revision: number }> {
 
   /**
    * Attempt to apply snapshot. Returns true if applied, false if ignored (stale).
+   * Same revision is accepted only when state promotes (draft → ready → confirmed).
    */
   apply(snapshot: T): boolean {
     const rev = (snapshot as { revision?: unknown }).revision;
@@ -390,6 +425,16 @@ export class SnapshotStore<T extends { revision: number }> {
       this.currentRevision = rev;
       this.current = snapshot;
       return true;
+    }
+    if (rev === this.currentRevision && this.current) {
+      const prevState = (this.current as { state?: string }).state;
+      const nextState = (snapshot as { state?: string }).state;
+      const prevRank = SNAPSHOT_STATE_RANK[prevState ?? ''] ?? -1;
+      const nextRank = SNAPSHOT_STATE_RANK[nextState ?? ''] ?? -1;
+      if (nextRank > prevRank) {
+        this.current = snapshot;
+        return true;
+      }
     }
     return false;
   }
@@ -507,6 +552,8 @@ export type ClientStateSnapshot = {
 
 export type ConnectionState = 'idle' | 'connecting' | 'open' | 'closed';
 
+import { SocketTransport } from './socketTransport'
+
 export class WsClient {
   // identity
   private sessionId: string | null = null;
@@ -518,17 +565,21 @@ export class WsClient {
   private seq = new SequenceManager();
   private profileStore = new SnapshotStore<{ revision: number; state?: string; profile?: unknown }>('profile');
   private planStore = new SnapshotStore<{ revision: number; state?: string; plan?: unknown }>('plan');
+  /** Last profile.ready payload — retained so late subscribers (e.g. ProfileReview) can hydrate. */
+  private profileReady: { profile_revision: number; blocking_unknowns: string[] } | null = null;
 
   // commands
   private commands = new CommandRegistry();
 
   // connection
   private ws: WebSocket | null = null;
+  private sio: SocketTransport | null = null;
   private connState: ConnectionState = 'idle';
   private url: string;
   private retryPolicy: RetryPolicy;
   private createSocket?: (url: string) => WebSocket;
   private opts: WsClientOptions;
+  private useSocketIO = true
 
   // pending acks for at-least-once retries
   private pendingRetries = new Map<string, { envelope: Envelope; attempts: number; timer: ReturnType<typeof setTimeout> | null }>();
@@ -539,8 +590,14 @@ export class WsClient {
   // listeners
   private listeners = new Set<(env: Envelope) => void>();
 
+  // cold-start sequence gap handling — backend may start at seq > 1 (e.g., 4/5) for a new run;
+  // strict buffering would deadlock discovery. Fast-forward after a short grace.
+  private seqGapTimer: ReturnType<typeof setTimeout> | null = null;
+  private seqGapGraceMs = 500;
+  private runStartAt: number | null = null;
+
   constructor(opts: WsClientOptions = {}) {
-    this.url = opts.url ?? 'ws://localhost:3000/ws';
+    this.url = opts.url ?? 'ws://localhost:8000/ws';
     this.retryPolicy = opts.retryPolicy ?? DEFAULT_RETRY_POLICY;
     this.createSocket = opts.createSocket;
     this.opts = opts;
@@ -553,6 +610,9 @@ export class WsClient {
   getWorkflowState(): WorkflowState { return this.workflowState; }
   getRecoveryState(): RecoveryState | null { return this.recoveryState; }
   getProfileSnapshot(): { revision: number; state?: string; profile?: unknown } | null { return this.profileStore.get(); }
+  getProfileReady(): { profile_revision: number; blocking_unknowns: string[] } | null {
+    return this.profileReady ? { ...this.profileReady, blocking_unknowns: [...this.profileReady.blocking_unknowns] } : null;
+  }
   getPlanSnapshot(): { revision: number; state?: string; plan?: unknown } | null { return this.planStore.get(); }
   getConnectionState(): ConnectionState { return this.connState; }
   getDiagnostics() { return { ...this.diagnostics, unknownEventTypes: [...this.diagnostics.unknownEventTypes] }; }
@@ -595,7 +655,51 @@ export class WsClient {
     }
     this.pendingRetries.clear();
     if (recovery !== undefined) this.recoveryState = recovery;
+    // reset cold-start gap tracking for this run
+    if (this.seqGapTimer) { clearTimeout(this.seqGapTimer); this.seqGapTimer = null; }
+    this.runStartAt = Date.now();
     this.emitState();
+  }
+
+  private scheduleSequenceGapFlush(): void {
+    if (this.seqGapTimer) return;
+    if (!this.seq.hasPending()) return;
+    if (this.seq.getExpected() !== 1) return;
+    // only fast-forward cold-start gaps (first message seq > 1)
+    const buffered = this.seq.getBufferedSequences();
+    if (buffered.length === 0) return;
+    const smallest = buffered[0];
+    if (smallest <= 1) return;
+    this.seqGapTimer = setTimeout(() => {
+      this.seqGapTimer = null;
+      this.flushSequenceGap();
+    }, this.seqGapGraceMs);
+  }
+
+  private flushSequenceGap(): void {
+    if (!this.seq.hasPending()) return;
+    if (this.seq.getExpected() !== 1) return;
+    const flushed = this.seq.flushWithGap();
+    if (flushed.length === 0) return;
+    // diagnostic so backend contract drift is visible
+    try {
+      // wsLogger not imported here to avoid cycle; use console.debug and store diagnostic
+      const label = flushed.map(e => `${e.type}#${e.sequence}`).join(', ');
+      // record for getDiagnostics()
+      this.diagnostics.unknownFields.push(`sequence gap fast-forward 1 -> ${this.seq.getExpected()}, flushed: ${label}`);
+      if (typeof console !== 'undefined' && typeof console.debug === 'function') {
+        console.debug(`[WsClient] sequence gap fast-forward expected 1 -> ${this.seq.getExpected()}, flushed ${flushed.length}: ${label}`);
+      }
+    } catch { /* ignore */ }
+    for (const env of flushed) {
+      if (env.kind === 'ack') this.handleAck(env);
+      else if (env.kind === 'error') this.handleError(env);
+      else if (env.kind === 'event') this.handleEvent(env);
+      else {
+        // forward unknown kinds still via listeners
+        for (const l of this.listeners) l(env);
+      }
+    }
   }
 
   /** Called when server sends session.ready — authoritative */
@@ -612,7 +716,14 @@ export class WsClient {
       else {
         this.runId = rid;
         this.seq.reset(rid); // ensure sequence starts at 1 even if session.ready is first message
+        if (this.seqGapTimer) { clearTimeout(this.seqGapTimer); this.seqGapTimer = null; }
+        this.runStartAt = Date.now();
       }
+    }
+    // also cancel any pending gap flush — session.ready indicates server is authoritative for sequence start
+    if (this.seqGapTimer && this.seq.getExpected() !== 1) {
+      clearTimeout(this.seqGapTimer);
+      this.seqGapTimer = null;
     }
     if (wf) this.workflowState = wf;
     if (payload.hasOwnProperty('has_recovery_state') || payload.hasOwnProperty('confirmed_profile_revision')) {
@@ -636,6 +747,7 @@ export class WsClient {
     // snapshots become stale — reset revision tracking but keep last snapshot for UI teardown? contract says invalidate.
     this.profileStore.reset();
     this.planStore.reset();
+    this.profileReady = null;
     this.emitState();
     // surface via error listener with session_expired (retryable false, can_start_new_session true)
     void payload; // payload contains reason, can_start_new_session — caller can read via event
@@ -730,6 +842,12 @@ export class WsClient {
   // -- raw send / retry ------------------------------------------------------
 
   private sendRaw(env: Envelope): void {
+    if (this.useSocketIO && this.sio) {
+      if (this.sio.isConnected()) {
+        try { this.sio.sendEnvelope(env) } catch { /* will retry */ }
+      }
+      return
+    }
     if (this.ws && this.ws.readyState === 1) { // OPEN
       try { this.ws.send(JSON.stringify(env)); } catch { /* will retry */ }
     } else {
@@ -769,6 +887,27 @@ export class WsClient {
     this.url = target;
     this.connState = 'connecting';
     this.emitState();
+    if (this.useSocketIO) {
+      try {
+        this.sio = new SocketTransport({
+          url: target,
+          onEnvelope: (env, raw) => this.handleRawMessage(raw),
+          onOpen: () => { this.connState = 'open'; this.emitState(); this.flushPending() },
+          onClose: () => { this.connState = 'closed'; for (const [, p] of this.pendingRetries) if (p.timer) clearTimeout(p.timer); if (this.seqGapTimer) { clearTimeout(this.seqGapTimer); this.seqGapTimer = null; } this.emitState() },
+          onError: () => {
+            const err = sanitizeErrorPayload('invalid_envelope', 'websocket error', false);
+            this.opts.onError?.({ message_id: genMessageId(), kind: 'error', type: 'error', occurred_at: new Date().toISOString(), payload: err as unknown as Record<string, unknown> } as Envelope)
+          },
+        })
+        this.sio.connect()
+      } catch (e) {
+        const err = createInvalidEnvelopeError(sanitizeMessage(String(e)), false);
+        this.opts.onError?.(err);
+        this.connState = 'closed';
+        this.emitState();
+      }
+      return
+    }
     const factory = this.createSocket ?? ((u: string) => new WebSocket(u));
     try {
       this.ws = factory(target);
@@ -794,6 +933,7 @@ export class WsClient {
       // do NOT replay missed events — clear sequence buffer, keep recovery state
       // sequence will reset on next startRun
       for (const [, p] of this.pendingRetries) if (p.timer) clearTimeout(p.timer);
+      if (this.seqGapTimer) { clearTimeout(this.seqGapTimer); this.seqGapTimer = null; }
       this.emitState();
     };
     this.ws.onerror = () => {
@@ -806,8 +946,11 @@ export class WsClient {
   disconnect(): void {
     for (const [, p] of this.pendingRetries) if (p.timer) clearTimeout(p.timer);
     this.pendingRetries.clear();
+    if (this.seqGapTimer) { clearTimeout(this.seqGapTimer); this.seqGapTimer = null; }
     try { this.ws?.close(); } catch {}
+    try { this.sio?.disconnect(); } catch {}
     this.ws = null;
+    this.sio = null;
     this.connState = 'closed';
     this.emitState();
   }
@@ -870,17 +1013,31 @@ export class WsClient {
       // ack messages are ordered per run as well — apply sequence ordering
       const ordered = this.seq.offer(env);
       for (const o of ordered) this.handleAck(o);
-      // out-of-order acks are buffered in seq manager and will be delivered when gap fills
+      if (ordered.length > 0) {
+        if (this.seqGapTimer) { clearTimeout(this.seqGapTimer); this.seqGapTimer = null; }
+      } else if (this.seq.hasPending()) {
+        this.scheduleSequenceGapFlush();
+      }
       return;
     }
     if (env.kind === 'error') {
       const ordered = this.seq.offer(env);
       for (const o of ordered) this.handleError(o);
+      if (ordered.length > 0) {
+        if (this.seqGapTimer) { clearTimeout(this.seqGapTimer); this.seqGapTimer = null; }
+      } else if (this.seq.hasPending()) {
+        this.scheduleSequenceGapFlush();
+      }
       return;
     }
     if (env.kind === 'event') {
       const ordered = this.seq.offer(env);
       for (const o of ordered) this.handleEvent(o);
+      if (ordered.length > 0) {
+        if (this.seqGapTimer) { clearTimeout(this.seqGapTimer); this.seqGapTimer = null; }
+      } else if (this.seq.hasPending()) {
+        this.scheduleSequenceGapFlush();
+      }
       return;
     }
     if (env.kind === 'command') {
@@ -973,15 +1130,22 @@ export class WsClient {
       return;
     }
 
-    // snapshot handling — replace only when revision newer
+    // snapshot handling — replace when revision newer (or same-rev state promote)
     if (t === 'profile.snapshot') {
       const snap = env.payload as unknown as { revision: number; state?: string; profile?: unknown };
       if (snap && typeof snap.revision === 'number') {
         const applied = this.profileStore.apply(snap as { revision: number; state?: string });
         if (!applied) {
-          // stale revision — ignore per contract: replace only when revision newer
-          // still notify? No — we drop stale snapshot
+          // stale revision — ignore per contract: replace only when revision newer / state promotes
           return;
+        }
+        // Newer draft invalidates a prior ready marker until profile.ready re-fires
+        if (
+          snap.state === 'draft'
+          && this.profileReady
+          && snap.revision >= this.profileReady.profile_revision
+        ) {
+          this.profileReady = null;
         }
         // also update recovery state
         this.recoveryState = { ...(this.recoveryState ?? {}), profile_revision: snap.revision };
@@ -1010,8 +1174,16 @@ export class WsClient {
       if (qid) this.recoveryState = { ...(this.recoveryState ?? {}), current_question_id: qid, active_question_id: qid };
     }
     if (t === 'profile.ready') {
-      const rev = (env.payload as Record<string, unknown>).profile_revision as number | undefined;
-      if (typeof rev === 'number') this.recoveryState = { ...(this.recoveryState ?? {}), profile_revision: rev };
+      const payload = env.payload as Record<string, unknown>;
+      const rev = payload.profile_revision as number | undefined;
+      const blocking = payload.blocking_unknowns;
+      if (typeof rev === 'number') {
+        this.recoveryState = { ...(this.recoveryState ?? {}), profile_revision: rev };
+        const unknowns = Array.isArray(blocking) && blocking.every((x) => typeof x === 'string')
+          ? (blocking as string[])
+          : [];
+        this.profileReady = { profile_revision: rev, blocking_unknowns: unknowns };
+      }
       this.workflowState = 'profile_review';
     }
     if (t === 'decision.request') {

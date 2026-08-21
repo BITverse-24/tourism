@@ -16,7 +16,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { WsClient } from './client'
-import { parseProfileSnapshot, parseProfileReady, type ProfileSnapshot as DiscoverySnapshot, type ProfileReady } from './discovery'
+import { parseProfileSnapshot, parseProfileReady, type ProfileSnapshot as DiscoverySnapshot } from './discovery'
 import { validateProfileConfirm, validateProfileRequestChanges } from './planning'
 import { useWsOptional as useWsContextOptional, getSharedWsClient } from './WsProvider'
 
@@ -67,6 +67,12 @@ export interface UseWsReturn {
   connected: boolean
 }
 
+const STATE_RANK: Record<ProfileSnapshotState, number> = {
+  draft: 0,
+  ready: 1,
+  confirmed: 2,
+}
+
 function toHookSnapshot(d: DiscoverySnapshot): HookProfileSnapshot {
   return {
     revision: d.revision,
@@ -76,50 +82,108 @@ function toHookSnapshot(d: DiscoverySnapshot): HookProfileSnapshot {
   }
 }
 
+function readSnapshotFromClient(client: WsClient): HookProfileSnapshot | null {
+  const raw = client.getProfileSnapshot() as unknown as {
+    revision: number
+    state?: string
+    profile?: Record<string, unknown>
+  } | null
+  if (!raw || typeof raw.revision !== 'number') return null
+  const parsed = parseProfileSnapshot(raw)
+  if (parsed) return toHookSnapshot(parsed)
+  // client store may hold loosely typed snapshot before parsing — preserve if revision exists
+  if (typeof raw.state === 'string' && (raw.state === 'draft' || raw.state === 'ready' || raw.state === 'confirmed')) {
+    return {
+      revision: raw.revision,
+      state: raw.state as ProfileSnapshotState,
+      profile: (raw.profile as Record<string, unknown>) ?? {},
+    }
+  }
+  return null
+}
+
+function readReadyFromClient(client: WsClient): HookProfileReady | null {
+  const stored = client.getProfileReady()
+  if (!stored) return null
+  const parsed = parseProfileReady(stored)
+  if (parsed) {
+    return {
+      profile_revision: parsed.profile_revision,
+      blocking_unknowns: parsed.blocking_unknowns,
+    }
+  }
+  // trust client store shape if parse is overly strict
+  if (
+    typeof stored.profile_revision === 'number'
+    && Array.isArray(stored.blocking_unknowns)
+  ) {
+    return {
+      profile_revision: stored.profile_revision,
+      blocking_unknowns: stored.blocking_unknowns.filter((x): x is string => typeof x === 'string'),
+    }
+  }
+  return null
+}
+
+/** Keep newer revision, or same-revision state promotions (draft → ready → confirmed). */
+function mergeSnapshot(prev: HookProfileSnapshot | null, next: HookProfileSnapshot): HookProfileSnapshot {
+  if (!prev || next.revision > prev.revision) return next
+  if (next.revision === prev.revision && STATE_RANK[next.state] > STATE_RANK[prev.state]) return next
+  return prev
+}
+
 export function useWs(): UseWsReturn {
   // Single-owner client — prefer WsProvider context, fallback to shared singleton (same resolveWsUrl URL)
   const ctx = useWsContextOptional()
   const [client] = useState<WsClient>(() => ctx?.client ?? getClient())
 
-  const [snapshot, setSnapshot] = useState<HookProfileSnapshot | null>(() => {
-    const raw = client.getProfileSnapshot() as unknown as { revision: number; state?: string; profile?: Record<string, unknown> } | null
-    if (!raw || typeof raw.revision !== 'number') return null
-    const parsed = parseProfileSnapshot(raw)
-    if (parsed) return toHookSnapshot(parsed)
-    // client store may hold loosely typed snapshot before parsing — preserve if revision exists
-    if (typeof raw.state === 'string' && (raw.state === 'draft' || raw.state === 'ready' || raw.state === 'confirmed')) {
-      return {
-        revision: raw.revision,
-        state: raw.state as ProfileSnapshotState,
-        profile: (raw.profile as Record<string, unknown>) ?? {},
-      }
-    }
-    return null
-  })
-
-  const [ready, setReady] = useState<HookProfileReady | null>(null)
+  const [snapshot, setSnapshot] = useState<HookProfileSnapshot | null>(() => readSnapshotFromClient(client))
+  // Hydrate from WsClient — profile.ready usually arrives before ProfileReview mounts
+  const [ready, setReady] = useState<HookProfileReady | null>(() => readReadyFromClient(client))
   const [connected, setConnected] = useState<boolean>(() => client.getConnectionState() === 'open')
 
   useEffect(() => {
+    // Re-sync from client store in case events arrived between render and subscribe
+    setSnapshot((prev) => {
+      const fromClient = readSnapshotFromClient(client)
+      return fromClient ? mergeSnapshot(prev, fromClient) : prev
+    })
+    setReady((prev) => readReadyFromClient(client) ?? prev)
+    setConnected(client.getConnectionState() === 'open')
+
     // subscribe to all ordered envelopes
     const unsub = client.subscribe((env) => {
       if (env.kind === 'event' && env.type === 'profile.snapshot') {
         const parsed = parseProfileSnapshot(env.payload)
         if (parsed) {
           const hook = toHookSnapshot(parsed)
-          setSnapshot((prev) => {
-            if (!prev || hook.revision > prev.revision) return hook
-            return prev
-          })
+          setSnapshot((prev) => mergeSnapshot(prev, hook))
+          // Mirror client: newer draft clears stale ready until profile.ready re-fires
+          if (hook.state === 'draft') {
+            setReady((prevReady) => {
+              if (prevReady && hook.revision >= prevReady.profile_revision) return null
+              return prevReady
+            })
+          }
         }
       } else if (env.kind === 'event' && env.type === 'profile.ready') {
         const parsed = parseProfileReady(env.payload)
         if (parsed) {
           setReady({ profile_revision: parsed.profile_revision, blocking_unknowns: parsed.blocking_unknowns })
         }
-      } else if (env.kind === 'event' && (env.type === 'session.ready' || env.type === 'session.expired' || env.type === 'session.superseded')) {
+      } else if (env.kind === 'event' && env.type === 'session.expired') {
+        setReady(null)
+        setSnapshot(null)
+        setConnected(client.getConnectionState() === 'open')
+      } else if (env.kind === 'event' && (env.type === 'session.ready' || env.type === 'session.superseded')) {
         // keep connected state in sync — session lifecycle may affect workflow
         setConnected(client.getConnectionState() === 'open')
+        // Recovery may have re-emitted snapshot + ready before this listener attached
+        setSnapshot((prev) => {
+          const fromClient = readSnapshotFromClient(client)
+          return fromClient ? mergeSnapshot(prev, fromClient) : prev
+        })
+        setReady((prev) => readReadyFromClient(client) ?? prev)
       }
     })
 
@@ -155,8 +219,9 @@ export function useWs(): UseWsReturn {
       }
       // Frontend validation mirrors planning.validateProfileConfirm — server remains authoritative
       const workflowState = client.getWorkflowState() ?? 'profile_review'
-      // derive blocking_unknowns from ready marker (contract source of truth)
-      const blocking = ready?.blocking_unknowns ?? []
+      // Prefer live ready; fall back to client store (same source Confirm gating uses)
+      const readyMarker = ready ?? readReadyFromClient(client)
+      const blocking = readyMarker?.blocking_unknowns ?? []
       const latestState = snapshot?.state ?? null
       const latestRev = snapshot?.revision ?? null
       const v = validateProfileConfirm({

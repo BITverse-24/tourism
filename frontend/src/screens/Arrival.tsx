@@ -30,10 +30,11 @@ export default function Arrival() {
     setBusy(true)
     // Persist intent for downstream screens (Discovery → profile, etc.)
     try { setIntent(trimmed) } catch {}
-    // Queue session.start (WsProvider reads stored session_id or null and ensures connection)
-    // — must happen before navigate so discovery can receive session.ready / recovery state.
+    // Queue session.start with initial intent so backend can seed profile (Kashmir etc.)
+    // WsProvider reads stored session_id or null and ensures connection.
+    // Must happen before navigate so discovery can receive session.ready / recovery state.
     // Handle idle/closed client gracefully; navigation must still proceed.
-    try { ws?.sendSessionStart() } catch {}
+    try { ws?.sendSessionStart(trimmed) } catch {}
     setTimeout(() => setExiting(true), 380)
     setTimeout(() => navigate('/discovery'), 820)
   }

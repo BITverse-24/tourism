@@ -1,7 +1,5 @@
 import type { FinalPlan } from '../types'
-import { mockPlan } from '../data/mockPlan'
 import { formatMoney, formatMoneyCompact, budgetLabel } from '../types/planAdapter'
-import { useMockFallback } from '../hooks/useMockFallback'
 
 export interface TripOverviewProps {
   plan?: FinalPlan | null
@@ -19,11 +17,7 @@ function statusLabel(s: string): string {
 }
 
 export default function TripOverview({ plan: incoming, state, revision }: TripOverviewProps) {
-  const { allowMock, wsFailedAtStart, isWaitingForLive } = useMockFallback()
-  // Live WS is default; mockPlan ONLY when websocket failed at start.
-  const fallbackPlan = allowMock && wsFailedAtStart ? (mockPlan as unknown as FinalPlan) : null
-  const plan = incoming ?? fallbackPlan
-  const isMockActive = !incoming && !!fallbackPlan
+  const plan = incoming ?? null
 
   if (!plan) {
     return (
@@ -31,11 +25,8 @@ export default function TripOverview({ plan: incoming, state, revision }: TripOv
         <p style={{ fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--voyager-ink-3)', fontWeight: 500 }}>01 — THE JOURNEY</p>
         <h1 className="serif" style={{ marginTop: 18, fontSize: 'clamp(32px,4vw,44px)', fontWeight: 300, color: 'var(--voyager-ink-1)' }}>Your trip will appear here</h1>
         <p style={{ marginTop: 12, fontSize: 14, lineHeight: '22px', color: 'var(--voyager-ink-2)', maxWidth: 520 }}>
-          {isWaitingForLive
-            ? 'Waiting for live snapshot — connecting to the concierge…'
-            : 'Confirm your profile to generate a plan. When a live Final Trip Plan arrives, it will render here with full route, stay, and budget details.'}
+          Confirm your profile to generate a plan. When a live Final Trip Plan arrives, it will render here with full route, stay, and budget details.
         </p>
-        {isWaitingForLive && <p style={{ marginTop: 12, fontSize: 12, color: 'var(--voyager-ink-3)' }}>Live WS is the default. Mock fallback will activate only if the websocket fails at start.</p>}
       </main>
     )
   }
@@ -67,6 +58,22 @@ export default function TripOverview({ plan: incoming, state, revision }: TripOv
   const caveats = cs?.caveats ?? []
   const budgetPosLabel = budgetLabel(cs?.budget_position ?? '')
 
+  // Protected-field invariant hint (SYSTEM_CONTRACT: route must agree with days, single currency)
+  const invariantIssues: string[] = (() => {
+    const issues: string[] = []
+    if (route.length > 0) {
+      const sorted = [...route].sort((a,b)=>a.order-b.order)
+      for (let i=0;i<sorted.length;i++) if (sorted[i].order !== i+1) { issues.push('Route order should be sequential starting at 1.'); break }
+      const dayPlaces = new Set(plan.days.map(d=>d.place.trim().toLowerCase()))
+      const missing = sorted.filter(r=>!dayPlaces.has(r.place.trim().toLowerCase())).map(r=>r.place)
+      if (missing.length) issues.push(`Day plan missing for route place(s): ${missing.join(', ')}`)
+    }
+    // Currency single check already enforced by formatMoney; surface if categories empty but total present
+    if (cs && categories.length===0 && cs.estimated_total>0) issues.push('Cost breakdown categories empty while total is non-zero.')
+    // Also surface if plan is final but warnings suggest protected-field mismatch would have blocked publish (defensive)
+    return issues
+  })()
+
   return (
     <main
       className="trip-overview"
@@ -91,13 +98,7 @@ export default function TripOverview({ plan: incoming, state, revision }: TripOv
           01 — THE JOURNEY
           {typeof revision === 'number' ? ` · REV ${String(revision).padStart(2, '0')}` : ''}
           {isDraft ? ' · DRAFT' : ''}
-          {isMockActive ? ' · MOCK FALLBACK' : ''}
         </p>
-        {isMockActive && (
-          <p style={{ marginTop: 8, fontSize: 11, letterSpacing: '0.08em', color: 'var(--voyager-ink-3)' }}>
-            Mock fallback active — websocket failed at start. Live data will replace this when the concierge connects.
-          </p>
-        )}
 
         <h1
           className="serif"
@@ -134,6 +135,13 @@ export default function TripOverview({ plan: incoming, state, revision }: TripOv
           </p>
         )}
       </div>
+
+      {invariantIssues.length > 0 && (
+        <div role="note" style={{ marginTop: 16, padding: '10px 14px', borderRadius: 8, border: '1px solid rgba(181,111,98,0.24)', background: 'rgba(181,111,98,0.06)', color: 'var(--voyager-ink-2)', fontSize: 12, lineHeight: '18px' }}>
+          <span style={{ fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', fontSize: 10, color: 'var(--voyager-clay)' }}>Plan invariant note</span>
+          <ul style={{ margin: '6px 0 0 18px', padding: 0 }}>{invariantIssues.map((m,i)=>(<li key={i}>{m}</li>))}</ul>
+        </div>
+      )}
 
       {/* very thin horizontal rule + marker — not gold */}
       <div

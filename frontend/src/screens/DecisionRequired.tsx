@@ -24,5 +24,5 @@ const decision: DecisionRequest = {
 
 export default function DecisionRequired() {
   // Direct delegation — same dark consultation environment, no cream card, no separate page
-  return <Consultation decisionRequest={decision} enableMockDecision={false} />
+  return <Consultation decisionRequest={decision} />
 }

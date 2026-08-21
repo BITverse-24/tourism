@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { getWsClient } from "../ws/index";
-import { useMockFallback } from "../hooks/useMockFallback";
 import { PlanningLifecycleStore } from "../ws/planning";
 import {
   initialDecisionPlanState,
@@ -91,17 +90,6 @@ const DEFAULT_DECISION: DecisionRequest = {
     { option_id: "coverage", label: "Prioritize coverage", tradeoff: "More attraction visits and a higher movement burden — see more, walk more." },
   ],
 };
-
-/**
- * Mock fallback for Consultation is gated by useMockFallback (wsFailedAtStart).
- * Live WS is default; mock timer/decision only when websocket failed at start.
- * The helper below is retained for backwards-compat but no longer drives `usesMock`.
- */
-function isMockEnabled(): boolean {
-  // Deprecated: decision now comes from useMockFallback. Keep returning false
-  // so that standalone VITE_WS_MOCK checks do not re-enable mocks when WS is live.
-  return false
-}
 
 function mapDecisionPayloadToRequest(payload: { decision_id: string; prompt: string; reason?: string; options: DecisionOption[] }): DecisionRequest {
   return {
@@ -342,8 +330,6 @@ export type ConsultationProps = {
   /** Decision integration — if provided, consultation enters decision_required */
   decisionRequest?: DecisionRequest | null;
   onDecisionSubmit?: (optionId: string, decisionId: string) => void;
-  /** Controls mock decision auto-trigger when no external decision provided. Default true */
-  enableMockDecision?: boolean;
 };
 
 export default function Consultation({
@@ -354,7 +340,6 @@ export default function Consultation({
   expanded = true,
   decisionRequest: externalDecision,
   onDecisionSubmit,
-  enableMockDecision = true,
 }: ConsultationProps) {
   const [internalStages, setInternalStages] = useState<Stage[]>(() =>
     STAGE_DEFS.map((d) => ({ ...d, status: "queued" as StageStatus, summary: undefined }))
@@ -367,7 +352,6 @@ export default function Consultation({
   const seqRef = useRef<number>(Date.now());
 
   // Decision state machine
-  const [mockDecisionVisible, setMockDecisionVisible] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [resuming, setResuming] = useState(false);
@@ -375,15 +359,9 @@ export default function Consultation({
 
   const live = useLiveConsultation();
   const wsConnected = live.connected;
-  const { allowMock: consultationAllowMock, wsFailedAtStart: consultationFailed } = useMockFallback()
-
-  // Mock timer/decision ONLY when websocket failed at start — live WS is default.
-  // `allowMock` is true only after wsFailedAtStart && !connected.
-  const usesMock = externalStages === undefined && consultationAllowMock && consultationFailed
 
   // Effective stages / planningMessage / lastSeq
   const stages = wsConnected ? live.stages : externalStages ?? internalStages;
-  const usesMockTimer = usesMock;
 
   // Determine if we have an active decision — live takes precedence when connected
   const hasExternalDecision = externalDecision !== undefined && externalDecision !== null;
@@ -392,8 +370,6 @@ export default function Consultation({
     activeDecision = live.decision;
   } else if (hasExternalDecision) {
     activeDecision = externalDecision as DecisionRequest;
-  } else if (mockDecisionVisible) {
-    activeDecision = DEFAULT_DECISION;
   } else {
     activeDecision = null;
   }
@@ -413,54 +389,6 @@ export default function Consultation({
   })();
   const statusLine = planningMessage || lastSummary || "Preparing a thoughtful plan for you.";
   const lastSeq = wsConnected ? live.lastSeq : externalSeq ?? seqTick;
-
-  // Mock timer: progress stages deterministically — disabled when ws.connected
-  useEffect(() => {
-    if (!usesMockTimer) return;
-    if (timedOut) return;
-    if (isDecisionRequired || isResuming) return; // pause progression during decision
-
-    let current = 0;
-    const interval = window.setInterval(() => {
-      setInternalStages((prev) => {
-        const next = prev.map((s) => ({ ...s }));
-        const idx = next.findIndex((s) => s.status === "queued" || s.status === "started" || s.status === "progressed");
-        if (idx === -1) return prev;
-        const st = next[idx];
-        if (st.status === "queued") {
-          st.status = "started";
-          st.summary = LIFECYCLE_SUMMARIES[st.key];
-        } else if (st.status === "started" || st.status === "progressed") {
-          st.status = "completed";
-        }
-        setPlanningIdx((p) => Math.min(p + 1, PLANNING_MESSAGES.length - 1));
-        const now = Date.now();
-        seqRef.current = now;
-        setSeqTick(now);
-        setElapsed(0);
-        return next;
-      });
-      current++;
-      if (current > 20) window.clearInterval(interval);
-    }, 1400);
-
-    return () => window.clearInterval(interval);
-  }, [usesMockTimer, timedOut, isDecisionRequired, isResuming]);
-
-  // Auto-trigger mock decision after constraint_preference starts — disabled when ws.connected
-  useEffect(() => {
-    if (wsConnected) return;
-    if (!enableMockDecision) return;
-    if (hasExternalDecision) return; // external controls
-    if (mockDecisionVisible || resuming) return;
-    if (!usesMockTimer) return;
-    // When second stage becomes started, show decision after short delay
-    const constraint = internalStages.find((s) => s.key === "constraint_preference");
-    if (constraint && (constraint.status === "started" || constraint.status === "progressed")) {
-      const t = window.setTimeout(() => setMockDecisionVisible(true), 900);
-      return () => window.clearTimeout(t);
-    }
-  }, [internalStages, enableMockDecision, hasExternalDecision, mockDecisionVisible, resuming, usesMockTimer, wsConnected]);
 
   // Keep seqRef synced with live lastSeq when connected
   useEffect(() => {
@@ -534,7 +462,6 @@ export default function Consultation({
         setDecisionFadingOut(true);
         window.setTimeout(() => {
           setResuming(true);
-          setMockDecisionVisible(false);
           setDecisionFadingOut(false);
           setConfirming(false);
           onDecisionSubmit?.(selected, activeDecision.decision_id);
@@ -547,47 +474,22 @@ export default function Consultation({
       return;
     }
 
-    // Fallback / mock path
+    // Fallback path when not connected — still allow local resuming transition
     setConfirming(true);
-    // show amber outline + check for ~500ms, then dissolve into resuming
     window.setTimeout(() => {
       setDecisionFadingOut(true);
       window.setTimeout(() => {
         setResuming(true);
-        setMockDecisionVisible(false);
         setDecisionFadingOut(false);
         setConfirming(false);
-        // Notify parent
         onDecisionSubmit?.(selected, activeDecision.decision_id);
-        // After resuming display (~1800ms), return to working
         window.setTimeout(() => {
           setResuming(false);
           setSelected(null);
-          // mark constraint stage as completed and advance
-          if (usesMock) {
-            setInternalStages((prev) => {
-              const next = prev.map((s) => ({ ...s }));
-              const idx = next.findIndex((s) => s.key === "constraint_preference");
-              if (idx !== -1) {
-                next[idx].status = "completed";
-                next[idx].summary = "Preference recorded — continuing with your choice.";
-                // start next stage
-                const nxt = next[idx + 1];
-                if (nxt && nxt.status === "queued") {
-                  nxt.status = "started";
-                  nxt.summary = LIFECYCLE_SUMMARIES[nxt.key];
-                }
-              }
-              return next;
-            });
-            const now = Date.now();
-            seqRef.current = now;
-            setSeqTick(now);
-          }
         }, 1800);
       }, 380);
     }, 520);
-  }, [selected, activeDecision, confirming, resuming, onDecisionSubmit, usesMock, wsConnected, live]);
+  }, [selected, activeDecision, confirming, resuming, onDecisionSubmit, wsConnected, live]);
 
   // Determine which stage is the decision point (constraint_preference by default)
   const decisionStageKey = "constraint_preference";
@@ -722,6 +624,18 @@ export default function Consultation({
               aria-label="Try again"
             >
               Try again
+            </button>
+          )}
+          {!timedOut && isWorking && (
+            <button
+              type="button"
+              className="retry-link"
+              onClick={() => { try { getWsClient().sendRunCancel('Traveler cancelled planning') } catch {} }}
+              data-testid="cancel-planning"
+              aria-label="Cancel planning"
+              style={{ marginTop: 12, opacity: 0.72 }}
+            >
+              Cancel
             </button>
           )}
 
