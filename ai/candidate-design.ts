@@ -5,7 +5,7 @@
  */
 
 import "dotenv/config";
-import { GoogleGenAI } from "@google/genai";
+import OpenAI from "openai";
 import { FinalTripPlan } from "./narrative";
 
 // --- profile types (inlined so clone with only ai/ still compiles) ---
@@ -241,7 +241,9 @@ export class CandidateDesignToolError extends Error { readonly code: string; con
 export class CandidateDesignResponseError extends Error { readonly validation_errors: string[]; constructor(message: string, validation_errors: string[] = []) { super(message); this.name = "CandidateDesignResponseError"; this.validation_errors = validation_errors; } }
 export class CandidateDesignTimeoutError extends Error { constructor(message: string) { super(message); this.name = "CandidateDesignTimeoutError"; } }
 
-const DEFAULT_MODEL = "gemini-3.6-flash";
+const DEFAULT_MODEL = "muse-spark-1.2-contributor";
+const FIXED_MODEL = "muse-spark-1.2-contributor";
+const META_BASE_URL = "https://api.meta.ai/v1";
 const DEFAULT_TIMEOUT_MS = 30_000;
 
 const stringOrNullSchema = { type: ["string", "null"] } as const;
@@ -298,7 +300,6 @@ interface ToolCall { id: string; type: "function"; function: { name: string; arg
 interface ModelMessage {
     content: string | null;
     tool_calls: ToolCall[];
-    geminiContent?: any;
 }
 interface RunState {
     input: CandidateDesignInput;
@@ -1207,158 +1208,21 @@ function parseModelMessage(payload: unknown): ModelMessage {
     return { content: typeof (message as any).content === "string" ? (message as any).content : null, tool_calls: calls };
 }
 
-function toGeminiDeclarations(tools: unknown[]): any[] {
-    const decls: any[] = [];
-    for (const t of tools as any[]) {
-        if (!t || typeof t !== "object") continue;
-        const fn = (t as any).function ?? t;
-        if (!fn || typeof fn.name !== "string") continue;
-        const params = fn.parameters ?? fn.parametersJsonSchema ?? { type: "object", properties: {} };
-        decls.push({ name: fn.name, description: fn.description ?? "", parametersJsonSchema: params });
-    }
-    return decls;
-}
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// function chatMessagesToGeminiContents(messages: ChatMessage[]): any[] {                                                                                                                                            //
-//     const contents: any[] = [];                                                                                                                                                                                    //
-//     for (const m of messages) {                                                                                                                                                                                    //
-//         const role = (m as any).role;                                                                                                                                                                              //
-//         if (role === "system") { const content = (m as any).content ?? ""; if (content) contents.push({ role: "user", parts: [{ text: `[System] ${content}` }] }); }                                               //
-//         else if (role === "user") { const content = (m as any).content ?? ""; if (content) contents.push({ role: "user", parts: [{ text: String(content) }] }); }                                                  //
-//         else if (role === "assistant") {                                                                                                                                                                           //
-//             const parts: any[] = []; const content = (m as any).content; if (typeof content === "string" && content) parts.push({ text: content });                                                                //
-//             const toolCalls = (m as any).tool_calls as ToolCall[] | undefined;                                                                                                                                     //
-//             if (toolCalls) for (const c of toolCalls) { let args: any = {}; try { args = JSON.parse(c.function.arguments); } catch { args = {}; } parts.push({ functionCall: { name: c.function.name, args } }); } //
-//             if (parts.length) contents.push({ role: "model", parts });                                                                                                                                             //
-//         } else if (role === "tool") {                                                                                                                                                                              //
-//             const name = (m as any).name ?? "unknown"; const content = (m as any).content ?? ""; let parsed: any = content; try { parsed = JSON.parse(String(content)); } catch {}                                 //
-//             contents.push({ role: "user", parts: [{ functionResponse: { name, response: typeof parsed === "object" ? parsed : { output: String(parsed) } } }] });                                                  //
-//         }                                                                                                                                                                                                          //
-//     }                                                                                                                                                                                                              //
-//     return contents;                                                                                                                                                                                               //
-// }                                                                                                                                                                                                                  //
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-function chatMessagesToGeminiContents(
-    messages: ChatMessage[]
-): any[] {
-    const contents: any[] = [];
-
-    for (const m of messages) {
-        const role = (m as any).role;
-
-        if (role === "gemini_raw") {
-            // IMPORTANT:
-            // Do not reconstruct functionCall.
-            // Send Gemini's original content back unchanged.
-            contents.push((m as any).content);
-        }
-
-        else if (role === "system") {
-            const content = (m as any).content ?? "";
-
-            if (content) {
-                contents.push({
-                    role: "user",
-                    parts: [{
-                        text: `[System] ${content}`
-                    }]
-                });
-            }
-        }
-
-        else if (role === "user") {
-            const content = (m as any).content ?? "";
-
-            if (content) {
-                contents.push({
-                    role: "user",
-                    parts: [{
-                        text: String(content)
-                    }]
-                });
-            }
-        }
-
-        else if (role === "assistant") {
-            const parts: any[] = [];
-
-            const content = (m as any).content;
-
-            if (typeof content === "string" && content) {
-                parts.push({ text: content });
-            }
-
-            const toolCalls =
-                (m as any).tool_calls as ToolCall[] | undefined;
-
-            if (toolCalls) {
-                for (const c of toolCalls) {
-                    let args: any = {};
-
-                    try {
-                        args = JSON.parse(c.function.arguments);
-                    } catch {
-                        args = {};
-                    }
-
-                    parts.push({
-                        functionCall: {
-                            name: c.function.name,
-                            args
-                        }
-                    });
-                }
-            }
-
-            if (parts.length) {
-                contents.push({
-                    role: "model",
-                    parts
-                });
-            }
-        }
-
-        else if (role === "tool") {
-            const name = (m as any).name ?? "unknown";
-            const content = (m as any).content ?? "";
-
-            let parsed: any = content;
-
-            try {
-                parsed = JSON.parse(String(content));
-            } catch {}
-
-            contents.push({
-                role: "user",
-                parts: [{
-                    functionResponse: {
-                        name,
-                        response:
-                        typeof parsed === "object"
-                            ? parsed
-                            : { output: String(parsed) }
-                    }
-                }]
-            });
-        }
-    }
-
-    return contents;
-}
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// OpenAI helper — tools are already in OpenAI shape { type:"function", function:{name,description,parameters} }
+function toGeminiDeclarations(_tools: unknown[]): any[] { return []; }
 
 async function requestModel(state: RunState, messages: ChatMessage[], tools: unknown[]): Promise<ModelMessage> {
-    const apiKey = state.options.api_key ?? process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY ?? process.env.GOOGLE_GENAI_API_KEY;
-    if (!apiKey) throw new CandidateDesignConfigurationError("Missing GEMINI_API_KEY. Set it in the environment or pass api_key.");
-    const model = state.options.model ?? process.env.GEMINI_MODEL ?? process.env.GOOGLE_MODEL ?? DEFAULT_MODEL;
+    const apiKey = state.options.api_key ?? process.env.OPENAI_API_KEY ?? process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY ?? process.env.GOOGLE_GENAI_API_KEY;
+    if (!apiKey) throw new CandidateDesignConfigurationError("Missing OPENAI_API_KEY. Set it in the environment or pass api_key.");
+    const model = FIXED_MODEL;
     const fetcher = state.options.fetcher;
     if (fetcher) {
         for (let attempt = 0; attempt < 5; attempt += 1) {
             const controller = new AbortController(); const remaining = Math.max(1, state.deadline - Date.now()); const abortTimer = setTimeout(() => controller.abort(), remaining);
             try {
-                const response = await withDeadline(fetcher("https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent", {
-                    method: "POST", headers: { "x-goog-api-key": apiKey, "Content-Type": "application/json" }, signal: controller.signal,
-                    body: JSON.stringify({ model, messages, ...(tools.length > 0 ? { tools, tool_choice: "auto" } : { response_format: { type: "json_schema", json_schema: { name: "candidate_design_result", strict: true, schema: CANDIDATE_DESIGN_RESPONSE_SCHEMA } } }), ...(state.options.reasoning_effort ? { reasoning_effort: state.options.reasoning_effort } : {}) }),
+                const response = await withDeadline(fetcher(`${META_BASE_URL}/chat/completions`, {
+                    method: "POST", headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" }, signal: controller.signal,
+                    body: JSON.stringify({ model, messages, ...(tools.length > 0 ? { tools, tool_choice: "auto" } : { response_format: { type: "json_schema", json_schema: { name: "candidate_design_result", strict: true, schema: CANDIDATE_DESIGN_RESPONSE_SCHEMA } } }), temperature: 0.2, max_tokens: 8192, reasoning_effort: "medium" }),
                 } as any), state.deadline, "model request");
                 const rawText = await withDeadline(response.text(), state.deadline, "model response read");
                 if (response.status === 429 && attempt < 4) {
@@ -1375,56 +1239,34 @@ async function requestModel(state: RunState, messages: ChatMessage[], tools: unk
         }
         throw new CandidateDesignApiError("Candidate Design model request failed after retries", 429);
     }
-    const geminiTools = tools.length > 0 ? [{ functionDeclarations: toGeminiDeclarations(tools) }] : [];
-    const contents = chatMessagesToGeminiContents(messages);
-    const systemInstruction = SYSTEM_PROMPT;
-    const client = new GoogleGenAI({ apiKey } as any);
+    const client = new OpenAI({ apiKey, baseURL: META_BASE_URL } as any);
     const withTimeout = async <T>(promise: Promise<T>, ms: number): Promise<T> => {
         let tid: ReturnType<typeof setTimeout>; const tp = new Promise<never>((_, rej) => { tid = setTimeout(() => rej(new DOMException("Timeout", "AbortError")), ms); });
         try { const r = await Promise.race([promise, tp]); clearTimeout(tid!); return r as T; } catch (e) { clearTimeout(tid!); throw e; }
     };
     for (let attempt = 0; attempt < 5; attempt += 1) {
         try {
-            const remaining = Math.max(1, state.deadline - Date.now()); let response: any;
-            if (tools.length > 0) {
-                response = await withTimeout(client.models.generateContent({ model, contents, config: { systemInstruction, tools: geminiTools, toolConfig: { functionCallingConfig: { mode: "AUTO" } }, temperature: 0.2 } } as any), remaining);
-            } else {
-                response = await withTimeout(client.models.generateContent({ model, contents, config: { systemInstruction, responseMimeType: "application/json", responseJsonSchema: CANDIDATE_DESIGN_RESPONSE_SCHEMA as any, temperature: 0.2, maxOutputTokens: 3000 } } as any), remaining);
-            }
-            // const functionCalls = (response as any).functionCalls;
-            // if (functionCalls && functionCalls.length > 0) {
-            //   const calls: ToolCall[] = functionCalls.map((fc: any, idx: number) => ({ id: `call-${idx}`, type: "function", function: { name: fc.name, arguments: typeof fc.args === "string" ? fc.args : JSON.stringify(fc.args ?? {}) } }));
-            //   return { content: (response as any).text ?? null, tool_calls: calls };
-            // }
-
-            ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-            const geminiContent = (response as any).candidates?.[0]?.content;
-            const functionCalls = (response as any).functionCalls;
-
-            if (functionCalls && functionCalls.length > 0) {
-                const calls: ToolCall[] = functionCalls.map((fc: any, idx: number) => ({
-                    id: fc.id ?? `call-${idx}`,
+            const remaining = Math.max(1, state.deadline - Date.now());
+            const payload: any = {
+                model,
+                messages: messages as any,
+                temperature: 0.2,
+                max_tokens: 8192,
+                reasoning_effort: "medium",
+                ...(tools.length > 0 ? { tools: tools as any, tool_choice: "auto" as const } : { response_format: { type: "json_schema" as const, json_schema: { name: "candidate_design_result", strict: true, schema: CANDIDATE_DESIGN_RESPONSE_SCHEMA as any } } }),
+            };
+            const response: any = await withTimeout(client.chat.completions.create(payload), remaining);
+            const choice = response?.choices?.[0];
+            const msg: any = choice?.message;
+            if (msg?.tool_calls && msg.tool_calls.length > 0) {
+                const calls: ToolCall[] = msg.tool_calls.map((tc: any, idx: number) => ({
+                    id: tc.id ?? `call-${idx}`,
                     type: "function",
-                    function: {
-                        name: fc.name,
-                        arguments:
-                        typeof fc.args === "string"
-                            ? fc.args
-                            : JSON.stringify(fc.args ?? {}),
-                    },
+                    function: { name: tc.function?.name ?? tc.name, arguments: tc.function?.arguments ?? JSON.stringify(tc.function?.arguments ?? {}) },
                 }));
-
-                return {
-                    content: (response as any).text ?? null,
-                    tool_calls: calls,
-
-                    // IMPORTANT: preserve the original Gemini parts,
-                    // including thoughtSignature
-                    geminiContent,
-                };
+                return { content: msg.content ?? null, tool_calls: calls };
             }
-
-            const text = (response as any).text ?? "";
+            const text: string = msg?.content ?? "";
             if (!text) throw new CandidateDesignResponseError("model returned neither tool calls nor final JSON", ["message.content: final JSON required"]);
             return { content: text, tool_calls: [] };
         } catch (e: any) {
@@ -1455,23 +1297,11 @@ async function modelToolLoop(state: RunState, messages: ChatMessage[], tools: un
             } throw e;
         }
         if (message.tool_calls.length > 0) {
-            ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-            // const assistantMessage: ChatMessage = { role: "assistant", content: message.content, tool_calls: message.tool_calls }; //
-            // messages.push(assistantMessage);                                                                                       //
-            ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-            if (message.geminiContent) {
-                messages.push({
-                    role: "gemini_raw",
-                    content: message.geminiContent,
-                });
-            } else {
-                messages.push({
-                    role: "assistant",
-                    content: message.content,
-                    tool_calls: message.tool_calls,
-                });
-            }
-            ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+            messages.push({
+                role: "assistant",
+                content: message.content,
+                tool_calls: message.tool_calls,
+            });
 
             for (const call of message.tool_calls) {
                 const output = await executeTool(state, call.function.name, call.function.arguments);
