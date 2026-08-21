@@ -1,4 +1,4 @@
-import { CandidateDesignInput, CandidateDesignOptions, CandidateDesignResult, processCandidateDesign, RunBudget } from "../../../ai/candidate-design";
+import { CandidateDesignInput, CandidateDesignOptions, CandidateDesignResult, processCandidateDesign, RunBudget, TravelerProfile } from "../../../ai/candidate-design";
 import { NarrativeInput, NarrativeOptions, NarrativeResult, processNarrative } from "../../../ai/narrative";
 import { getAttractionsByIds, queryAttractions } from "../agent_tools/AttractionKnowledgebaseTools";
 import { askUserDecisionTool } from "../agent_tools/CandidateDecision";
@@ -6,6 +6,7 @@ import { getCity, searchCities } from "../agent_tools/CityKnowledgebaseTools";
 import { AppConfig, loadConfig } from "../app/config";
 import { createCandidateDesignOptions, createCandidateDesignTools, createNarrativeOptions } from "../factory/AgentConfig";
 import { createPlanSnapshotMessage } from "../factory/Event";
+import { getSessionProfile, getTripPlan, setTripPlan } from "../models/data";
 import { logger } from "../modules/logger";
 import { generateUUID } from "../modules/util";
 import { ReplanRequestMessage } from "../structures/CommandMessage";
@@ -26,13 +27,14 @@ export async function replanService(
         max_rows_per_tool_call: conf.agent_2_max_rows_per_tool_call,                        
         timeout_ms: conf.agent_timeout_ms,                                                  
     }                                                                                       
+    const prof: TravelerProfile =  await getSessionProfile(data.session_id); 
     const candidateDesignInput: CandidateDesignInput = {                                    
-        profile: data.payload.profile,                                                              
+        profile: prof,
         run_budget: runBudget,                                                              
         session_id: data.session_id,                                                        
         replan: {
             replan_reason: data.payload.replan_reason,
-            previous_plan: data.payload.previous_plan
+            previous_plan: await getTripPlan(data.run_id),
         }
     }                                                                                       
     
@@ -60,7 +62,7 @@ export async function replanService(
     
     // agent 3 service                                                                      
     const narrativeInput: NarrativeInput = {                                                
-        profile: data.payload.profile,     
+        profile: prof,
         profile_revision: candidateDesignRes.profile_revision,
         candidate: candidateDesignRes.candidates[0],                                        
         dataset_revisions: { city: candidateDesignRes.dataset_revisions.city, attraction: candidateDesignRes.dataset_revisions.attraction }, ///// TOO DOO when whenever 
@@ -91,6 +93,7 @@ export async function replanService(
             plan: narrativeRes.plan                                                         
         }                                                                                   
     })                                                                                      
+    setTripPlan(data.run_id, narrativeRes.plan)
     logger.debug('sending plan snapshot of the final trup plan', {data: planSnapMsg})
     emit({ event: Events.PLAN_SNAPSHOT, data: planSnapMsg })                                
     

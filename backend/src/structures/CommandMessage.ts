@@ -12,9 +12,7 @@ const CommandMessageEnvelopeSchema = BaseMessageEnvelopeSchema.extend({
 export const ReplanRequestSchema = CommandMessageEnvelopeSchema.extend({
     type: z.literal("replan.request"),
     payload: z.object({
-        profile: TravelerProfileSchema,
         replan_reason: z.string(),
-        previous_plan: FinalTripPlanSchema,
     }),
 })
 export type ReplanRequestMessage = z.infer<typeof ReplanRequestSchema>;

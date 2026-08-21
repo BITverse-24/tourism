@@ -1,5 +1,5 @@
 import { createPlanSnapshotMessage, createProfileSnapshotMessage } from "../factory/Event";
-import { addDiscoveryQuestion, appendProfileSnapshot, getSessionProfile, setWorkflowState } from "../models/data";
+import { addDiscoveryQuestion, appendProfileSnapshot, getSessionProfile, setTripPlan, setWorkflowState } from "../models/data";
 import { generateUUID } from "../modules/util";
 import { ProfileConfirmMessage, ProfileRequestChangesMessage } from "../structures/CommandMessage";
 import { DiscoveryAnsSelectionModes, DiscoveryFreeTextModes, Events, PlanSnapshotStates, ProfileSnapshotStates, WorkflowStates } from "../structures/enums";
@@ -107,10 +107,10 @@ export async function profileConfirmService(
                                                                                             
     // agent 3 service                                                                      
     const narrativeInput: NarrativeInput = {                                                
-        profile: profile,                                                                   
-        profile_revision: revision,                                                         
+        profile: profile,
+        profile_revision: candidateDesignRes.profile_revision,
         candidate: candidateDesignRes.candidates[0],                                        
-        dataset_revisions: { city: "HUH", attraction: "HUUH" }, ///// TOO DOO when whenever 
+        dataset_revisions: { city: candidateDesignRes.dataset_revisions.city, attraction: candidateDesignRes.dataset_revisions.attraction }, ///// TOO DOO when whenever 
     }                                                                                       
     const narrativeOpt: NarrativeOptions = createNarrativeOptions({                         
         api_key: conf.agent_api_key,                                                        
@@ -139,6 +139,7 @@ export async function profileConfirmService(
         }                                                                                   
     })                                                                                      
     logger.debug('sending plan snapshot of the final trup plan', {data: planSnapMsg})
+    setTripPlan(data.run_id, narrativeRes.plan)
     emit({ event: Events.PLAN_SNAPSHOT, data: planSnapMsg })                                
     
     logger.debug('completed profile.confirm service', {data: data})
