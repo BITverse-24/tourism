@@ -1,0 +1,101 @@
+city_id,city_name,state,region,latitude,longitude,elevation_m,climate_type,destination_type__001,destination_type__002,destination_type__003,destination_type__004,destination_type__005,destination_type__006,tourism_popularity,primary_airport,primary_airport_iata,primary_railway_station,primary_railway_station_code,recommended_days_min,recommended_days_max
+mumbai_maharashtra,Mumbai,Maharashtra,West India,18.922,72.8347,14,Tropical,Urban,Shopping,Nightlife,Food,Cultural,,Very High,Chhatrapati Shivaji Maharaj International Airport,BOM,Chhatrapati Shivaji Maharaj Terminus,CSMT,2,4
+pune_maharashtra,Pune,Maharashtra,West India,18.5204,73.8567,560,Semi-Arid,Urban,Cultural,Nightlife,Food,Heritage,,High,Pune Airport,PNQ,Pune Junction,PUNE,2,3
+ahmedabad_gujarat,Ahmedabad,Gujarat,West India,23.0225,72.5714,53,Semi-Arid,Heritage,Food,Cultural,Shopping,,,Very High,Sardar Vallabhbhai Patel International Airport,AMD,Ahmedabad Junction,ADI,2,3
+panaji_goa,Panaji,Goa,West India,15.4909,73.8278,7,Tropical,Heritage,Cultural,Food,Nightlife,Beach,,Very High,Dabolim Airport,GOI,Karmali Railway Station,KRMI,2,4
+bhopal_madhya_pradesh,Bhopal,Madhya Pradesh,Central India,23.2599,77.4126,500,Subtropical,Heritage,Nature,Cultural,,,,High,Raja Bhoj Airport,BHO,Bhopal Junction,BPL,2,3
+indore_madhya_pradesh,Indore,Madhya Pradesh,Central India,22.7196,75.8577,553,Subtropical,Food,Urban,Heritage,Cultural,,,High,Devi Ahilyabai Holkar Airport,IDR,Indore Junction,INDB,2,3
+gwalior_madhya_pradesh,Gwalior,Madhya Pradesh,Central India,26.2183,78.1828,197,Subtropical,Heritage,Music,Cultural,,,,High,Gwalior Airport,GWL,Gwalior Junction,GWL,1,2
+aurangabad_maharashtra,Chhatrapati Sambhajinagar,Maharashtra,West India,19.8762,75.3433,569,Semi-Arid,Heritage,Religious,Cultural,,,,Very High,Aurangabad Airport,IXU,Aurangabad Railway Station,AWB,2,4
+nashik_maharashtra,Nashik,Maharashtra,West India,19.9975,73.7898,600,Semi-Arid,Religious,Wellness,Cultural,Heritage,,,High,Nashik International Airport,ISK,Nashik Road Railway Station,NK,2,3
+vadodara_gujarat,Vadodara,Gujarat,West India,22.3072,73.1812,39,Semi-Arid,Heritage,Cultural,Food,,,,High,Vadodara Airport,BDQ,Vadodara Junction,BRC,1,2
+ujjain_madhya_pradesh,Ujjain,Madhya Pradesh,Central India,23.1765,75.7885,494,Subtropical,Religious,Heritage,Cultural,,,,Very High,Devi Ahilyabai Holkar Airport,IDR,Ujjain Junction,UJN,1,2
+khajuraho_madhya_pradesh,Khajuraho,Madhya Pradesh,Central India,24.8318,79.9199,226,Subtropical,Heritage,Cultural,Religious,,,,High,Khajuraho Airport,HJR,Khajuraho Railway Station,KURJ,1,2
+orchha_madhya_pradesh,Orchha,Madhya Pradesh,Central India,25.3516,78.6433,218,Subtropical,Heritage,Religious,Cultural,Nature,,,High,Gwalior Airport,GWL,Virangana Lakshmibai Jhansi Junction,VGLJ,1,2
+mandur_madhya_pradesh,Mandu,Madhya Pradesh,Central India,22.3664,75.3995,633,Subtropical,Heritage,Nature,Cultural,,,,Moderate,Devi Ahilyabai Holkar Airport,IDR,Indore Junction,INDB,1,2
+sanchi_madhya_pradesh,Sanchi,Madhya Pradesh,Central India,23.4877,77.7359,427,Subtropical,Heritage,Religious,Cultural,,,,Moderate,Raja Bhoj Airport,BHO,Sanchi Railway Station,SCI,1,1
+dwarka_gujarat,Dwarka,Gujarat,West India,22.2394,68.9678,7,Arid,Religious,Heritage,Beach,,,,High,Porbandar Airport,PBD,Dwarka Railway Station,DWK,1,2
+somnath_gujarat,Somnath,Gujarat,West India,20.888,70.4012,8,Semi-Arid,Religious,Beach,Heritage,,,,High,Diu Airport,DIU,Veraval Junction,VRL,1,2
+shirdi_maharashtra,Shirdi,Maharashtra,West India,19.7667,74.4764,504,Semi-Arid,Religious,Cultural,,,,,Very High,Shirdi International Airport,SAG,Sainagar Shirdi Railway Station,SNSI,1,2
+mahabaleshwar_maharashtra,Mahabaleshwar,Maharashtra,West India,17.9237,73.6586,1353,Temperate,Mountain,Nature,Wellness,,,,High,Pune Airport,PNQ,Wathar Railway Station,WTR,2,3
+jabalpur_madhya_pradesh,Jabalpur,Madhya Pradesh,Central India,23.1815,79.9864,411,Subtropical,Nature,Adventure,Heritage,,,,Moderate,Jabalpur Airport,JLR,Jabalpur Junction,JBP,1,2
+kolkata_west_bengal,Kolkata,West Bengal,East India,22.5726,88.3639,9,Tropical,Cultural,Heritage,Food,Urban,Shopping,,Very High,Netaji Subhash Chandra Bose International Airport,CCU,Howrah Junction,HWH,2,4
+bhubaneswar_odisha,Bhubaneswar,Odisha,East India,20.2961,85.8245,45,Tropical,Religious,Heritage,Cultural,Urban,,,High,Biju Patnaik International Airport,BBI,Bhubaneswar Railway Station,BBS,2,3
+patna_bihar,Patna,Bihar,East India,25.5941,85.1376,53,Subtropical,Heritage,Religious,Cultural,Urban,,,High,Jay Prakash Narayan Airport,PAT,Patna Junction,PNBE,1,2
+ranchi_jharkhand,Ranchi,Jharkhand,East India,23.3441,85.3096,651,Subtropical,Nature,Urban,Religious,,,,Moderate,Birsa Munda Airport,IXR,Ranchi Junction,RNC,1,2
+raipur_chhattisgarh,Raipur,Chhattisgarh,Central India,21.2514,81.6296,298,Tropical,Urban,Cultural,Religious,,,,Moderate,Swami Vivekananda Airport,RPR,Raipur Junction,R,1,2
+puri_odisha,Puri,Odisha,East India,19.8135,85.8312,12,Tropical,Religious,Beach,Cultural,Heritage,,,Very High,Biju Patnaik International Airport,BBI,Puri Railway Station,PURI,2,3
+darjeeling_west_bengal,Darjeeling,West Bengal,East India,27.041,88.2663,2042,Temperate,Mountain,Nature,Heritage,Wellness,,,Very High,Bagdogra Airport,IXB,New Jalpaiguri Junction,NJP,2,4
+bodh_gaya_bihar,Bodh Gaya,Bihar,East India,24.6961,84.9869,111,Subtropical,Religious,Heritage,Cultural,,,,Very High,Gaya Airport,GAY,Gaya Junction,GAYA,1,2
+konark_odisha,Konark,Odisha,East India,19.8876,86.0945,2,Tropical,Heritage,Beach,Cultural,,,,High,Biju Patnaik International Airport,BBI,Puri Railway Station,PURI,1,1
+kalimpong_west_bengal,Kalimpong,West Bengal,East India,27.0667,88.4667,1250,Temperate,Mountain,Nature,Cultural,Religious,,,Moderate,Bagdogra Airport,IXB,New Jalpaiguri Junction,NJP,1,2
+shantiniketan_west_bengal,Shantiniketan,West Bengal,East India,23.6797,87.6897,56,Tropical,Cultural,Heritage,Shopping,,,,High,Kazi Nazrul Islam Airport,RGH,Bolpur Shantiniketan Railway Station,BHP,1,2
+cuttack_odisha,Cuttack,Odisha,East India,20.4625,85.883,36,Tropical,Cultural,Heritage,Shopping,Food,,,Moderate,Biju Patnaik International Airport,BBI,Cuttack Junction,CTC,1,2
+rajgir_bihar,Rajgir,Bihar,East India,25.03,85.42,73,Subtropical,Religious,Heritage,Nature,Wellness,,,High,Gaya Airport,GAY,Rajgir Railway Station,RGD,1,2
+nalanda_bihar,Nalanda,Bihar,East India,25.1357,85.4447,67,Subtropical,Heritage,Cultural,Religious,,,,High,Jay Prakash Narayan Airport,PAT,Nalanda Railway Station,NLD,1,1
+deoghar_jharkhand,Deoghar,Jharkhand,East India,24.4826,86.6976,254,Subtropical,Religious,Cultural,,,,,High,Deoghar Airport,DGH,Jasidih Junction,JSME,1,2
+jamshedpur_jharkhand,Jamshedpur,Jharkhand,East India,22.8046,86.2029,135,Subtropical,Urban,Nature,,,,,Moderate,Birsa Munda Airport,IXR,Tatanagar Junction,TATA,1,2
+jagdalpur_chhattisgarh,Jagdalpur,Chhattisgarh,Central India,19.0748,82.0093,552,Tropical,Nature,Cultural,Wildlife,Adventure,,,Moderate,Jagdalpur Airport,JGB,Jagdalpur Railway Station,JDB,2,3
+digha_west_bengal,Digha,West Bengal,East India,21.6266,87.5074,7,Tropical,Beach,Nature,,,,,High,Netaji Subhash Chandra Bose International Airport,CCU,Digha Railway Station,DGHA,1,2
+bishnupur_west_bengal,Bishnupur,West Bengal,East India,23.0685,87.3197,59,Tropical,Heritage,Cultural,Shopping,,,,Moderate,Kazi Nazrul Islam Airport,RGH,Bishnupur Railway Station,VSU,1,2
+bilaspur_chhattisgarh,Bilaspur,Chhattisgarh,Central India,22.0797,82.1391,264,Tropical,Heritage,Nature,Cultural,,,,Moderate,Bilaspur Airport,PAB,Bilaspur Junction,BSP,1,2
+delhi_delhi,Delhi,Delhi,North India,28.6139,77.209,216,Semi-Arid,Heritage,Food,Shopping,Cultural,Urban,,Very High,Indira Gandhi International Airport,DEL,New Delhi Railway Station,NDLS,2,4
+jaipur_rajasthan,Jaipur,Rajasthan,North India,26.9124,75.7873,431,Semi-Arid,Heritage,Cultural,Shopping,Food,,,Very High,Jaipur International Airport,JAI,Jaipur Junction,JP,2,4
+agra_uttar_pradesh,Agra,Uttar Pradesh,North India,27.1767,78.0081,169,Subtropical,Heritage,Cultural,,,,,Very High,Indira Gandhi International Airport,DEL,Agra Cantt Railway Station,AGC,1,2
+varanasi_uttar_pradesh,Varanasi,Uttar Pradesh,North India,25.3176,82.9739,81,Subtropical,Religious,Cultural,Heritage,,,,Very High,Lal Bahadur Shastri International Airport,VNS,Varanasi Junction,BSB,2,3
+amritsar_punjab,Amritsar,Punjab,North India,31.634,74.8723,234,Semi-Arid,Religious,Food,Heritage,Cultural,,,Very High,Sri Guru Ram Dass Jee International Airport,ATQ,Amritsar Junction,ASR,2,3
+jodhpur_rajasthan,Jodhpur,Rajasthan,North India,26.2389,73.0243,231,Arid,Heritage,Cultural,Food,,,,High,Jodhpur Airport,JDH,Jodhpur Junction,JU,2,3
+udaipur_rajasthan,Udaipur,Rajasthan,North India,24.5854,73.7125,598,Semi-Arid,Heritage,Nature,Cultural,,,,Very High,Maharana Pratap Airport,UDR,Udaipur City Railway Station,UDZ,2,4
+lucknow_uttar_pradesh,Lucknow,Uttar Pradesh,North India,26.8467,80.9462,123,Subtropical,Food,Heritage,Cultural,Shopping,,,High,Chaudhary Charan Singh International Airport,LKO,Lucknow Charbagh Railway Station,LKO,2,3
+jaisalmer_rajasthan,Jaisalmer,Rajasthan,North India,26.9157,70.9083,225,Arid,Heritage,Adventure,Cultural,,,,High,Jaisalmer Airport,JSA,Jaisalmer Railway Station,JSM,2,3
+mathura_uttar_pradesh,Mathura,Uttar Pradesh,North India,27.4924,77.6737,174,Subtropical,Religious,Cultural,Heritage,,,,High,Indira Gandhi International Airport,DEL,Mathura Junction,MTJ,1,2
+ayodhya_uttar_pradesh,Ayodhya,Uttar Pradesh,North India,26.7922,82.1998,102,Subtropical,Religious,Heritage,Cultural,,,,Very High,Maharishi Valmiki International Airport,AYJ,Ayodhya Dham Junction,AY,1,2
+prayagraj_uttar_pradesh,Prayagraj,Uttar Pradesh,North India,25.4358,81.8463,98,Subtropical,Religious,Heritage,Cultural,,,,High,Prayagraj Airport,IXD,Prayagraj Junction,PRYJ,1,2
+pushkar_rajasthan,Pushkar,Rajasthan,North India,26.4897,74.5511,510,Semi-Arid,Religious,Cultural,Wellness,,,,High,Kishangarh Airport,KQH,Ajmer Junction,AII,1,2
+bikaner_rajasthan,Bikaner,Rajasthan,North India,28.0229,73.3119,242,Arid,Heritage,Food,Cultural,,,,Moderate,Bikaner Airport,BKB,Bikaner Junction,BKN,1,2
+kurukshetra_haryana,Kurukshetra,Haryana,North India,29.9695,76.8783,260,Subtropical,Religious,Heritage,Cultural,,,,Moderate,Chandigarh International Airport,IXC,Kurukshetra Junction,KKDE,1,2
+patiala_punjab,Patiala,Punjab,North India,30.3398,76.3869,250,Subtropical,Heritage,Cultural,Food,,,,Moderate,Chandigarh International Airport,IXC,Patiala Railway Station,PTA,1,2
+jhansi_uttar_pradesh,Jhansi,Uttar Pradesh,North India,25.4484,78.5685,284,Subtropical,Heritage,Cultural,,,,,Moderate,Gwalior Airport,GWL,Virangana Lakshmibai Jhansi Junction,VGLJ,1,2
+bundi_rajasthan,Bundi,Rajasthan,North India,25.4415,75.6421,268,Semi-Arid,Heritage,Cultural,Nature,,,,Moderate,Jaipur International Airport,JAI,Bundi Railway Station,BUDI,1,2
+anandpur_sahib_punjab,Anandpur Sahib,Punjab,North India,31.2359,76.4988,312,Subtropical,Religious,Heritage,Cultural,,,,Moderate,Chandigarh International Airport,IXC,Anandpur Sahib Railway Station,ANSB,1,2
+vrindavan_uttar_pradesh,Vrindavan,Uttar Pradesh,North India,27.5806,77.7006,170,Subtropical,Religious,Cultural,,,,,High,Indira Gandhi International Airport,DEL,Mathura Junction,MTJ,1,2
+bengaluru_karnataka,Bengaluru,Karnataka,South India,12.9716,77.5946,920,Tropical,Urban,Nightlife,Food,Shopping,Cultural,,Very High,Kempegowda International Airport,BLR,KSR Bengaluru City Junction,SBC,2,3
+chennai_tamil_nadu,Chennai,Tamil Nadu,South India,13.0827,80.2707,6,Tropical,Cultural,Heritage,Beach,Food,Shopping,,Very High,Chennai International Airport,MAA,Chennai Central Railway Station,MAS,2,3
+hyderabad_telangana,Hyderabad,Telangana,South India,17.385,78.4867,542,Semi-Arid,Food,Heritage,Urban,Cultural,Shopping,,Very High,Rajiv Gandhi International Airport,HYD,Secunderabad Junction,SC,2,4
+kochi_kerala,Kochi,Kerala,South India,9.9312,76.2673,4,Tropical,Heritage,Cultural,Food,Wellness,Beach,,Very High,Cochin International Airport,COK,Ernakulam Junction,ERS,2,3
+mysuru_karnataka,Mysuru,Karnataka,South India,12.2958,76.6394,763,Tropical,Heritage,Cultural,Shopping,Wellness,,,High,Mysore Airport,MYQ,Mysuru Junction,MYS,2,3
+madurai_tamil_nadu,Madurai,Tamil Nadu,South India,9.9252,78.1198,101,Semi-Arid,Religious,Heritage,Food,Cultural,,,High,Madurai Airport,IXM,Madurai Junction,MDU,1,2
+thiruvananthapuram_kerala,Thiruvananthapuram,Kerala,South India,8.5241,76.9366,10,Tropical,Religious,Beach,Heritage,Cultural,Wellness,,High,Thiruvananthapuram International Airport,TRV,Thiruvananthapuram Central,TVC,2,3
+visakhapatnam_andhra_pradesh,Visakhapatnam,Andhra Pradesh,South India,17.6868,83.2185,11,Tropical,Beach,Nature,Urban,,,,High,Visakhapatnam International Airport,VTZ,Visakhapatnam Junction,VSKP,2,4
+tirupati_andhra_pradesh,Tirupati,Andhra Pradesh,South India,13.6288,79.4192,162,Tropical,Religious,Heritage,Cultural,,,,Very High,Tirupati Airport,TIR,Tirupati Main Railway Station,TPTY,1,2
+warangal_telangana,Warangal,Telangana,South India,17.9689,79.5941,266,Semi-Arid,Heritage,Religious,Cultural,,,,Moderate,Rajiv Gandhi International Airport,HYD,Warangal Railway Station,WL,1,2
+hampi_karnataka,Hampi,Karnataka,South India,15.335,76.46,467,Semi-Arid,Heritage,Cultural,Adventure,Religious,,,High,Hubballi Airport,HBX,Hosapete Junction,HPT,2,3
+alappuzha_kerala,Alappuzha,Kerala,South India,9.4981,76.3388,1,Tropical,Nature,Wellness,Beach,Cultural,,,Very High,Cochin International Airport,COK,Alappuzha Railway Station,ALLP,1,2
+munnar_kerala,Munnar,Kerala,South India,10.0889,77.0595,1532,Temperate,Mountain,Nature,Wellness,Adventure,,,Very High,Cochin International Airport,COK,Aluva Railway Station,AWY,2,4
+rameswaram_tamil_nadu,Rameswaram,Tamil Nadu,South India,9.2876,79.3129,10,Tropical,Religious,Beach,Heritage,,,,High,Madurai Airport,IXM,Rameswaram Railway Station,RMM,1,2
+thanjavur_tamil_nadu,Thanjavur,Tamil Nadu,South India,10.787,79.1378,57,Tropical,Heritage,Cultural,Religious,,,,High,Tiruchirappalli International Airport,TRZ,Thanjavur Junction,TJ,1,2
+gokarna_karnataka,Gokarna,Karnataka,South India,14.5479,74.3188,14,Tropical,Beach,Religious,Wellness,Adventure,,,High,Goa International Airport,GOI,Gokarna Road Railway Station,GOK,2,3
+coonoor_tamil_nadu,Coonoor,Tamil Nadu,South India,11.353,76.7959,1850,Temperate,Mountain,Nature,Wellness,,,,Moderate,Coimbatore International Airport,CJB,Coonoor Railway Station,ONR,1,2
+vijayawada_andhra_pradesh,Vijayawada,Andhra Pradesh,South India,16.5062,80.648,19,Tropical,Religious,Urban,Heritage,Cultural,,,Moderate,Vijayawada International Airport,VGA,Vijayawada Junction,BZA,1,2
+chikmagalur_karnataka,Chikmagalur,Karnataka,South India,13.3161,75.772,1090,Tropical,Mountain,Nature,Adventure,,,,Moderate,Mangaluru International Airport,IXE,Kadur Junction,DRU,2,3
+varkala_kerala,Varkala,Kerala,South India,8.7379,76.7163,18,Tropical,Beach,Wellness,Religious,Nature,,,High,Thiruvananthapuram International Airport,TRV,Varkala Sivagiri Railway Station,VAK,2,3
+srinagar_jammu_and_kashmir,Srinagar,Jammu and Kashmir,North India,34.0837,74.7973,1585,Temperate,Nature,Mountain,Cultural,Shopping,Heritage,,Very High,Sheikh ul-Alam International Airport,SXR,Srinagar Railway Station,SINA,3,5
+leh_ladakh,Leh,Ladakh,North India,34.1526,77.5771,3524,Arid,Mountain,Adventure,Nature,Cultural,Religious,,Very High,Kushok Bakula Rimpochee Airport,IXL,Jammu Tawi Railway Station,JAT,4,7
+shimla_himachal_pradesh,Shimla,Himachal Pradesh,North India,31.1048,77.1734,2276,Temperate,Mountain,Heritage,Nature,Shopping,,,Very High,Chandigarh International Airport,IXC,Kalka Railway Station,KLK,2,4
+manali_himachal_pradesh,Manali,Himachal Pradesh,North India,32.2432,77.1892,2050,Temperate,Mountain,Adventure,Nature,Wellness,,,Very High,Kullu–Manali Airport,KUU,Chandigarh Junction,CDG,3,5
+dharamshala_himachal_pradesh,Dharamshala,Himachal Pradesh,North India,32.219,76.3234,1457,Temperate,Mountain,Religious,Cultural,Nature,Wellness,,High,Kangra Airport,DHM,Pathankot Cantt Railway Station,PTKC,2,4
+rishikesh_uttarakhand,Rishikesh,Uttarakhand,North India,30.0869,78.2676,372,Subtropical,Religious,Adventure,Wellness,Nature,,,Very High,Dehradun Airport,DED,Yog Nagari Rishikesh Railway Station,YNRK,2,4
+haridwar_uttarakhand,Haridwar,Uttarakhand,North India,29.9457,78.1642,314,Subtropical,Religious,Cultural,Heritage,,,,Very High,Dehradun Airport,DED,Haridwar Junction,HW,1,2
+nainital_uttarakhand,Nainital,Uttarakhand,North India,29.3919,79.4542,2084,Temperate,Mountain,Nature,Wellness,,,,Very High,Pantnagar Airport,PGH,Kathgodam Railway Station,KGM,2,3
+mussoorie_uttarakhand,Mussoorie,Uttarakhand,North India,30.4598,78.0644,2005,Temperate,Mountain,Nature,Heritage,,,,High,Dehradun Airport,DED,Dehradun Railway Station,DDN,2,3
+dehradun_uttarakhand,Dehradun,Uttarakhand,North India,30.3165,78.0322,435,Subtropical,Nature,Urban,Cultural,,,,High,Dehradun Airport,DED,Dehradun Railway Station,DDN,1,3
+gangtok_sikkim,Gangtok,Sikkim,Northeast India,27.3389,88.6065,1650,Temperate,Mountain,Nature,Cultural,Religious,,,Very High,Bagdogra Airport,IXB,New Jalpaiguri Junction,NJP,3,5
+guwahati_assam,Guwahati,Assam,Northeast India,26.1445,91.7362,55,Subtropical,Religious,Urban,Cultural,Nature,,,Very High,Lokpriya Gopinath Bordoloi International Airport,GAU,Guwahati Railway Station,GHY,2,3
+shillong_meghalaya,Shillong,Meghalaya,Northeast India,25.5788,91.8933,1525,Temperate,Mountain,Nature,Music,Cultural,,,Very High,Lokpriya Gopinath Bordoloi International Airport,GAU,Guwahati Railway Station,GHY,2,4
+jorhat_assam,Jorhat,Assam,Northeast India,26.7509,94.2037,116,Subtropical,Heritage,Cultural,Nature,,,,Moderate,Jorhat Airport,JRH,Mariani Junction,MXN,1,3
+cherrapunji_meghalaya,Cherrapunji,Meghalaya,Northeast India,25.2986,91.7167,1430,Temperate,Nature,Adventure,Mountain,,,,High,Lokpriya Gopinath Bordoloi International Airport,GAU,Guwahati Railway Station,GHY,1,3
+tawang_arunachal_pradesh,Tawang,Arunachal Pradesh,Northeast India,27.5861,91.8594,3048,Alpine,Mountain,Religious,Cultural,Adventure,,,High,Lokpriya Gopinath Bordoloi International Airport,GAU,Rangapara North Junction,RPAN,3,5
+pelling_sikkim,Pelling,Sikkim,Northeast India,27.3167,88.2333,2150,Temperate,Mountain,Nature,Religious,Adventure,,,Moderate,Bagdogra Airport,IXB,New Jalpaiguri Junction,NJP,2,3
+gulmarg_jammu_and_kashmir,Gulmarg,Jammu and Kashmir,North India,34.0484,74.3805,2650,Alpine,Mountain,Adventure,Nature,,,,Very High,Sheikh ul-Alam International Airport,SXR,Jammu Tawi Railway Station,JAT,2,3
+kasol_himachal_pradesh,Kasol,Himachal Pradesh,North India,32.01,77.315,1580,Temperate,Mountain,Nature,Adventure,Wellness,,,High,Kullu–Manali Airport,KUU,Chandigarh Junction,CDG,2,4
+almora_uttarakhand,Almora,Uttarakhand,North India,29.5971,79.6591,1604,Temperate,Mountain,Cultural,Nature,Heritage,,,Moderate,Pantnagar Airport,PGH,Kathgodam Railway Station,KGM,2,3

@@ -1,8 +1,6 @@
 # Keep the backend-facing agent entrypoint in version control. The remaining
 # files stay available locally for tests, demos, and development.
-*
-!.gitignore
-!discovery.ts
-!candidate-design.ts
-!askUserTradeoff.ts
-!narrative.ts
+.env
+dist
+node_modules
+
