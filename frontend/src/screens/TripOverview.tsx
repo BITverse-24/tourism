@@ -1,7 +1,5 @@
 import type { FinalPlan } from '../types'
-import { mockPlan } from '../data/mockPlan'
 import { formatMoney, formatMoneyCompact, budgetLabel } from '../types/planAdapter'
-import { useMockFallback } from '../hooks/useMockFallback'
 
 export interface TripOverviewProps {
   plan?: FinalPlan | null
@@ -19,11 +17,7 @@ function statusLabel(s: string): string {
 }
 
 export default function TripOverview({ plan: incoming, state, revision }: TripOverviewProps) {
-  const { allowMock, wsFailedAtStart, isWaitingForLive } = useMockFallback()
-  // Live WS is default; mockPlan ONLY when websocket failed at start.
-  const fallbackPlan = allowMock && wsFailedAtStart ? (mockPlan as unknown as FinalPlan) : null
-  const plan = incoming ?? fallbackPlan
-  const isMockActive = !incoming && !!fallbackPlan
+  const plan = incoming ?? null
 
   if (!plan) {
     return (
@@ -31,11 +25,8 @@ export default function TripOverview({ plan: incoming, state, revision }: TripOv
         <p style={{ fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--voyager-ink-3)', fontWeight: 500 }}>01 — THE JOURNEY</p>
         <h1 className="serif" style={{ marginTop: 18, fontSize: 'clamp(32px,4vw,44px)', fontWeight: 300, color: 'var(--voyager-ink-1)' }}>Your trip will appear here</h1>
         <p style={{ marginTop: 12, fontSize: 14, lineHeight: '22px', color: 'var(--voyager-ink-2)', maxWidth: 520 }}>
-          {isWaitingForLive
-            ? 'Waiting for live snapshot — connecting to the concierge…'
-            : 'Confirm your profile to generate a plan. When a live Final Trip Plan arrives, it will render here with full route, stay, and budget details.'}
+          Confirm your profile to generate a plan. When a live Final Trip Plan arrives, it will render here with full route, stay, and budget details.
         </p>
-        {isWaitingForLive && <p style={{ marginTop: 12, fontSize: 12, color: 'var(--voyager-ink-3)' }}>Live WS is the default. Mock fallback will activate only if the websocket fails at start.</p>}
       </main>
     )
   }
@@ -107,13 +98,7 @@ export default function TripOverview({ plan: incoming, state, revision }: TripOv
           01 — THE JOURNEY
           {typeof revision === 'number' ? ` · REV ${String(revision).padStart(2, '0')}` : ''}
           {isDraft ? ' · DRAFT' : ''}
-          {isMockActive ? ' · MOCK FALLBACK' : ''}
         </p>
-        {isMockActive && (
-          <p style={{ marginTop: 8, fontSize: 11, letterSpacing: '0.08em', color: 'var(--voyager-ink-3)' }}>
-            Mock fallback active — websocket failed at start. Live data will replace this when the concierge connects.
-          </p>
-        )}
 
         <h1
           className="serif"

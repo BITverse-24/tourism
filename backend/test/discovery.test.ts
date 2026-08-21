@@ -46,8 +46,77 @@ test(
                 console.log("\n\nRECIEVED DISCOVERY QUESTION | data: " + JSON.stringify(data))
                 let selected_options: string[] = []
                 let free_text: string = ""
-                if (data.payload.options.length == 0) free_text = "Mumbai"
-                else selected_options.push(data.payload.options[0].option_id)
+                
+                const questionId = data.payload.question_id.toLowerCase();
+                const prompt = data.payload.prompt.toLowerCase();
+                
+                // Provide meaningful answers based on the question
+                if (questionId.includes("destination") || prompt.includes("where") || prompt.includes("travel")) {
+                    // Destination question
+                    if (data.payload.options.length == 0) {
+                        free_text = "Mumbai";
+                    } else {
+                        selected_options.push(data.payload.options[0].option_id);
+                    }
+                } else if (questionId.includes("duration") || questionId.includes("days") || prompt.includes("how long") || prompt.includes("stay")) {
+                    // Duration question
+                    if (data.payload.options.length > 0) {
+                        // Select first option that contains numbers
+                        const durationOption = data.payload.options.find(opt => 
+                            opt.label.match(/\d/) || opt.description.match(/\d/)
+                        );
+                        if (durationOption) {
+                            selected_options.push(durationOption.option_id);
+                        } else {
+                            selected_options.push(data.payload.options[0].option_id);
+                        }
+                    } else {
+                        free_text = "3 days";
+                    }
+                } else if (questionId.includes("date") || questionId.includes("timing") || questionId.includes("when") || prompt.includes("when")) {
+                    // Date/timing question
+                    if (data.payload.options.length > 0) {
+                        // Select first option
+                        selected_options.push(data.payload.options[0].option_id);
+                    } else {
+                        free_text = "November 2024";
+                    }
+                } else if (questionId.includes("party") || questionId.includes("who") || prompt.includes("who") || prompt.includes("traveling")) {
+                    // Party size question
+                    if (data.payload.options.length > 0) {
+                        const soloOption = data.payload.options.find(opt => 
+                            opt.label.toLowerCase().includes("solo") || opt.description.toLowerCase().includes("solo")
+                        );
+                        if (soloOption) {
+                            selected_options.push(soloOption.option_id);
+                        } else {
+                            selected_options.push(data.payload.options[0].option_id);
+                        }
+                    } else {
+                        free_text = "Solo traveler";
+                    }
+                } else if (questionId.includes("budget") || prompt.includes("budget") || prompt.includes("spend")) {
+                    // Budget question
+                    if (data.payload.options.length > 0) {
+                        selected_options.push(data.payload.options[0].option_id);
+                    } else {
+                        free_text = "Budget-conscious";
+                    }
+                } else if (questionId.includes("purpose") || questionId.includes("focus") || questionId.includes("experience") || prompt.includes("purpose") || prompt.includes("focus")) {
+                    // Purpose/experience question
+                    if (data.payload.options.length > 0) {
+                        selected_options.push(data.payload.options[0].option_id);
+                    } else {
+                        free_text = "History and culture";
+                    }
+                } else {
+                    // Default: select first option or send generic answer
+                    if (data.payload.options.length == 0) {
+                        free_text = "Mumbai";
+                    } else {
+                        selected_options.push(data.payload.options[0].option_id);
+                    }
+                }
 
                 const ansMsg: DiscoveryAnswerMessage = 
                     createDiscoveryAnswerMessage({

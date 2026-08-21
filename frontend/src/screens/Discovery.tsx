@@ -495,7 +495,7 @@ export default function Discovery({
 
   // Busy overlay — same aesthetic as after answering, also for initial wait for first question
   // After Arrival, Discovery mounts with !question — show same sphere as between questions until first discovery.question arrives.
-  const isInitialWaiting = !question && isLiveMode && live.question == null
+  const isInitialWaiting = !question && isLiveMode
   const showBusy = busy || isInitialWaiting
   const [busyOverlayMounted, setBusyOverlayMounted] = useState(false)
   const [busyExiting, setBusyExiting] = useState(false)

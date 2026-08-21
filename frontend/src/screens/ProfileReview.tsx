@@ -2,8 +2,6 @@ import { useState, useRef, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useWs } from '../ws/useWs'
 import type { TravelerProfile } from '../types'
-import { mockProfile } from '../data/mockProfile'
-import { useMockFallback } from '../hooks/useMockFallback'
 
 type Profile = TravelerProfile & { profile_revision?: number }
 
@@ -45,35 +43,22 @@ export default function ProfileReview() {
   const liveSnapshot = ws.snapshot
   const liveReady = ws.ready
 
-  // Live WS is default; mock fallback ONLY when websocket failed at start.
-  const { allowMock, wsFailedAtStart, isWaitingForLive } = useMockFallback()
   const hasLiveSnapshot = !!liveSnapshot
   const rawProfile = liveSnapshot?.profile as unknown as TravelerProfile | null | undefined
-  // Use live profile when available; when wsFailedAtStart mockProfile is used as fallback demo.
   const p: Profile | null = useMemo(() => {
     if (rawProfile && typeof rawProfile === 'object') {
       const withRev: Profile = {
         ...(rawProfile as TravelerProfile),
         profile_revision: liveSnapshot!.revision,
       } as Profile
-      if (!withRev.trip_context) withRev.trip_context = mockProfile.trip_context
-      if (!withRev.purpose_and_priorities) withRev.purpose_and_priorities = mockProfile.purpose_and_priorities
-      if (!withRev.preferences) withRev.preferences = mockProfile.preferences
-      if (!withRev.travel_style) withRev.travel_style = mockProfile.travel_style
-      if (!withRev.hard_constraints) withRev.hard_constraints = mockProfile.hard_constraints
       if (!withRev.unknowns) withRev.unknowns = []
       if (!withRev.assumptions) withRev.assumptions = []
       return withRev
     }
-    // Mock fallback only when ws failed at start
-    if (allowMock && wsFailedAtStart) {
-      return { ...mockProfile, profile_revision: 7 } as Profile
-    }
     return null
-  }, [rawProfile, liveSnapshot, allowMock, wsFailedAtStart])
+  }, [rawProfile, liveSnapshot])
 
-  const isMockProfileActive = !rawProfile && allowMock && wsFailedAtStart && !!p
-  // Effective profile for rendering — live when present, mock only on ws failure, otherwise null (shows loading)
+  // Effective profile for rendering — live when present, otherwise null (shows loading)
   const displayProfile: Profile | null = p
 
   // Confirm gating — contract: only when snapshot state === 'ready', revision is latest (matches profile.ready),
@@ -113,16 +98,6 @@ export default function ProfileReview() {
 
   const doConfirm = () => {
     if (busy) return
-    // Mock fallback: when WS failed at start we have a mock profile — allow confirm without live snapshot
-    if (isMockProfileActive) {
-      setBusy(true)
-      setNotice('')
-      setTimeout(() => {
-        setBusy(false)
-        navigate('/consultation')
-      }, 300)
-      return
-    }
     if (!liveSnapshot || !liveReady) {
       setNotice('Profile snapshot not yet available — please wait for the live profile to load.')
       return
@@ -164,17 +139,6 @@ export default function ProfileReview() {
       setNotice('Provide at least one topic or a note describing the change.')
       return
     }
-    // Mock fallback: when WS failed at start, just return to discovery locally
-    if (isMockProfileActive) {
-      setBusy(true)
-      setNotice('')
-      setTimeout(() => {
-        setBusy(false)
-        setEditorOpen(false)
-        navigate('/discovery')
-      }, 300)
-      return
-    }
     setBusy(true)
     setNotice('')
     const result = ws.sendProfileRequestChanges(topicsTrimmed, freeTextTrimmed || undefined)
@@ -195,7 +159,7 @@ export default function ProfileReview() {
     setTopics((s) => (s.includes(t) ? s.filter((x) => x !== t) : [...s, t]))
   }
 
-  // Loading state — no live snapshot yet (distinguishes waiting vs mock fallback active)
+  // Loading state — no live snapshot yet
   if (!displayProfile) {
     return (
       <main className="profile-review">
@@ -206,12 +170,10 @@ export default function ProfileReview() {
           Here&rsquo;s what we&rsquo;ve understood.
         </h1>
         <p className="pr-lede pour" style={{ animationDelay: '80ms' }}>
-          {isWaitingForLive ? 'Waiting for live snapshot — connecting to the concierge…' : 'Waiting for the live profile snapshot from the concierge…'}
+          Waiting for the live profile snapshot from the concierge…
         </p>
         <div className="pr-notice" style={{ marginTop: 24 }}>
-          {isWaitingForLive
-            ? 'Live WebSocket is the default. No mock is shown while connecting — mock fallback will activate only if the websocket fails at start.'
-            : 'No profile.snapshot received yet. The server will emit a complete snapshot — the frontend replaces, never patches, the prior snapshot for that revision.'}
+          No profile.snapshot received yet. The server will emit a complete snapshot — the frontend replaces, never patches, the prior snapshot for that revision.
         </div>
         {notice ? <div className="pr-notice">{notice}</div> : null}
         <style>{styles}</style>
@@ -267,10 +229,6 @@ export default function ProfileReview() {
       {hasLiveSnapshot ? (
         <div className="pr-live-badge mono" style={{ marginTop: 8, fontSize: 10, letterSpacing: '0.08em', color: 'var(--voyager-ink-3)' }}>
           Live snapshot · revision {revisionLabel} · state {stateLabel} · {liveReady ? `${liveReady.blocking_unknowns.length} blocking` : `${blockingCount} blocking`}
-        </div>
-      ) : isMockProfileActive ? (
-        <div className="pr-live-badge mono" style={{ marginTop: 8, fontSize: 10, letterSpacing: '0.08em', color: 'var(--voyager-brass-1)' }}>
-          Mock fallback active — websocket failed at start · revision {revisionLabel}
         </div>
       ) : null}
 
@@ -497,13 +455,11 @@ export default function ProfileReview() {
         <button
           className="pr-btn pr-btn--primary"
           onClick={doConfirm}
-          disabled={isMockProfileActive ? busy : !canConfirm}
-          aria-disabled={isMockProfileActive ? (busy ? 'true' : undefined) : (!canConfirm ? 'true' : undefined)}
-          style={{ opacity: (isMockProfileActive ? busy : !canConfirm) ? 0.45 : 1 }}
+          disabled={!canConfirm}
+          aria-disabled={!canConfirm ? 'true' : undefined}
+          style={{ opacity: !canConfirm ? 0.45 : 1 }}
           title={
-            isMockProfileActive
-              ? 'Confirm mock profile and start planning (websocket failed at start)'
-              : !liveSnapshot
+            !liveSnapshot
                 ? 'Waiting for live snapshot'
                 : !isReadyState
                   ? 'Profile not ready — state must be ready'

@@ -219,6 +219,7 @@ export interface DiscoveryPatchResult {
 export interface ProcessDiscoveryOptions {
   api_key?: string;
   model?: string;
+  /** Ignored for Agent 1 — discovery always disables model thinking (thinkingBudget: 0). */
   reasoning_effort?: "low" | "medium" | "high";
   api_url?: string;
   timeout_ms?: number;
@@ -264,6 +265,24 @@ Treat the traveler’s possible trip preferences as a set of plausible solutions
 
 Do not follow a fixed question order or checklist.
 
+**CRITICAL: Always check the current profile state before asking questions.**
+
+The current profile is provided in the context for grounding. You MUST examine it to avoid asking for information that has already been provided:
+
+* If trip_context.start_date or trip_context.end_date are non-null, the traveler has already provided specific dates - do not ask again
+* If trip_context.duration_days is non-null, the traveler has already provided trip duration - do not ask again  
+* If trip_context.party_size is non-null, the traveler has already provided party size - do not ask again
+* If trip_context.date_flexibility is not "unknown", the traveler has provided flexibility information - do not ask again
+* If trip_context.budget is non-null, the traveler has provided budget information - do not ask again
+* If trip_context.destination_request is non-null, the traveler has provided a destination - do not ask again
+
+Examples of information already known that should NOT be asked about again:
+- "When are you planning to visit?" - If start_date/end_date/duration_days are already set, skip this
+- "How long is your trip?" - If duration_days is already set, skip this  
+- "How many people are traveling?" - If party_size is already set, skip this
+- "What's your budget?" - If budget is already set, skip this
+- "Where are you going?" - If destination_request is already set, skip this
+
 When choosing the next question, consider:
 
 * How much would different answers change the eventual trip?
@@ -291,7 +310,7 @@ Use information volunteered by the traveler to update multiple relevant profile 
 
 Avoid asking for information that:
 
-* is already known;
+* is already known (ALWAYS CHECK THE PROFILE STATE FIRST - see above);
 * can be reliably derived from what the traveler just said;
 * is unlikely to materially affect the plan;
 * can safely be handled by a reasonable planning assumption;
@@ -622,6 +641,7 @@ export const DISCOVERY_PATCH_RESPONSE_SCHEMA = {
             party_notes: stringOrNullSchema,
             budget: budgetSchema,
           },
+          required: [], // Make all fields optional to support partial patches
         },
         purpose_and_priorities: {
           type: ["object", "null"],
@@ -632,6 +652,7 @@ export const DISCOVERY_PATCH_RESPONSE_SCHEMA = {
             priorities: { type: "array", items: { type: "string" } },
             success_definition: stringOrNullSchema,
           },
+          required: [], // Make all fields optional to support partial patches
         },
         preferences: {
           type: ["object", "null"],
@@ -660,6 +681,7 @@ export const DISCOVERY_PATCH_RESPONSE_SCHEMA = {
             },
             remove_categories: { type: "array", items: { type: "string" } },
           },
+          required: [], // Make all fields optional to support partial patches
         },
         travel_style: {
           type: ["object", "null"],
@@ -687,6 +709,7 @@ export const DISCOVERY_PATCH_RESPONSE_SCHEMA = {
               enum: ["structured", "some_flexibility", "spontaneous", "unknown", null],
             },
           },
+          required: [], // Make all fields optional to support partial patches
         },
         hard_constraints: {
           type: ["object", "null"],
@@ -706,6 +729,7 @@ export const DISCOVERY_PATCH_RESPONSE_SCHEMA = {
             maximum_hotel_changes: numberOrNullSchema,
             budget_ceiling: budgetSchema,
           },
+          required: [], // Make all fields optional to support partial patches
         },
         unknowns: {
           type: ["object", "null"],
@@ -726,6 +750,7 @@ export const DISCOVERY_PATCH_RESPONSE_SCHEMA = {
             },
             resolve_topics: { type: "array", items: { type: "string" } },
           },
+          required: [], // Make all fields optional to support partial patches
         },
         assumptions: {
           type: ["object", "null"],
@@ -747,6 +772,7 @@ export const DISCOVERY_PATCH_RESPONSE_SCHEMA = {
             },
             remove_topics: { type: "array", items: { type: "string" } },
           },
+          required: [], // Make all fields optional to support partial patches
         },
       },
     },
@@ -1415,6 +1441,9 @@ export async function processDiscovery(
     requestedModel,
     timeoutMs,
     logResponses,
+    thinkingBudget: 0,
+    // Backend may still pass AGENT_REASONING_EFFORT; Agent 1 never uses it.
+    ignored_reasoning_effort: options.reasoning_effort ?? null,
     hasFetcher: !!options.fetcher,
     hasInjectedClient: !!options.genAiClient
   });
@@ -1449,20 +1478,15 @@ export async function processDiscovery(
     return "";
   };
 
+  // Agent 1 must not reason: thinkingBudget 0 disables thought tokens (SDK: 0 = DISABLED).
+  const noThinkingConfig = { thinkingBudget: 0 } as const;
+
   const createInteraction = async (client: any, modelName: string, signal?: AbortSignal): Promise<any> => {
-    if (client.interactions && typeof client.interactions.create === "function") {
-      return await client.interactions.create({
-        model: modelName,
-        input: fullPrompt,
-        response_format: {
-          type: "text",
-          mime_type: "application/json",
-          schema: discoveryPatchJsonSchema,
-        },
-      }, signal ? { signal } as any : undefined);
-    }
+    const isGemini = modelName.startsWith("gemini");
+    // Prefer generateContent: GoogleGenAI always exposes interactions.create, and that
+    // path previously skipped thinkingBudget: 0 — so the API defaulted to medium thinking.
     if (client.models && typeof client.models.generateContent === "function") {
-      const isGemini = modelName.startsWith("gemini");
+      console.log(`[processDiscovery] Using generateContent with thinkingBudget=0 for ${modelName}`);
       const res = await client.models.generateContent({
         model: modelName,
         contents: [{ role: "user", parts: [{ text: fullPrompt }] }],
@@ -1471,11 +1495,34 @@ export async function processDiscovery(
           responseJsonSchema: discoveryPatchJsonSchema,
           temperature: 0.2,
           maxOutputTokens: MAX_COMPLETION_TOKENS,
-          ...(isGemini ? { thinkingConfig: { thinkingBudget: 0 } as any } : {}),
+          ...(isGemini ? { thinkingConfig: noThinkingConfig } : {}),
           httpOptions: signal ? { signal } as any : undefined,
         } as any,
       });
       return res;
+    }
+    if (client.interactions && typeof client.interactions.create === "function") {
+      console.log(`[processDiscovery] Fallback interactions.create for ${modelName}`);
+      return await client.interactions.create({
+        model: modelName,
+        input: fullPrompt,
+        response_format: {
+          type: "text",
+          mime_type: "application/json",
+          schema: discoveryPatchJsonSchema,
+        },
+        // Interactions API has no thinkingBudget; lowest available level is minimal.
+        ...(isGemini
+          ? {
+              generation_config: {
+                temperature: 0.2,
+                max_output_tokens: MAX_COMPLETION_TOKENS,
+                thinking_level: "minimal",
+                thinking_summaries: "none",
+              },
+            }
+          : {}),
+      }, signal ? { signal } as any : undefined);
     }
     throw new DiscoveryApiError("Unsupported GoogleGenAI client shape.", 0);
   };

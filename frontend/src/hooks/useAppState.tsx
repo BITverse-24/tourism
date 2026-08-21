@@ -1,12 +1,7 @@
 import { createContext, useContext, useState, ReactNode } from 'react'
-import { mockProfile } from '../data/mockProfile'
-import { mockPlan } from '../data/mockPlan'
-import { TravelerProfile, FinalPlan } from '../types'
 
 type Ctx = {
   intent: string; setIntent:(s:string)=>void
-  profile: TravelerProfile
-  plan: FinalPlan
   workflowState: string
   setWorkflowState:(s:string)=>void
 }
@@ -26,6 +21,6 @@ export function AppProvider({children}:{children:ReactNode}){
     setIntent(s)
     try { if (typeof window !== 'undefined') window.localStorage.setItem(INTENT_STORAGE_KEY, s) } catch {}
   }
-  return <AppCtx.Provider value={{intent,setIntent: persistIntent, profile: mockProfile, plan: mockPlan, workflowState,setWorkflowState}}>{children}</AppCtx.Provider>
+  return <AppCtx.Provider value={{intent,setIntent: persistIntent, workflowState,setWorkflowState}}>{children}</AppCtx.Provider>
 }
 export function useAppState(){ return useContext(AppCtx) }

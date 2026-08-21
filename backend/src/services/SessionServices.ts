@@ -1,14 +1,13 @@
 import { Socket } from "socket.io";
-import { createDiscoveryAnswerMessage } from "../factory/Command";
-import { createProfileSnapshotMessage, createSessionExpiredMessage, createSessionReadyMessage } from "../factory/Event";
-import { getNewRunId, getNewSessionId, getSessionCheckpoint, getSessionProfile, getValidSessionIds, moveSessionIdToExpired, setSocketIdForSession, setWorkflowState, unsetSocketIdForSession } from "../models/data";
+import { createProfileReadyMessage, createProfileSnapshotMessage, createSessionExpiredMessage, createSessionReadyMessage } from "../factory/Event";
+import { getNewRunId, getNewSessionId, getSessionCheckpoint, getValidSessionIds, moveSessionIdToExpired, setSocketIdForSession, setWorkflowState, unsetSocketIdForSession } from "../models/data";
 import { generateUUID } from "../modules/util";
 import { SessionCloseMessage, SessionStartMessage } from "../structures/CommandMessage";
-import { Events, WorkflowStates } from "../structures/enums";
+import { Events, ProfileSnapshotStates, WorkflowStates } from "../structures/enums";
 import { ProfileSnapshotMessage, SessionReadyMessage } from "../structures/EventMessage";
-import { NewSessionMessage, NewSessionMessageSchema } from "../structures/NewSessionMessage";
+import { NewSessionMessage } from "../structures/NewSessionMessage";
 import { ServiceResult } from "../structures/types";
-import { discoveryAnswerService, newDiscoveryQuestionService } from "./DiscoveryServices";
+import { newDiscoveryQuestionService } from "./DiscoveryServices";
 import { nextSequence } from "./StateServices";
 import { logger } from "../modules/logger";
 
@@ -76,10 +75,11 @@ export async function sessionStartService(
           : null
         if (initialIntent) logger.debug('seeding discovery with initial_intent', { initialIntent })
         // Emit provisional snapshot/question immediately so frontend sphere resolves in ms
-        // even while agent runs. Agent result (if/when it returns) will emit updated snapshot/question.
+        // even while agent runs. Agent result (if/when it returns) will emit a newer revision.
         {
           const { createDiscoveryQuestionMessage, createProfileSnapshotMessage } = await import("../factory/Event")
           const { Events, ProfileSnapshotStates } = await import("../structures/enums")
+          const { appendProfileSnapshot, setSessionProfile, addDiscoveryQuestion, getDiscoveryEpoch } = await import("../models/data")
           const provisionalProfile = initialProfile ?? {
             profile_id: "mock-profile",
             trip_context: { destination_request: initialIntent ?? null, resolved_destination: null, start_date: null, end_date: null, duration_days: null, date_flexibility: "unknown", party_size: null, party_notes: null, budget: null },
@@ -88,7 +88,12 @@ export async function sessionStartService(
             hard_constraints: { must_visit: [], avoid: [], dietary_requirements: [], accessibility_requirements: [], accommodation_requirements: [], maximum_daily_travel: null, maximum_hotel_changes: null, budget_ceiling: null },
             unknowns: [], assumptions: [],
           } as unknown as import("../../../ai/discovery").TravelerProfile
-          const snap = { revision: 1, state: ProfileSnapshotStates.DRAFT, profile: provisionalProfile }
+          const snap = await appendProfileSnapshot(
+            newSessionId,
+            ProfileSnapshotStates.DRAFT,
+            provisionalProfile,
+            WorkflowStates.DISCOVERY,
+          )
           const profSnapMsg = createProfileSnapshotMessage({
             message_id: `msg_${generateUUID()}`,
             session_id: newSessionId,
@@ -99,15 +104,6 @@ export async function sessionStartService(
             payload: snap as unknown as import("../structures/EventMessage").ProfileSnapshotMessage["payload"],
           })
           emit({ event: Events.PROFILE_SNAPSHOT, data: profSnapMsg })
-          // persist provisional checkpoint so later agent result increments revision correctly
-          const provisionalCheckpoint = {
-            session_id: newSessionId,
-            profile_snapshots: [snap],
-            latest_confirmed: null,
-            workflow_state: WorkflowStates.DISCOVERY,
-          } as unknown as import("../structures/types").CheckpointType
-          const { setSessionCheckpoint, setSessionProfile } = await import("../models/data")
-          await setSessionCheckpoint(newSessionId, provisionalCheckpoint)
           await setSessionProfile(newSessionId, provisionalProfile)
           const provisionalQ = {
             question_id: "destination",
@@ -128,29 +124,30 @@ export async function sessionStartService(
             payload: provisionalQ as unknown as import("../structures/EventMessage").DiscoveryQuestionMessage["payload"],
           })
           emit({ event: Events.DISCOVERY_QUESTION, data: qMsg })
-          const { addDiscoveryQuestion } = await import("../models/data")
           addDiscoveryQuestion(newRunId, provisionalQ as unknown as import("../../../ai/discovery").DiscoveryQuestion)
-        }
-        // Run agent in background; do not block already-emitted provisional. If agent succeeds, it will emit revision 2.
-        // Provisional already sent, so background failure only needs logging.
-        void newDiscoveryQuestionService(
-            emit,
-            newSessionId,
-            newRunId,
-            data.command_id,
-            initialProfile,
-            null,
-        ).catch((e: unknown) => {
-          const msg = e instanceof Error ? e.message : String(e)
-          const stack = e instanceof Error ? e.stack : undefined
-          logger.warn('background newDiscoveryQuestionService failed (provisional already sent)', { 
-            error: msg,
-            stack,
-            session_id: newSessionId,
-            run_id: newRunId,
-            errorType: e?.constructor?.name
+
+          // Capture epoch so a traveler answer during the agent call drops this result.
+          const provisionalEpoch = getDiscoveryEpoch(newSessionId)
+          void newDiscoveryQuestionService(
+              emit,
+              newSessionId,
+              newRunId,
+              data.command_id,
+              initialProfile,
+              null,
+              provisionalEpoch,
+          ).catch((e: unknown) => {
+            const msg = e instanceof Error ? e.message : String(e)
+            const stack = e instanceof Error ? e.stack : undefined
+            logger.warn('background newDiscoveryQuestionService failed (provisional already sent)', {
+              error: msg,
+              stack,
+              session_id: newSessionId,
+              run_id: newRunId,
+              errorType: e?.constructor?.name
+            })
           })
-        })
+        }
 
     }
 
@@ -180,8 +177,32 @@ export async function sessionStartService(
             const sessionReadyRes = { event: Events.SESSION_READY, data: sessReadyMsg }
             emit(sessionReadyRes)
 
-            logger.debug('sending checkpoint profile.snapshot s', { data: data });
-            for (let snapshot of checkpoint.profile_snapshots) {
+            // Contract: events are not replayed into a new run — emit recovery state only
+            // (latest snapshot), not the full snapshot history.
+            let latestSnap = checkpoint.profile_snapshots[checkpoint.profile_snapshots.length - 1]
+            if (latestSnap) {
+                // profile_review with a draft tip must promote via a new revision (never reuse).
+                if (
+                    checkpoint.workflow_state === WorkflowStates.PROFILE_REVIEW
+                    && latestSnap.state !== ProfileSnapshotStates.READY
+                    && latestSnap.state !== ProfileSnapshotStates.CONFIRMED
+                ) {
+                    const { appendProfileSnapshot } = await import("../models/data")
+                    latestSnap = await appendProfileSnapshot(
+                        data.session_id,
+                        ProfileSnapshotStates.READY,
+                        latestSnap.profile,
+                        WorkflowStates.PROFILE_REVIEW,
+                    )
+                    logger.debug('promoted recovery draft→ready with new revision', {
+                        revision: latestSnap.revision,
+                    })
+                }
+
+                logger.debug('sending recovery profile.snapshot', {
+                    revision: latestSnap.revision,
+                    state: latestSnap.state,
+                })
                 const profSnapMsg: ProfileSnapshotMessage = createProfileSnapshotMessage({
                     message_id: `msg_${generateUUID()}`,
                     session_id: data.session_id,
@@ -189,9 +210,28 @@ export async function sessionStartService(
                     command_id: data.command_id,
                     occurred_at: new Date().toISOString(),
                     sequence: await nextSequence(newRunId),
-                    payload: snapshot
+                    payload: latestSnap
                 })
                 emit({ event: Events.PROFILE_SNAPSHOT, data: profSnapMsg })
+
+                if (
+                    latestSnap.state === ProfileSnapshotStates.READY
+                    || checkpoint.workflow_state === WorkflowStates.PROFILE_REVIEW
+                ) {
+                    const profReadyMsg = createProfileReadyMessage({
+                        message_id: `msg_${generateUUID()}`,
+                        session_id: data.session_id,
+                        run_id: newRunId,
+                        command_id: data.command_id,
+                        occurred_at: new Date().toISOString(),
+                        sequence: await nextSequence(newRunId),
+                        payload: {
+                            profile_revision: latestSnap.revision,
+                            blocking_unknowns: [],
+                        },
+                    })
+                    emit({ event: Events.PROFILE_READY, data: profReadyMsg })
+                }
             }
 
             // do checkpoint next service
@@ -216,8 +256,14 @@ export async function sessionStartService(
                     })
                     const { createDiscoveryQuestionMessage, createProfileSnapshotMessage } = await import("../factory/Event")
                     const { Events, ProfileSnapshotStates } = await import("../structures/enums")
+                    const { appendProfileSnapshot } = await import("../models/data")
                     const fallbackProfile = checkpoint.profile_snapshots[checkpoint.profile_snapshots.length - 1].profile
-                    const snap = { revision: (checkpoint.profile_snapshots[checkpoint.profile_snapshots.length - 1].revision ?? 0) + 1, state: ProfileSnapshotStates.DRAFT, profile: fallbackProfile }
+                    const snap = await appendProfileSnapshot(
+                        data.session_id,
+                        ProfileSnapshotStates.DRAFT,
+                        fallbackProfile,
+                        WorkflowStates.DISCOVERY,
+                    )
                     const profSnapMsg = createProfileSnapshotMessage({
                         message_id: `msg_${generateUUID()}`,
                         session_id: data.session_id,
@@ -286,8 +332,15 @@ export async function sessionStartService(
                 })
                 const { createDiscoveryQuestionMessage, createProfileSnapshotMessage } = await import("../factory/Event")
                 const { Events, ProfileSnapshotStates } = await import("../structures/enums")
+                const { appendProfileSnapshot, setSessionProfile } = await import("../models/data")
                 const fallbackProfile = { profile_id: "mock-profile", trip_context: { destination_request: null, resolved_destination: null, start_date: null, end_date: null, duration_days: null, date_flexibility: "unknown", party_size: null, party_notes: null, budget: null }, purpose_and_priorities: { primary_purpose: null, secondary_purposes: [], priorities: [], success_definition: null }, preferences: [], travel_style: { pace: "unknown", energy_pattern: "unknown", walking_tolerance: "unknown", crowd_tolerance: "unknown", comfort_preference: "unknown", spontaneity: "unknown" }, hard_constraints: { must_visit: [], avoid: [], dietary_requirements: [], accessibility_requirements: [], accommodation_requirements: [], maximum_daily_travel: null, maximum_hotel_changes: null, budget_ceiling: null }, unknowns: [], assumptions: [] } as unknown as import("../../../ai/discovery").TravelerProfile
-                const snap = { revision: 1, state: ProfileSnapshotStates.DRAFT, profile: fallbackProfile }
+                const snap = await appendProfileSnapshot(
+                    data.session_id,
+                    ProfileSnapshotStates.DRAFT,
+                    fallbackProfile,
+                    WorkflowStates.DISCOVERY,
+                )
+                await setSessionProfile(data.session_id, fallbackProfile)
                 const profSnapMsg = createProfileSnapshotMessage({
                     message_id: `msg_${generateUUID()}`,
                     session_id: data.session_id,

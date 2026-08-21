@@ -43,3 +43,25 @@ Without intent, first discovery question is always generic and loses user contex
 
 ## Secondary
 The backend fixes already applied in `backend/src/handlers/SessionHandlers.ts` (avoid `nextSequence(undefined)`) and `backend/src/services/SessionServices.ts` (`await newDiscoveryQuestionService`) should be retained. They ensure `command.accepted` does not pollute `SequenceNumbers["undefined"]` and that `profile.snapshot(2)`/`discovery.question(3)` are emitted before `service completed`, avoiding 15s buffered race observed in the log.
+
+---
+
+# Proposals — Frontend sequence cold-start gap (still open)
+
+## Target
+`../frontend/src/ws/client.ts` — `SequenceManager` / `handleRawMessage`
+
+## Issue
+Even with monotonic profile revisions fixed on the backend, if the client resets `expected=1` and first delivered envelopes for a run are e.g. seq 10–11 (`profile.snapshot` / `profile.ready`), those events buffer forever unless a gap flush runs. That independently leaves ProfileReview with a stale snapshot vs `profile.ready`.
+
+## Evidence
+Contract 1.0 Analysis: window `sess_f28cfa31` seq 10–11; `frontend/src/ws/PROPOSALS.md` documents the same deadlock for seq 4/5.
+
+## Suggested change
+Schedule `scheduleSequenceGapFlush()` after every `offer` that buffers while `expected===1 && smallestBuffered>1`, then `flushWithGap()` after ~500ms grace. Also allow same-revision draft→ready promotion in `SnapshotStore` / `useWs` as defense-in-depth (backend now bumps revision on state change, so this is optional resilience).
+
+## Reason
+Backend cannot force the client to process out-of-order sequence gaps once early envelopes were missed before subscribe.
+
+## Impact
+Frontend-only; backend recovery now emits latest snapshot + `profile.ready` (not full history) to keep new-run sequences short.

@@ -2,16 +2,11 @@
  * usePlan — live Final Trip Plan snapshot from the WebSocket client.
  * Subscribes to plan.snapshot (draft/final) via WsClient, respects revision
  * ordering (replace not patch), and normalizes to canonical FinalPlan.
- *
- * Mock fallback: ONLY when websocket has failed at start (wsFailedAtStart).
- * Live WS is the default; useMockFallback centralizes the decision.
  */
 import { useEffect, useMemo, useState } from 'react'
 import type { WsClient } from '../ws/client'
-import { mockPlan } from '../data/mockPlan'
 import { normalizePlanSnapshot, type NormalizedPlanSnapshot } from '../types/planAdapter'
 import type { FinalPlan } from '../types'
-import { useMockFallback } from './useMockFallback'
 import { getSharedWsClient } from '../ws/WsProvider'
 import { useWsOptional } from '../ws/WsProvider'
 
@@ -32,7 +27,6 @@ export interface UsePlanReturn {
 export function usePlan(clientOpt?: WsClient): UsePlanReturn {
   const ctx = useWsOptional()
   const client = clientOpt ?? ctx?.client ?? getClient()
-  const { allowMock, wsFailedAtStart } = useMockFallback()
 
   const [snapshot, setSnapshot] = useState<NormalizedPlanSnapshot | null>(() => {
     const raw = client.getPlanSnapshot() as unknown as Record<string, unknown> | null
@@ -87,20 +81,8 @@ export function usePlan(clientOpt?: WsClient): UsePlanReturn {
         hasLivePlan: true,
       }
     }
-    // Mock fallback ONLY when websocket failed at start — live WS is default.
-    if (allowMock && wsFailedAtStart) {
-      return {
-        snapshot: { revision: 1, state: 'final' as const, plan: mockPlan as unknown as FinalPlan },
-        plan: mockPlan as unknown as FinalPlan,
-        revision: 1,
-        state: 'final' as const,
-        isDraft: false,
-        isFinal: true,
-        hasLivePlan: false,
-      }
-    }
     return { snapshot: null, plan: null, revision: null, state: null, isDraft: false, isFinal: false, hasLivePlan: false }
-  }, [snapshot, allowMock, wsFailedAtStart])
+  }, [snapshot])
 
   return derived
 }
