@@ -5,288 +5,444 @@ const ftp1: FinalTripPlan = {
       {
         "estimated_cost": null,
         "nights": 3,
-        "place": "Mumbai",
-        "reason": "Single base in South Mumbai (Colaba/Fort) keeps all priority heritage sights walkable or short transit and aligns with 3-day duration and budget guesthouse preference",
-        "recommendation": "Budget guesthouse/hostel in Colaba/Fort area - traveler to select specific property within $30/day target. Keeps Gateway of India, CSMVS, Asiatic Society, CSMT and Marine Drive walkable.",
-        "status": "suggested"
+        "place": "Budget guesthouse or hostel in Colaba/Fort area - single base for all 3 nights to minimize transit to Gateway, CSMVS and Victorian ensemble. No specific property named; book budget option near heritage cluster.",
+        "reason": "Single base in South Mumbai covers all requested priorities without hotel changes, ideal for budget stay and balanced pace",
+        "recommendation": "Stay in Colaba/Fort within walking distance of Gateway of India jetty and Fort heritage precinct. Choose budget guesthouse/hostel per $30/day target; verify availability and advance booking requirement.",
+        "status": "not_yet_decided"
       }
     ],
     "assumptions": [
-      "Base in budget guesthouse/hostel in Colaba/Fort area to minimize daily travel to South Mumbai heritage cluster",
-      "Elephanta Caves ferry operates from Gateway of India jetty and is weather-dependent",
-      "No intercity travel needed; all sights within Mumbai",
-      "Traveler bases in budget guesthouse/hostel in Colaba/Fort to keep Gateway, CSMVS, Asiatic Society, CSMT and Marine Drive walkable",
-      "Elephanta Caves visited as half-day ferry trip from Gateway jetty; ferry schedule and sea conditions to be confirmed locally",
-      "$30 per day target prioritizes free exterior sights (Gateway, CSMT, Marine Drive, Asiatic Society) and limits paid entries to Elephanta and CSMVS",
-      "Balanced pace with 2-4 heritage experiences per day plus generic meal/rest slots"
+      "Stay in budget guesthouse/hostel in Colaba/Fort area to minimize transit to South Mumbai heritage cluster",
+      "Elephanta ferry operates from Gateway of India jetty and is day-trip feasible within one morning/afternoon block",
+      "Walking between Fort heritage buildings is feasible; local trains/buses available for longer hops",
+      "Budget accommodation in Colaba/Fort area assumed available within $30 per day target; actual rates vary by season",
+      "Elephanta ferry round-trip and cave entry are paid separately; timing assumes morning departure and return by early afternoon",
+      "Walking tolerance sufficient for Fort heritage cluster (1-2 km between sites); auto/taxi optional for Mani Bhavan/Khotachiwadi transfer"
     ],
     "city_allocations": [
       {
         "city_id": "mumbai_maharashtra",
         "days": 3,
         "nights": 3,
-        "place": "Mumbai",
-        "reason": "Single base in South Mumbai (Colaba/Fort) keeps all priority heritage sights walkable or short transit and aligns with 3-day duration and budget guesthouse preference"
+        "place": "Mumbai - South Mumbai base (Colaba/Fort)",
+        "reason": "Single base in South Mumbai (Colaba/Fort) covers all requested priorities — Gateway of India, Elephanta Caves ferry point, and Victorian Gothic ensemble — without hotel changes, ideal for budget stay and balanced pace"
       }
     ],
     "cost_summary": {
       "budget_position": "budget_unknown",
       "categories": [],
       "caveats": [
-        "No guaranteed cost facts available in candidate dataset - estimated_total is null. $30/day is a target, not a ceiling. Final cost depends on traveler-selected budget guesthouse/hostel nightly rate, Elephanta ferry ticket, and entry fees for CSMVS and Elephanta Caves which must be verified locally.",
-        "Free exterior sights (Gateway of India, CSMT exterior, Marine Drive, Asiatic Society exterior) help stay within target; paid entries limited to Elephanta and CSMVS to control spend.",
-        "Ferry operation is weather-dependent and seasonal sea conditions may affect availability and price."
+        "No grounded attraction prices, ferry fares, or accommodation rates provided in CandidateBundle; cannot estimate total cost against $30/day target",
+        "CSMVS, Elephanta Caves entry and ferry are paid separately - verify current fees"
       ],
       "currency": "USD",
       "estimated_total": null,
-      "scope": "per_day target $30 - total for 3 days not estimated due to missing price guarantees"
+      "scope": "per_day"
     },
     "days": [
       {
         "city_id": "mumbai_maharashtra",
-        "daily_notes": "South Mumbai heritage cluster - walkable focus on Gateway and Fort area",
+        "daily_notes": "Early start to catch Gateway in softer light before crowds build; indoor museum covers midday heat; sunset promenade to close the day.",
         "date": null,
         "day": 1,
         "items": [
           {
-            "description": "Iconic Indo-Saracenic basalt arch at Colaba waterfront overlooking Arabian Sea, built to commemorate 1911 royal visit. Start early for photos and to observe morning activity before crowds build.",
-            "end_time": null,
+            "description": "Iconic Indo-Saracenic basalt arch at Colaba waterfront overlooking Arabian Sea, built for 1911 royal visit. Exterior viewing, photography and promenade walk.",
+            "end_time": "09:00",
             "estimated_cost": null,
             "flexibility": "fixed",
-            "location": "Mumbai",
+            "location": "Gateway of India, Colaba",
             "movement": null,
-            "reason": "Best_time_of_day includes Early_Morning and photography_value Very_High; 60 min matches typical duration and allows unhurried viewing before ferry crowds",
-            "start_time": null,
-            "title": "Gateway of India - early morning waterfront visit",
+            "reason": "Early morning aligns with best_time_of_day and reduces Very_High crowd pressure; 60 min typical duration",
+            "start_time": "08:00",
+            "title": "Gateway of India waterfront visit",
             "type": "experience"
           },
           {
-            "description": "Generic meal slot with flexible timing near Colaba/Fort; choose venue based on budget and dietary needs without pre-booking a specific restaurant.",
-            "end_time": null,
+            "description": "Short walk between Gateway promenade and breakfast area in Colaba.",
+            "end_time": "09:15",
             "estimated_cost": null,
-            "flexibility": "fixed",
+            "flexibility": "moveable",
             "location": null,
+            "movement": {
+              "duration_minutes": 15,
+              "from": "Gateway of India",
+              "mode": "walk",
+              "to": "Colaba breakfast area"
+            },
+            "reason": null,
+            "start_time": "09:00",
+            "title": "Walk to breakfast area",
+            "type": "movement"
+          },
+          {
+            "description": "Generic meal slot with flexible timing near Colaba/Fort. Choose budget local eatery per dietary needs; no venue named.",
+            "end_time": "10:00",
+            "estimated_cost": null,
+            "flexibility": "moveable",
+            "location": "Colaba/Fort",
             "movement": null,
             "reason": null,
-            "start_time": null,
-            "title": "Lunch break - flexible timing",
+            "start_time": "09:15",
+            "title": "Breakfast / morning meal break",
             "type": "meal"
           },
           {
-            "description": "Premier art and history museum in Indo-Saracenic building with gardens, showcasing ancient artifacts, sculptures and miniature paintings in Fort area, short walk from Gateway.",
-            "end_time": null,
+            "description": "Walk to museum precinct.",
+            "end_time": "10:15",
             "estimated_cost": null,
-            "flexibility": "fixed",
-            "location": "Mumbai",
+            "flexibility": "moveable",
+            "location": null,
+            "movement": {
+              "duration_minutes": 15,
+              "from": "Colaba",
+              "mode": "walk",
+              "to": "Chhatrapati Shivaji Maharaj Vastu Sangrahalaya"
+            },
+            "reason": null,
+            "start_time": "10:00",
+            "title": "Walk to CSMVS",
+            "type": "movement"
+          },
+          {
+            "description": "Premier art and history museum in Indo-Saracenic building with gardens, housing ancient artifacts, sculptures and miniature paintings in Fort area, short walk from Gateway.",
+            "end_time": "13:15",
+            "estimated_cost": null,
+            "flexibility": "moveable",
+            "location": "CSMVS, Fort",
             "movement": null,
-            "reason": "Indoor museum best Morning/Afternoon; typical duration 180 min allows comprehensive galleries without rushing; Moderate crowd level more comfortable midday",
-            "start_time": null,
-            "title": "Chhatrapati Shivaji Maharaj Vastu Sangrahalaya (CSMVS) Museum",
+            "reason": "180 min typical duration allows unhurried galleries; indoor setting ideal for midday heat",
+            "start_time": "10:15",
+            "title": "Chhatrapati Shivaji Maharaj Vastu Sangrahalaya (Prince of Wales Museum)",
             "type": "experience"
           },
           {
-            "description": "Grand 1833 Neo-Classical building with Doric columns and historic library, representing South Mumbai's colonial-era architecture in Fort.",
-            "end_time": null,
+            "description": "Short walk within Fort heritage precinct.",
+            "end_time": "13:25",
             "estimated_cost": null,
-            "flexibility": "fixed",
-            "location": "Mumbai",
+            "flexibility": "moveable",
+            "location": null,
+            "movement": {
+              "duration_minutes": 10,
+              "from": "CSMVS",
+              "mode": "walk",
+              "to": "Asiatic Society Town Hall"
+            },
+            "reason": null,
+            "start_time": "13:15",
+            "title": "Walk to Asiatic Society Town Hall",
+            "type": "movement"
+          },
+          {
+            "description": "Grand 1833 Neo-Classical Town Hall with Doric columns and steps, housing rare manuscripts. Exterior viewing and steps photography in Fort heritage precinct.",
+            "end_time": "14:05",
+            "estimated_cost": null,
+            "flexibility": "moveable",
+            "location": "Asiatic Society Town Hall, Fort",
             "movement": null,
-            "reason": "Typical duration 40 min and best Late_Afternoon timing fits between museum and sunset; Very_High photography value for facade and steps",
-            "start_time": null,
-            "title": "Asiatic Society Town Hall - Neo-Classical heritage stop",
+            "reason": "40 min typical duration fits as short stop between museum and Marine Drive; outdoor/mixed setting, late afternoon light",
+            "start_time": "13:25",
+            "title": "Asiatic Society Town Hall",
             "type": "experience"
           },
           {
-            "description": "3.6 km C-shaped boulevard along South Mumbai coast, famous as Queen's Necklace at night. Leisurely walk and sunset viewing.",
-            "end_time": null,
+            "description": "Generic rest period at budget accommodation. No venue named. Useful buffer before sunset walk.",
+            "end_time": "16:00",
+            "estimated_cost": null,
+            "flexibility": "optional",
+            "location": "Budget accommodation, Colaba/Fort",
+            "movement": null,
+            "reason": null,
+            "start_time": "14:05",
+            "title": "Rest at accommodation",
+            "type": "rest"
+          },
+          {
+            "description": "Transit to Marine Drive promenade.",
+            "end_time": "16:20",
+            "estimated_cost": null,
+            "flexibility": "moveable",
+            "location": null,
+            "movement": {
+              "duration_minutes": 20,
+              "from": "Fort/Colaba accommodation",
+              "mode": "walk / local taxi as convenient",
+              "to": "Marine Drive"
+            },
+            "reason": null,
+            "start_time": "16:00",
+            "title": "Transit to Marine Drive",
+            "type": "movement"
+          },
+          {
+            "description": "3.6 km C-shaped boulevard from Marine Lines to Nariman Point, famous as Queen's Necklace at night. Leisurely walk, sunset viewing and people-watching.",
+            "end_time": "17:50",
             "estimated_cost": null,
             "flexibility": "fixed",
-            "location": "Mumbai",
+            "location": "Marine Drive",
             "movement": null,
-            "reason": "Best_time_of_day Sunset/Evening and Very_High photography value; 90 min typical allows relaxed stroll after heritage-heavy day",
-            "start_time": null,
+            "reason": "90 min typical at sunset aligns with best_time_of_day and provides relaxed end to Day 1",
+            "start_time": "16:20",
             "title": "Marine Drive sunset promenade",
             "type": "experience"
-          },
-          {
-            "description": "Generic dinner slot near Marine Lines/Colaba with flexible timing; prioritize budget-friendly local options.",
-            "end_time": null,
-            "estimated_cost": null,
-            "flexibility": "fixed",
-            "location": null,
-            "movement": null,
-            "reason": null,
-            "start_time": null,
-            "title": "Dinner - flexible budget option",
-            "type": "meal"
-          },
-          {
-            "description": "Overnight in South Mumbai budget guesthouse/hostel to keep next day's ferry departure convenient.",
-            "end_time": null,
-            "estimated_cost": null,
-            "flexibility": "fixed",
-            "location": null,
-            "movement": null,
-            "reason": null,
-            "start_time": null,
-            "title": "Rest at budget accommodation",
-            "type": "rest"
           }
         ],
-        "place": "Mumbai",
-        "theme": "Gateway & Fort Heritage Core"
+        "place": "Mumbai - South Mumbai heritage cluster",
+        "theme": "Gateway, Museum & Sunset Promenade"
       },
       {
         "city_id": "mumbai_maharashtra",
-        "daily_notes": "Half-day island trip - ferry dependent, confirm locally",
+        "daily_notes": "Ferry-dependent morning; early departure maximizes cooler hours. Victorian ensemble clustered for efficient walking in late afternoon.",
         "date": null,
         "day": 2,
         "items": [
           {
-            "description": "UNESCO rock-cut cave network on Elephanta Island dedicated to Shiva, featuring Trimurti sculpture. Ferry from Gateway of India, then climb and cave exploration.",
-            "end_time": null,
+            "description": "UNESCO rock-cut cave network on Elephanta Island dedicated to Shiva, featuring Trimurti sculpture. Ferry from Gateway of India, then climb and guided cave exploration.",
+            "end_time": "12:00",
             "estimated_cost": null,
             "flexibility": "fixed",
-            "location": "Mumbai",
+            "location": "Elephanta Island, ferry from Gateway of India jetty",
             "movement": null,
-            "reason": "Typical duration 240 min plus ferry time; best Morning/Afternoon and best months Oct-Mar align with heritage focus; island setting requires half-day block",
-            "start_time": null,
+            "reason": "240 min typical plus ferry buffer; morning best_time_of_day avoids afternoon heat. Ferry dependency - weather dependent, steps involved.",
+            "start_time": "08:00",
             "title": "Elephanta Caves day trip from Gateway jetty",
             "type": "experience"
           },
           {
-            "description": "Generic meal slot after returning to mainland; timing depends on ferry arrival, keep flexible and budget-conscious.",
-            "end_time": null,
+            "description": "Ferry return and short walk to mainland meal area.",
+            "end_time": "12:20",
             "estimated_cost": null,
-            "flexibility": "fixed",
+            "flexibility": "moveable",
             "location": null,
+            "movement": {
+              "duration_minutes": 20,
+              "from": "Gateway jetty",
+              "mode": "walk",
+              "to": "Colaba/Fort meal area"
+            },
+            "reason": null,
+            "start_time": "12:00",
+            "title": "Walk from jetty",
+            "type": "movement"
+          },
+          {
+            "description": "Generic meal slot with flexible timing after returning to mainland. Budget-friendly, no venue named.",
+            "end_time": "13:10",
+            "estimated_cost": null,
+            "flexibility": "moveable",
+            "location": "Colaba/Fort",
             "movement": null,
             "reason": null,
-            "start_time": null,
-            "title": "Lunch - flexible timing on return",
+            "start_time": "12:20",
+            "title": "Lunch break",
             "type": "meal"
           },
           {
-            "description": "UNESCO Victorian Gothic Revival railway terminus blending Indian elements, historic headquarters of Central Railway in Fort. Focus on exterior architecture and photography.",
-            "end_time": null,
+            "description": "Transit to Fort Victorian ensemble. Short rest buffer if needed.",
+            "end_time": "13:40",
             "estimated_cost": null,
-            "flexibility": "fixed",
-            "location": "Mumbai",
+            "flexibility": "moveable",
+            "location": null,
+            "movement": {
+              "duration_minutes": 15,
+              "from": "Colaba/Fort",
+              "mode": "walk / local transit as convenient",
+              "to": "Chhatrapati Shivaji Maharaj Terminus area"
+            },
+            "reason": null,
+            "start_time": "13:10",
+            "title": "Transit to CSMT area",
+            "type": "movement"
+          },
+          {
+            "description": "UNESCO Victorian Gothic Revival railway terminus blending Indian elements, headquarters of Central Railway. Exterior photography and facade appreciation in Fort.",
+            "end_time": "14:25",
+            "estimated_cost": null,
+            "flexibility": "moveable",
+            "location": "Chhatrapati Shivaji Maharaj Terminus, Fort",
             "movement": null,
-            "reason": "Typical 45 min exterior visit; best Morning/Evening/Night for light; Very_High photography value and Very_High local authenticity as active station",
-            "start_time": null,
-            "title": "Chhatrapati Shivaji Maharaj Terminus (CSMT) exterior heritage viewing",
+            "reason": "45 min typical for exterior; Very_High crowd area best viewed from outside without entering platforms; late afternoon light",
+            "start_time": "13:40",
+            "title": "Chhatrapati Shivaji Maharaj Terminus exterior",
             "type": "experience"
           },
           {
-            "description": "Generic dinner slot in Fort/Colaba area with flexible timing.",
-            "end_time": null,
+            "description": "Walk within UNESCO Victorian ensemble.",
+            "end_time": "14:35",
             "estimated_cost": null,
-            "flexibility": "fixed",
+            "flexibility": "moveable",
             "location": null,
-            "movement": null,
+            "movement": {
+              "duration_minutes": 10,
+              "from": "CSMT",
+              "mode": "walk",
+              "to": "Rajabai Clock Tower"
+            },
             "reason": null,
-            "start_time": null,
-            "title": "Dinner - flexible",
-            "type": "meal"
+            "start_time": "14:25",
+            "title": "Walk to Rajabai Clock Tower",
+            "type": "movement"
           },
           {
-            "description": "Overnight rest to recover from island walking and prepare for final heritage day.",
-            "end_time": null,
+            "description": "280-foot Venetian Gothic clock tower (1878) inside University of Mumbai Fort campus, part of UNESCO Victorian ensemble. Exterior viewing and campus walk.",
+            "end_time": "15:20",
             "estimated_cost": null,
-            "flexibility": "fixed",
+            "flexibility": "moveable",
+            "location": "Rajabai Clock Tower, Fort campus",
+            "movement": null,
+            "reason": "45 min typical; pairs geographically with CSMT and High Court in Fort cluster",
+            "start_time": "14:35",
+            "title": "Rajabai Clock Tower",
+            "type": "experience"
+          },
+          {
+            "description": "Short walk to next heritage building.",
+            "end_time": "15:30",
+            "estimated_cost": null,
+            "flexibility": "moveable",
             "location": null,
+            "movement": {
+              "duration_minutes": 10,
+              "from": "Rajabai Clock Tower",
+              "mode": "walk",
+              "to": "Bombay High Court"
+            },
+            "reason": null,
+            "start_time": "15:20",
+            "title": "Walk to Bombay High Court",
+            "type": "movement"
+          },
+          {
+            "description": "Imposing Victorian Neo-Gothic fortress-like judicial building (1878) by Col. J.A. Fuller, integral to UNESCO heritage cluster. Facade viewing and photography.",
+            "end_time": "16:15",
+            "estimated_cost": null,
+            "flexibility": "moveable",
+            "location": "Bombay High Court, Fort",
+            "movement": null,
+            "reason": "45 min typical; completes Fort Victorian ensemble walk with Rajabai and CSMT",
+            "start_time": "15:30",
+            "title": "Bombay High Court exterior",
+            "type": "experience"
+          },
+          {
+            "description": "Generic rest period. No venue named. Evening free after dense heritage walk.",
+            "end_time": "17:30",
+            "estimated_cost": null,
+            "flexibility": "optional",
+            "location": "Budget accommodation",
             "movement": null,
             "reason": null,
-            "start_time": null,
+            "start_time": "16:15",
             "title": "Rest",
             "type": "rest"
           }
         ],
-        "place": "Mumbai",
-        "theme": "Elephanta Caves & Victorian Gothic Heritage"
+        "place": "Mumbai - Elephanta Island & Fort Victorian ensemble",
+        "theme": "Elephanta Island & Victorian Gothic Ensemble"
       },
       {
         "city_id": "mumbai_maharashtra",
-        "daily_notes": "Freedom-movement heritage and living culture - balanced pace",
+        "daily_notes": "Lighter final day with Gandhi heritage and hidden-gem village walk; flexible afternoon for revisit or rest before departure.",
         "date": null,
         "day": 3,
         "items": [
           {
-            "description": "Historic two-story building where Gandhi centered political activity 1917-1934, now memorial museum in Gamdevi, showcasing heritage of independence movement.",
-            "end_time": null,
+            "description": "Historic two-story building where Gandhi centered political activity 1917-1934, now memorial museum in Gamdevi. Exhibits on Gandhi's life and Mumbai role.",
+            "end_time": "09:45",
             "estimated_cost": null,
-            "flexibility": "fixed",
-            "location": "Mumbai",
+            "flexibility": "moveable",
+            "location": "Mani Bhavan, Gamdevi",
             "movement": null,
-            "reason": "Typical 75 min indoor visit; Easy accessibility and Moderate crowd allow calm morning; complements South Mumbai colonial architecture with freedom-movement heritage",
-            "start_time": null,
+            "reason": "75 min typical indoor visit; Easy accessibility and Excellent family/elderly suitability; morning timing",
+            "start_time": "08:30",
             "title": "Mani Bhavan Gandhi Sangrahalaya",
             "type": "experience"
           },
           {
-            "description": "World's largest open-air laundromat from 1890 where dhobis wash clothes in concrete troughs, offering living workforce heritage and photography.",
-            "end_time": null,
+            "description": "Transit between Gamdevi and Girgaon heritage precinct.",
+            "end_time": "10:05",
             "estimated_cost": null,
-            "flexibility": "fixed",
-            "location": "Mumbai",
+            "flexibility": "moveable",
+            "location": null,
+            "movement": {
+              "duration_minutes": 20,
+              "from": "Mani Bhavan",
+              "mode": "walk / local taxi as convenient",
+              "to": "Khotachiwadi"
+            },
+            "reason": null,
+            "start_time": "09:45",
+            "title": "Transit to Khotachiwadi",
+            "type": "movement"
+          },
+          {
+            "description": "Historic East Indian precinct with narrow lanes and 19th-century Portuguese-style wooden homes in Girgaon. Slow heritage walk, architecture photography and local life.",
+            "end_time": "11:05",
+            "estimated_cost": null,
+            "flexibility": "moveable",
+            "location": "Khotachiwadi, Girgaon",
             "movement": null,
-            "reason": "Best Morning timing and 45 min typical duration fits after Mani Bhavan; Very_High local authenticity and photography value with Easy accessibility",
-            "start_time": null,
-            "title": "Dhobi Ghat (Mahalaxmi) - open-air heritage laundromat",
+            "reason": "60 min typical; Low crowd Hidden_Gem with Very_High local authenticity complements South Mumbai monumental heritage",
+            "start_time": "10:05",
+            "title": "Khotachiwadi heritage village walk",
             "type": "experience"
           },
           {
-            "description": "Generic lunch slot near Mahalaxmi/Gamdevi with flexible timing before afternoon free time.",
-            "end_time": null,
+            "description": "Generic meal slot with flexible timing near Girgaon/Gamdevi. Budget option, no venue named.",
+            "end_time": "12:00",
             "estimated_cost": null,
-            "flexibility": "fixed",
-            "location": null,
+            "flexibility": "moveable",
+            "location": "Girgaon/Gamdevi",
             "movement": null,
             "reason": null,
-            "start_time": null,
-            "title": "Lunch - flexible budget meal",
+            "start_time": "11:05",
+            "title": "Lunch break",
             "type": "meal"
           },
           {
-            "description": "Generic rest and flexible time for revisiting Colaba Causeway area, shopping, or additional photography without a fixed venue; keeps pace balanced and budget low.",
-            "end_time": null,
+            "description": "Transit to seafront.",
+            "end_time": "12:20",
             "estimated_cost": null,
-            "flexibility": "fixed",
+            "flexibility": "moveable",
             "location": null,
-            "movement": null,
+            "movement": {
+              "duration_minutes": 20,
+              "from": "Girgaon",
+              "mode": "walk / local taxi as convenient",
+              "to": "Marine Drive / Girgaon Chowpatty"
+            },
             "reason": null,
-            "start_time": null,
-            "title": "Afternoon rest / flexible exploration",
-            "type": "rest"
+            "start_time": "12:00",
+            "title": "Transit to Marine Drive area",
+            "type": "movement"
           },
           {
-            "description": "Generic final dinner slot with flexible timing near accommodation.",
-            "end_time": null,
+            "description": "Optional second short promenade for daytime sea view or relaxed beachfront time, alternative to shopping at Colaba Causeway area if preferred.",
+            "end_time": "13:50",
             "estimated_cost": null,
-            "flexibility": "fixed",
-            "location": null,
+            "flexibility": "optional",
+            "location": "Marine Drive / Girgaon Chowpatty",
             "movement": null,
-            "reason": null,
-            "start_time": null,
-            "title": "Dinner - flexible",
-            "type": "meal"
+            "reason": "Reuse of Marine Drive with different light; 90 min flexible, can be shortened for budget shopping or rest",
+            "start_time": "12:20",
+            "title": "Marine Drive leisure revisit or Girgaon Chowpatty option",
+            "type": "experience"
           },
           {
-            "description": "Final overnight in budget accommodation; departure next day via CSMT or BOM airport as needed.",
-            "end_time": null,
+            "description": "Generic rest and packing time before departure. No venue named.",
+            "end_time": "15:00",
             "estimated_cost": null,
-            "flexibility": "fixed",
-            "location": null,
+            "flexibility": "moveable",
+            "location": "Budget accommodation",
             "movement": null,
             "reason": null,
-            "start_time": null,
-            "title": "Overnight rest",
+            "start_time": "13:50",
+            "title": "Rest and packing",
             "type": "rest"
           }
         ],
-        "place": "Mumbai",
-        "theme": "Gandhi Heritage & Living Culture"
+        "place": "Mumbai - Gamdevi, Girgaon & Seafront",
+        "theme": "Gandhi Heritage & Hidden Village Lanes"
       }
     ],
     "destination_route": [
@@ -295,18 +451,17 @@ const ftp1: FinalTripPlan = {
         "city_id": "mumbai_maharashtra",
         "departure_to": null,
         "order": 1,
-        "place": "Mumbai"
+        "place": "Mumbai, Maharashtra"
       }
     ],
-    "fit_explanation": "This 3-day single-base plan in South Mumbai (Colaba/Fort) directly delivers your primary purpose 'Culture, heritage & iconic sights' and all three stated priorities: Gateway of India on Day 1 early morning, Elephanta Caves as the full half-day focus on Day 2, and historic architecture in South Mumbai throughout (CSMVS Museum, Asiatic Society Town Hall, CSMT Victorian Gothic exterior, plus Mani Bhavan). Balanced pace with 2-4 heritage experiences per day plus flexible generic meal/rest slots respects your exploration-first comfort preference while keeping daily travel minimal. Budget accommodation preference (strong) is honored by recommending a budget guesthouse/hostel in Colaba/Fort and prioritizing free exterior sights (Gateway, CSMT, Marine Drive, Asiatic Society) with only two paid entries (CSMVS, Elephanta) to help stay near your $30/day target. Somewhat flexible dates help with weather-dependent Elephanta ferry.",
-    "plan_title": "Mumbai Heritage in 3 Days — Gateway, Elephanta & South Mumbai Architecture on a $30/Day Budget",
-    "summary": "Stay 3 nights in a single budget guesthouse/hostel in Colaba/Fort to keep South Mumbai's heritage cluster walkable. Day 1 covers Gateway of India at sunrise, CSMVS Museum, Asiatic Society Town Hall and a Marine Drive sunset. Day 2 is your Elephanta Caves UNESCO ferry day from the Gateway jetty, followed by CSMT's Victorian Gothic exterior. Day 3 adds Mani Bhavan Gandhi heritage and Dhobi Ghat's living laundromat, with flexible time for Colaba Causeway. All sights are within Mumbai — no intercity travel — maximizing time for your top priorities while keeping costs low with generic meal/rest slots.",
+    "fit_explanation": "Purpose is Culture, heritage & iconic sights with priorities Gateway of India, Elephanta Caves, and Historic architecture in South Mumbai. Itinerary delivers all three without hotel changes: Day 1 covers Gateway waterfront at early morning plus CSMVS and Fort precinct; Day 2 is dedicated Elephanta morning ferry (core UNESCO priority) followed by concentrated Victorian Gothic ensemble (CSMT, Rajabai Clock Tower, Bombay High Court) to minimize repeated transit; Day 3 adds Gandhi heritage (Mani Bhavan) and hidden-gem Khotachiwadi lanes for depth beyond monuments. Balanced pace with 60-180 min visits, midday indoor breaks, and sunset promenade. Budget accommodation preference respected via single Colaba/Fort base and generic budget meal slots; no specific venues invented. Somewhat flexible dates allow ferry contingency.",
+    "plan_title": "Mumbai 3-Day South Mumbai Heritage Base - Gateway, Elephanta & Victorian Ensemble",
+    "summary": "Three days based in South Mumbai (Colaba/Fort) covering your top priorities without hotel changes. Day 1: Gateway of India at early light, CSMVS museum, Asiatic Society Town Hall and Marine Drive sunset. Day 2: Morning ferry to Elephanta Caves, then walking tour of UNESCO Victorian ensemble - CSMT, Rajabai Clock Tower and Bombay High Court. Day 3: Mani Bhavan Gandhi museum, Khotachiwadi heritage village walk and optional Marine Drive/Girgaon Chowpatty revisit. Balanced pacing with indoor midday activities, short walks between Fort sites, and flexible budget meal/rest buffers.",
     "tradeoffs": [
-      "Single base maximizes heritage time and reduces hotel changes vs. exploring distant suburbs",
-      "Concentrating on South Mumbai heritage limits beach/nature coverage but matches stated priorities",
-      "Focusing on South Mumbai historic architecture and UNESCO sites maximizes stated priorities but leaves limited time for distant suburbs like Bandra or Sanjay Gandhi National Park",
-      "Including Elephanta Caves consumes half of Day 2 but delivers top priority; alternative would be Kanheri Caves which requires longer transit",
-      "Using generic meal/rest slots preserves budget flexibility vs. naming specific restaurants"
+      "Single-city base maximizes depth in South Mumbai heritage vs adding a second city",
+      "Concentrating Victorian ensemble on one day reduces repeated transit but makes Day 2 dense",
+      "Prioritized requested icons (Gateway, Elephanta, Victorian ensemble) over beach/nature sites to meet culture/heritage purpose",
+      "Used single base to keep costs low and avoid hotel changes, trading off broader Mumbai coverage (e.g., Bandra, Juhu) for depth in South Mumbai"
     ],
     "traveler_profile_reference": {
       "profile_id": "mock-profile",
@@ -319,17 +474,20 @@ const ftp1: FinalTripPlan = {
       "start_date": null
     },
     "unresolved_details": [
-      "Exact ferry timings and ticket availability for Elephanta Caves need local confirmation",
-      "Budget accommodation availability and final nightly rate within $30/day target needs traveler verification",
-      "Exact budget accommodation name and nightly rate within $30/day needs traveler selection",
-      "Elephanta ferry ticket price, departure times and seasonal sea conditions require local confirmation",
-      "Entry fees for CSMVS and Elephanta not guaranteed and should be verified locally"
+      "Exact ferry departure times and return buffer for Elephanta Caves",
+      "Budget accommodation availability and advance booking requirement",
+      "Exact budget guesthouse/hostel name and booking confirmation",
+      "Current Elephanta ferry schedule, last return ferry, and any booking requirement",
+      "Entry fees and opening hours verification for CSMVS and Mani Bhavan on travel dates"
     ],
     "warnings": [
-      "Gateway of India has Very_High crowd level even early morning - 60 min visit keeps it manageable",
-      "Elephanta Caves requires ~1 hour ferry each way plus steps/climb; accessibility Moderate, elderly suitability Poor; confirm ferry schedule and sea conditions locally",
-      "CSMT is an active station with Very_High crowds - exterior viewing recommended; interior platforms require ticket",
-      "No bookings or transport guarantees are included - all timings, ferry operation and entry fees must be verified locally"
+      "Elephanta requires ferry from Gateway and involves steps/climb; may be strenuous and weather-dependent in monsoon (avoid June-August). Alternative if ferry cancelled is extended Fort heritage walk including CSMVS or Kanheri Caves.",
+      "Very_High crowds at Gateway of India and CSMT - early morning and exterior viewing recommended",
+      "Asiatic Society interior access may be limited; focus on exterior and library steps",
+      "Bombay High Court and Rajabai Clock Tower interior access restricted - exterior viewing only",
+      "Khotachiwadi is residential; keep noise low and respect privacy",
+      "Marine Drive High crowd level at sunset"
     ]
   }
+
 

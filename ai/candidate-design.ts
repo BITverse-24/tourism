@@ -8,6 +8,7 @@ import "dotenv/config";
 import OpenAI from "openai";
 import { FinalTripPlan } from "./narrative";
 
+const REASONING_EFFORT = 'high'
 // --- profile types (inlined so clone with only ai/ still compiles) ---
 export type PreferenceStrength = "must_have" | "strong" | "nice_to_have" | "not_interested" | "unknown";
 export type InferenceConfidence = "high" | "medium" | "low";
@@ -335,6 +336,7 @@ You must discover cities and attractions via retrieval tools — never invent pl
 const SYSTEM_PROMPT = `
 
 Rules:
+- Ask the user for ATLEAST ONE decision when there are two conflicting options for itenerary item with their tradeoffs
 - Return exactly one JSON object matching the supplied schema. Never return markdown or commentary.
 - Use only city and attraction records returned by tools.
 - Do not invent places, restaurants, providers, prices, fares, distances, travel durations, opening-hour guarantees, bookings, or feasibility decisions.
@@ -349,6 +351,7 @@ Tools:
 - get_city: load one authoritative city record by city_id
 - query_attractions: send in sql query to query attractions db within an explicitly selected city_id, schema for sql query is given below
 - get_attractions_by_ids: hydrate exact attraction IDs within a city
+- ask_user_decision: ask user to decide on one out of 2-3 options
 
 Tool-use stopping rules:
 - Do not repeat the same tool call unless the previous result was empty or insufficient.
@@ -1096,6 +1099,12 @@ function buildToolSchemas(options: CandidateDesignOptions): unknown[] {
     const tools: unknown[] = [searchCities, getCity, queryAttractions, getAttractionsByIds];
     const hasDecisionResolver = !!(options.askUserDecision ?? options.askUserTradeoff);
     if (hasDecisionResolver) tools.push(buildAskUserDecisionToolSchema());
+// console.log(
+//     "\nAVAILABLE TOOLS:",
+//     (tools as any[]).map(
+//         (t) => t?.function?.name
+//     )
+// );
     return tools;
 }
 
@@ -1234,7 +1243,7 @@ async function requestModel(state: RunState, messages: ChatMessage[], tools: unk
             try {
                 const response = await withDeadline(fetcher(`${META_BASE_URL}/chat/completions`, {
                     method: "POST", headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" }, signal: controller.signal,
-                    body: JSON.stringify({ model, messages, ...(tools.length > 0 ? { tools, tool_choice: "auto" } : { response_format: { type: "json_schema", json_schema: { name: "candidate_design_result", strict: true, schema: CANDIDATE_DESIGN_RESPONSE_SCHEMA } } }), temperature: 0.2, max_tokens: 8192, reasoning_effort: "medium" }),
+                    body: JSON.stringify({ model, messages, ...(tools.length > 0 ? { tools, tool_choice: "auto" } : { response_format: { type: "json_schema", json_schema: { name: "candidate_design_result", strict: true, schema: CANDIDATE_DESIGN_RESPONSE_SCHEMA } } }), temperature: 0.2, max_tokens: 8192, reasoning_effort: REASONING_EFFORT }),
                 } as any), state.deadline, "model request");
                 const rawText = await withDeadline(response.text(), state.deadline, "model response read");
                 if (response.status === 429 && attempt < 4) {
@@ -1264,7 +1273,7 @@ async function requestModel(state: RunState, messages: ChatMessage[], tools: unk
                 messages: messages as any,
                 temperature: 0.2,
                 max_tokens: 8192,
-                reasoning_effort: "medium",
+                reasoning_effort: REASONING_EFFORT,
                 ...(tools.length > 0 ? { tools: tools as any, tool_choice: "auto" as const } : { response_format: { type: "json_schema" as const, json_schema: { name: "candidate_design_result", strict: true, schema: CANDIDATE_DESIGN_RESPONSE_SCHEMA as any } } }),
             };
             const response: any = await withTimeout(client.chat.completions.create(payload), remaining);
@@ -1279,7 +1288,7 @@ async function requestModel(state: RunState, messages: ChatMessage[], tools: unk
                 return { content: msg.content ?? null, tool_calls: calls };
             }
             const text: string = msg?.content ?? "";
-            if (!text) throw new CandidateDesignResponseError("model returned neither tool calls nor final JSON", ["message.content: final JSON required"]);
+            if (!text) throw new CandidateDesignResponseError("model returned neither tool calls nor final JSON" + " text: " + text, ["message.content: final JSON required"]);
             return { content: text, tool_calls: [] };
         } catch (e: any) {
             const msg = String(e?.message ?? ""); const isRate = e?.status === 429 || msg.includes("429") || /rate limit/i.test(msg);
@@ -1365,6 +1374,7 @@ function validateCandidate(candidate: CandidateBundle, state: RunState, index: n
 function buildRepairMessage(errors: string[]): string { return JSON.stringify({ repair_errors: errors.slice(0, 20) }); }
 
 export async function processCandidateDesign(input: CandidateDesignInput, options: CandidateDesignOptions): Promise<CandidateDesignResult> {
+
     validateInput(input);
     if (!options || !options.tools) throw new CandidateDesignConfigurationError("CandidateDesignOptions.tools is required");
     const state: RunState = {
