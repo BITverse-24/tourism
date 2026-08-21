@@ -49,8 +49,10 @@ export async function sessionStartService(
         await setWorkflowState(newSessionId, WorkflowStates.DISCOVERY)
 
         const initialIntent = (data as unknown as { payload?: { initial_intent?: string } }).payload?.initial_intent?.trim() || null
-        // Seed profile with destination_request so first discovery question is contextual
-        // (do not fake a UserAnswer without a DiscoveryQuestion object — that breaks the AI prompt)
+        // Provisional profile keeps raw intent for immediate UI (ms latency).
+        // Hidden Q0 is NOT counted/emitted — it is an internal NLU seed so Agent 1
+        // can fill multiple profile fields (destination + purpose/party/preferences)
+        // from one free-text answer without brittle parsing.
         const initialProfile = initialIntent
           ? ({
               profile_id: "mock-profile",
@@ -73,7 +75,7 @@ export async function sessionStartService(
               assumptions: [],
             } as unknown as import("../../../ai/discovery").TravelerProfile)
           : null
-        if (initialIntent) logger.debug('seeding discovery with initial_intent', { initialIntent })
+        if (initialIntent) logger.debug('seeding discovery with initial_intent (hidden Q0)', { initialIntent })
         // Emit provisional snapshot/question immediately so frontend sphere resolves in ms
         // even while agent runs. Agent result (if/when it returns) will emit a newer revision.
         {
@@ -124,17 +126,42 @@ export async function sessionStartService(
             payload: provisionalQ as unknown as import("../structures/EventMessage").DiscoveryQuestionMessage["payload"],
           })
           emit({ event: Events.DISCOVERY_QUESTION, data: qMsg })
-          addDiscoveryQuestion(newRunId, provisionalQ as unknown as import("../../../ai/discovery").DiscoveryQuestion)
 
           // Capture epoch so a traveler answer during the agent call drops this result.
           const provisionalEpoch = getDiscoveryEpoch(newSessionId)
+          // Call agent BEFORE adding provisional to DiscoveryQuestions so
+          // questions_asked_count is 0 for the first agent refinement
+          // (provisional is a UI placeholder, not an agent question).
+          // Hidden Q0: treat initialIntent as free-text answer to "Describe your trip in short"
+          // so Agent 1 can fill multiple profile fields at once. Hidden is NOT added to
+          // DiscoveryQuestions — visible count stays 0 and prior_questions stays [].
+          // Single LLM call enriches profile + produces first visible Q1.
+          const hiddenQuestion = initialIntent
+            ? ({
+                question_id: "__initial_intent",
+                prompt: "Describe your trip in short",
+                selection_mode: "single" as const,
+                required: true,
+                options: [],
+                free_text_mode: "required" as const,
+                free_text_placeholder: "e.g., Srinagar honeymoon, 5 days in Goa with family...",
+              } as unknown as import("../../../ai/discovery").DiscoveryQuestion)
+            : null
+          const hiddenAnswer = initialIntent && hiddenQuestion
+            ? ({
+                question_id: hiddenQuestion.question_id,
+                question: hiddenQuestion,
+                selected_option_ids: [],
+                free_text: initialIntent,
+              } as unknown as import("../../../ai/discovery").UserAnswer)
+            : null
           void newDiscoveryQuestionService(
               emit,
               newSessionId,
               newRunId,
               data.command_id,
-              initialProfile,
               null,
+              hiddenAnswer,
               provisionalEpoch,
           ).catch((e: unknown) => {
             const msg = e instanceof Error ? e.message : String(e)
@@ -147,6 +174,9 @@ export async function sessionStartService(
               errorType: e?.constructor?.name
             })
           })
+          // Add provisional AFTER background call so agent sees count 0 / no prior.
+          // It is still stored for future discoveryAnswerService calls (count 1 after).
+          addDiscoveryQuestion(newRunId, provisionalQ as unknown as import("../../../ai/discovery").DiscoveryQuestion)
         }
 
     }

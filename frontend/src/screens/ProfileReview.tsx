@@ -497,7 +497,9 @@ export default function ProfileReview() {
 
       <div className="pr-footer">
         <span className="mono pr-footer-text">Dossier · {displayProfile.profile_id} · revision {revisionLabel} · {stateLabel}</span>
-        <span className="mono pr-footer-text" style={{ opacity: 0.7 }}>Live via WS · {hasLiveSnapshot ? 'snapshot+ready' : 'waiting'}</span>
+        <span className="mono pr-footer-text" style={{ opacity: 0.7 }}>
+          Live via WS · {hasLiveSnapshot && liveReady ? 'snapshot+ready' : hasLiveSnapshot ? 'snapshot' : 'waiting'}
+        </span>
       </div>
 
       {editorOpen && (

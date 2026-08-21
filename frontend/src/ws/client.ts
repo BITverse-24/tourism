@@ -393,8 +393,16 @@ export class SequenceManager {
 }
 
 // ---------------------------------------------------------------------------
-// Snapshot revision handling — replace only when revision newer
+// Snapshot revision handling — replace when revision newer, or same-rev promote
 // ---------------------------------------------------------------------------
+
+/** Rank for same-revision profile/plan state promotion. */
+const SNAPSHOT_STATE_RANK: Record<string, number> = {
+  draft: 0,
+  ready: 1,
+  confirmed: 2,
+  final: 2,
+};
 
 export class SnapshotStore<T extends { revision: number }> {
   private currentRevision = 0;
@@ -408,6 +416,7 @@ export class SnapshotStore<T extends { revision: number }> {
 
   /**
    * Attempt to apply snapshot. Returns true if applied, false if ignored (stale).
+   * Same revision is accepted only when state promotes (draft → ready → confirmed).
    */
   apply(snapshot: T): boolean {
     const rev = (snapshot as { revision?: unknown }).revision;
@@ -416,6 +425,16 @@ export class SnapshotStore<T extends { revision: number }> {
       this.currentRevision = rev;
       this.current = snapshot;
       return true;
+    }
+    if (rev === this.currentRevision && this.current) {
+      const prevState = (this.current as { state?: string }).state;
+      const nextState = (snapshot as { state?: string }).state;
+      const prevRank = SNAPSHOT_STATE_RANK[prevState ?? ''] ?? -1;
+      const nextRank = SNAPSHOT_STATE_RANK[nextState ?? ''] ?? -1;
+      if (nextRank > prevRank) {
+        this.current = snapshot;
+        return true;
+      }
     }
     return false;
   }
@@ -546,6 +565,8 @@ export class WsClient {
   private seq = new SequenceManager();
   private profileStore = new SnapshotStore<{ revision: number; state?: string; profile?: unknown }>('profile');
   private planStore = new SnapshotStore<{ revision: number; state?: string; plan?: unknown }>('plan');
+  /** Last profile.ready payload — retained so late subscribers (e.g. ProfileReview) can hydrate. */
+  private profileReady: { profile_revision: number; blocking_unknowns: string[] } | null = null;
 
   // commands
   private commands = new CommandRegistry();
@@ -589,6 +610,9 @@ export class WsClient {
   getWorkflowState(): WorkflowState { return this.workflowState; }
   getRecoveryState(): RecoveryState | null { return this.recoveryState; }
   getProfileSnapshot(): { revision: number; state?: string; profile?: unknown } | null { return this.profileStore.get(); }
+  getProfileReady(): { profile_revision: number; blocking_unknowns: string[] } | null {
+    return this.profileReady ? { ...this.profileReady, blocking_unknowns: [...this.profileReady.blocking_unknowns] } : null;
+  }
   getPlanSnapshot(): { revision: number; state?: string; plan?: unknown } | null { return this.planStore.get(); }
   getConnectionState(): ConnectionState { return this.connState; }
   getDiagnostics() { return { ...this.diagnostics, unknownEventTypes: [...this.diagnostics.unknownEventTypes] }; }
@@ -723,6 +747,7 @@ export class WsClient {
     // snapshots become stale — reset revision tracking but keep last snapshot for UI teardown? contract says invalidate.
     this.profileStore.reset();
     this.planStore.reset();
+    this.profileReady = null;
     this.emitState();
     // surface via error listener with session_expired (retryable false, can_start_new_session true)
     void payload; // payload contains reason, can_start_new_session — caller can read via event
@@ -1105,15 +1130,22 @@ export class WsClient {
       return;
     }
 
-    // snapshot handling — replace only when revision newer
+    // snapshot handling — replace when revision newer (or same-rev state promote)
     if (t === 'profile.snapshot') {
       const snap = env.payload as unknown as { revision: number; state?: string; profile?: unknown };
       if (snap && typeof snap.revision === 'number') {
         const applied = this.profileStore.apply(snap as { revision: number; state?: string });
         if (!applied) {
-          // stale revision — ignore per contract: replace only when revision newer
-          // still notify? No — we drop stale snapshot
+          // stale revision — ignore per contract: replace only when revision newer / state promotes
           return;
+        }
+        // Newer draft invalidates a prior ready marker until profile.ready re-fires
+        if (
+          snap.state === 'draft'
+          && this.profileReady
+          && snap.revision >= this.profileReady.profile_revision
+        ) {
+          this.profileReady = null;
         }
         // also update recovery state
         this.recoveryState = { ...(this.recoveryState ?? {}), profile_revision: snap.revision };
@@ -1142,8 +1174,16 @@ export class WsClient {
       if (qid) this.recoveryState = { ...(this.recoveryState ?? {}), current_question_id: qid, active_question_id: qid };
     }
     if (t === 'profile.ready') {
-      const rev = (env.payload as Record<string, unknown>).profile_revision as number | undefined;
-      if (typeof rev === 'number') this.recoveryState = { ...(this.recoveryState ?? {}), profile_revision: rev };
+      const payload = env.payload as Record<string, unknown>;
+      const rev = payload.profile_revision as number | undefined;
+      const blocking = payload.blocking_unknowns;
+      if (typeof rev === 'number') {
+        this.recoveryState = { ...(this.recoveryState ?? {}), profile_revision: rev };
+        const unknowns = Array.isArray(blocking) && blocking.every((x) => typeof x === 'string')
+          ? (blocking as string[])
+          : [];
+        this.profileReady = { profile_revision: rev, blocking_unknowns: unknowns };
+      }
       this.workflowState = 'profile_review';
     }
     if (t === 'decision.request') {

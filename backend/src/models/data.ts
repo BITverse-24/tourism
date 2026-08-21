@@ -94,6 +94,18 @@ export async function addDiscoveryQuestion(run_id: string, q: DiscoveryQuestion)
     DiscoveryQuestions[run_id].push(q)
 }
 
+export function getDiscoveryQuestions(run_id: string): DiscoveryQuestion[] {
+    return DiscoveryQuestions[run_id] ?? []
+}
+
+export function getDiscoveryQuestionCount(run_id: string): number {
+    return DiscoveryQuestions[run_id]?.length ?? 0
+}
+
+export function getDiscoveryQuestionPrompts(run_id: string): string[] {
+    return (DiscoveryQuestions[run_id] ?? []).map((q) => q.prompt)
+}
+
 
 
 export async function getSessionProfile(session_id: string): Promise < TravelerProfile > {

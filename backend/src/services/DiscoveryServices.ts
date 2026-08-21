@@ -7,6 +7,8 @@ import {
     bumpDiscoveryEpoch,
     getDiscoveryEpoch,
     getDiscoveryQuestionById,
+    getDiscoveryQuestionCount,
+    getDiscoveryQuestionPrompts,
     getSessionProfile,
     setSessionProfile,
     setWorkflowState,
@@ -24,7 +26,8 @@ function loadDiscoveryOptions(): ProcessDiscoveryOptions {
     return {
         api_key: config.agent_api_key,
         model: config.agent_model,
-        reasoning_effort: config.agent_reasoning_effort,
+        // Agent 1 (discovery) always disables reasoning — thinkingBudget: 0.
+        // Do not pass reasoning_effort here; AGENT_REASONING_EFFORT is for Agent 2 (candidate-design) only.
         api_url: config.agent_api_url,
         timeout_ms: config.agent_timeout_ms,
     }
@@ -41,7 +44,9 @@ function logAgentCall(discoveryInput: DiscoveryInput, config: AppConfig): void {
             model: config.agent_model,
             timeout_ms: config.agent_timeout_ms,
             api_url: config.agent_api_url || 'default',
-            reasoning_effort: config.agent_reasoning_effort,
+            // Agent 1 never uses reasoning — thinkingBudget: 0 (see ai/discovery.ts).
+            // AGENT_REASONING_EFFORT is for Agent 2 (candidate-design) only.
+            reasoning_effort: 'none (Agent 1 thinkingBudget: 0 — AGENT_REASONING_EFFORT not applied)',
         },
     })
 }
@@ -137,7 +142,9 @@ export async function discoveryAnswerService(
             question: discoveryQ,
             selected_option_ids: data.payload.selected_option_ids,
             free_text: data.payload.free_text,
-        }
+        },
+        questions_asked_count: getDiscoveryQuestionCount(data.run_id),
+        prior_questions: getDiscoveryQuestionPrompts(data.run_id),
     }
     const config: AppConfig = loadConfig(process.env)
     const opt = loadDiscoveryOptions()
@@ -198,6 +205,8 @@ export async function newDiscoveryQuestionService(
     const discoveryInput: DiscoveryInput = {
         answer:  answer,
         profile: profile,
+        questions_asked_count: getDiscoveryQuestionCount(run_id),
+        prior_questions: getDiscoveryQuestionPrompts(run_id),
     }
 
     const config: AppConfig = loadConfig(process.env)
