@@ -16,6 +16,7 @@ import type { ItineraryItem } from './screens/DayCanvas'
 import SessionBanner from './components/SessionBanner'
 import ErrorBanner from './components/ErrorBanner'
 import { useWsBannerState } from './hooks/useWsBannerState'
+import { usePlan } from './hooks/usePlan'
 
 function AppShell(){
   const loc=useLocation()
@@ -26,6 +27,8 @@ function AppShell(){
   const returnFocusRef = useRef<HTMLElement>(null) as React.RefObject<HTMLElement>
   // Centralized WS banners — single WebSocket integration surface
   const { sessionBanner, lastError, clearSessionBanner, clearError, handleStartNewSession, handleCloseSuperseded } = useWsBannerState()
+  // Live plan snapshot (plan.snapshot draft/final) — replaces static mock wiring
+  const { plan: livePlan, revision: liveRevision, state: liveState, hasLivePlan } = usePlan()
 
   const mockQuestion = mockQuestions[0] ?? null
   const mockProfile = {
@@ -36,35 +39,6 @@ function AppShell(){
       unknowns: [{ topic:"budget", impact:"minor", description:"flights excluded?" }],
       assumptions: [{ topic:"pace", value:"slow", reason:"preference", user_confirmation_needed:true }]
     }
-  }
-  const mockPlanForCanvas = {
-    revision: 3,
-    state: "final" as const,
-    plan_title: mockPlan.plan_title,
-    days: mockPlan.days.map(d=> ({
-      day: d.day,
-      date: (d as any).date ?? null,
-      place: d.place,
-      theme: (d as any).theme ?? null,
-      daily_notes: (d as any).daily_notes ?? null,
-      items: d.items.map(it=> ({
-        type: it.type,
-        title: it.title,
-        start_time: (it as any).start_time ?? null,
-        end_time: (it as any).end_time ?? null,
-        location: (it as any).location ?? null,
-        description: it.description,
-        movement: (it as any).movement ?? null,
-        estimated_cost: (it as any).estimated_cost ?? null,
-        reason: (it as any).reason ?? null,
-        flexibility: (it as any).flexibility ?? null,
-        imageUrl: (it as any).image ?? null,
-      }))
-    })),
-    traveler_profile_reference: mockPlan.traveler_profile_reference,
-    city_allocations: mockPlan.city_allocations.map(a=> ({ place: a.place, nights: a.nights, days: String(a.days) })),
-    cost_summary: { currency: mockPlan.cost_summary.currency, estimated_total: String(mockPlan.cost_summary.estimated_total), budget_position: mockPlan.cost_summary.budget_position },
-    fit_explanation: mockPlan.fit_explanation,
   }
 
   const handleSelectItem = (_dayIdx:number, _itemIdx:number, item: ItineraryItem) => {
@@ -107,8 +81,8 @@ function AppShell(){
         <Route path="/consultation" element={<Consultation />} />
         <Route path="/decision" element={<Consultation decisionRequest={decisionForRoute} enableMockDecision={false} />} />
         <Route path="/tradeoff" element={<TradeoffBrief/>} />
-        <Route path="/trip-overview" element={<TripOverview/>} />
-        <Route path="/day-canvas" element={<DayCanvas plan={mockPlanForCanvas} workflowCompleted={true} onSelectItem={handleSelectItem} />} />
+        <Route path="/trip-overview" element={<TripOverview plan={livePlan} state={liveState ?? undefined} revision={liveRevision ?? undefined} />} />
+        <Route path="/day-canvas" element={<DayCanvas plan={livePlan} revision={liveRevision ?? undefined} state={liveState ?? undefined} workflowCompleted={hasLivePlan ? liveState === 'final' : true} onSelectItem={handleSelectItem} />} />
         <Route path="/replanning" element={<Replanning/>} />
       </Routes>
       {!isArrival && !isConsultation && (

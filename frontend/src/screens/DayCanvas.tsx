@@ -1,11 +1,16 @@
 import React, { useEffect, useRef, useState } from "react";
+import type { FinalPlan, PlanItem } from "../types";
+import { mockPlan } from "../data/mockPlan";
+import { normalizeFinalPlan, budgetLabel } from "../types/planAdapter";
 
-// ---------- Types mirroring docs/FINAL_TRIP_PLAN_SCHEMA.md ----------
-export type ItemType = "experience" | "meal" | "rest" | "movement";
+// Preserve exported item/day types for ExperienceDetail compatibility.
+// They now alias the canonical FinalPlan item shape.
+export type ItemType = PlanItem["type"];
 export interface MovementInfo {
   mode?: string;
   duration?: string;
   estimated_cost?: string;
+  cost?: string;
 }
 export interface ItineraryItem {
   type: ItemType;
@@ -32,22 +37,42 @@ export interface CostSummary {
   currency?: string;
   estimated_total?: string | number;
   budget_position?: string;
+  scope?: string;
+  categories?: { name: string; amount: number }[];
+  caveats?: string[];
 }
+// Canonical plan snapshot (full FinalPlan) — preferred.
+// Also accepts legacy lossy PlanSnapshot for backward compat during migration.
 export interface PlanSnapshot {
   revision: number;
   state: "draft" | "final";
   days: Day[];
   traveler_profile_reference?: string;
-  city_allocations?: { place: string; days?: string; nights?: number }[];
+  city_allocations?: { place: string; days?: string | number; nights?: number }[];
   cost_summary?: CostSummary;
   fit_explanation?: string;
   plan_title?: string;
+  trip_dates?: { start?: string; end?: string; flexibility?: string };
+  destination_route?: { place: string; order: number }[];
+  warnings?: string[];
+  unresolved_details?: string[];
 }
 
 export interface DayCanvasProps {
-  plan: PlanSnapshot;
+  // Preferred: full FinalPlan (plugged from live plan.snapshot)
+  plan?: FinalPlan | null;
+  snapshot?: PlanSnapshot | NormalizedSnapshot | null;
+  // Legacy: wrapper with revision/state; kept for App.tsx transitional compat
+  revision?: number;
+  state?: "draft" | "final";
   workflowCompleted?: boolean;
   onSelectItem?: (dayIndex: number, itemIndex: number, item: ItineraryItem) => void;
+}
+
+export interface NormalizedSnapshot {
+  revision: number;
+  state: "draft" | "final";
+  plan: FinalPlan;
 }
 
 // ---------- Helpers ----------
@@ -66,28 +91,137 @@ function padDay(n: number): string {
   return String(n).padStart(2, "0");
 }
 
-// ---------- Component ----------
-export default function DayCanvas({ plan, workflowCompleted = false, onSelectItem }: DayCanvasProps) {
-  const [displayPlan, setDisplayPlan] = useState<PlanSnapshot>(plan);
-  const [activeDay, setActiveDay] = useState<number>(plan.days[0]?.day ?? 1);
-  const dayRefs = useRef<Record<number, HTMLElement | null>>({});
-  const isDraft = displayPlan.state === "draft" || (displayPlan.state === "final" && !workflowCompleted);
+function toItineraryItem(it: PlanItem): ItineraryItem {
+  return {
+    type: it.type,
+    title: it.title,
+    start_time: it.start_time ?? null,
+    end_time: it.end_time ?? null,
+    location: it.location ?? null,
+    description: it.description,
+    movement: it.movement ? { mode: it.movement.mode, duration: it.movement.duration, estimated_cost: (it.movement as unknown as { estimated_cost?: string; cost?: string }).estimated_cost ?? it.movement.cost, cost: it.movement.cost } : null,
+    estimated_cost: it.estimated_cost ?? null,
+    reason: it.reason ?? null,
+    flexibility: it.flexibility ?? null,
+    imageUrl: (it as unknown as { image?: string; imageUrl?: string }).imageUrl ?? (it as unknown as { image?: string }).image ?? null,
+  }
+}
 
-  const prevRevisionRef = useRef<number>(plan.revision);
-  const prevPlanRef = useRef<PlanSnapshot>(plan);
+function resolvePlan(props: DayCanvasProps): { plan: FinalPlan; revision: number; state: "draft" | "final" } | null {
+  if (props.plan) {
+    return { plan: props.plan, revision: props.revision ?? 1, state: props.state ?? "final" }
+  }
+  if (props.snapshot) {
+    const s = props.snapshot as unknown as Record<string, unknown>
+    if (s.plan && typeof s.plan === "object") {
+      const norm = normalizeFinalPlan(s.plan)
+      if (norm) return { plan: norm, revision: (s.revision as number) ?? 1, state: (s.state as "draft" | "final") ?? "final" }
+    }
+    // legacy PlanSnapshot without wrapped plan
+    const legacy = props.snapshot as PlanSnapshot
+    if (Array.isArray(legacy.days)) {
+      const fake: FinalPlan = {
+        plan_title: legacy.plan_title ?? "Trip",
+        summary: "",
+        traveler_profile_reference: legacy.traveler_profile_reference ?? "profile",
+        destination_route: (legacy.destination_route ?? legacy.city_allocations?.map((c, i) => ({ place: c.place, order: i + 1 })) ?? []) as FinalPlan["destination_route"],
+        city_allocations: (legacy.city_allocations ?? []).map(c => ({ place: c.place, nights: c.nights, days: typeof c.days === 'string' ? Number(c.days) || 1 : (c.days as number) ?? 1 })),
+        days: legacy.days.map(d => ({
+          day: d.day,
+          place: d.place,
+          date: d.date ?? undefined,
+          theme: d.theme ?? undefined,
+          daily_notes: d.daily_notes ?? undefined,
+          items: d.items.map(it => ({
+            type: it.type,
+            title: it.title,
+            description: it.description,
+            start_time: it.start_time ?? undefined,
+            end_time: it.end_time ?? undefined,
+            location: it.location ?? undefined,
+            movement: it.movement ?? undefined,
+            estimated_cost: it.estimated_cost ?? undefined,
+            reason: it.reason ?? undefined,
+            flexibility: it.flexibility ?? undefined,
+            image: it.imageUrl ?? undefined,
+          })),
+        })),
+        cost_summary: {
+          currency: legacy.cost_summary?.currency ?? "INR",
+          estimated_total: typeof legacy.cost_summary?.estimated_total === 'string' ? Number(legacy.cost_summary.estimated_total) || 0 : (legacy.cost_summary?.estimated_total as number) ?? 0,
+          scope: legacy.cost_summary?.scope ?? "",
+          categories: legacy.cost_summary?.categories ?? [],
+          budget_position: legacy.cost_summary?.budget_position ?? "",
+          caveats: legacy.cost_summary?.caveats ?? [],
+        },
+        fit_explanation: legacy.fit_explanation ?? "",
+        tradeoffs: [],
+        assumptions: [],
+        warnings: legacy.warnings ?? [],
+        unresolved_details: legacy.unresolved_details ?? [],
+        ...(legacy.trip_dates ? { trip_dates: legacy.trip_dates } : {}),
+      }
+      return { plan: fake, revision: legacy.revision, state: legacy.state }
+    }
+  }
+  // dev fallback
+  if ((import.meta as unknown as { env: Record<string, unknown> }).env?.DEV) {
+    return { plan: mockPlan as unknown as FinalPlan, revision: 1, state: "final" }
+  }
+  return null
+}
+
+// ---------- Component ----------
+export default function DayCanvas({ plan: planProp, snapshot, revision, state, workflowCompleted = false, onSelectItem }: DayCanvasProps) {
+  const resolved = resolvePlan({ plan: planProp, snapshot, revision, state })
+  const livePlan: FinalPlan | null = resolved?.plan ?? null
+  const rev = resolved?.revision ?? 1
+  const st = resolved?.state ?? "final"
+
+  // Early empty guard — no live plan and not in dev
+  if (!livePlan) {
+    return (
+      <main className="day-canvas" style={{ display: 'block', padding: '48px 5vw' }}>
+        <p style={{ fontSize: 11, letterSpacing: '.18em', textTransform: 'uppercase', color: 'var(--voyager-ink-3)', fontWeight: 600 }}>Day by day</p>
+        <h2 className="serif" style={{ marginTop: 8, fontSize: 28, fontWeight: 400, color: 'var(--voyager-ink-1)' }}>Your itinerary will appear here</h2>
+        <p style={{ marginTop: 12, fontSize: 14, lineHeight: '22px', color: 'var(--voyager-ink-2)', maxWidth: 520 }}>Confirm your profile to generate a plan. Live day-by-day details, timings, and movement will render from the Final Trip Plan snapshot.</p>
+      </main>
+    )
+  }
+
+  const derivedPlan = {
+    revision: rev,
+    state: st,
+    plan: livePlan,
+    days: livePlan.days.map(d => ({ ...d, items: d.items.map(toItineraryItem) })),
+    traveler_profile_reference: livePlan.traveler_profile_reference,
+    city_allocations: livePlan.city_allocations,
+    cost_summary: livePlan.cost_summary,
+    fit_explanation: livePlan.fit_explanation,
+    trip_dates: livePlan.trip_dates,
+    destination_route: livePlan.destination_route,
+    warnings: livePlan.warnings,
+    unresolved_details: livePlan.unresolved_details,
+  }
+
+  const [activeDay, setActiveDay] = useState<number>(derivedPlan.days[0]?.day ?? 1);
+  const dayRefs = useRef<Record<number, HTMLElement | null>>({});
+  const isDraft = derivedPlan.state === "draft" || (derivedPlan.state === "final" && !workflowCompleted);
+
+  const prevRevisionRef = useRef<number>(derivedPlan.revision);
+  const prevPlanRef = useRef(derivedPlan);
   useEffect(() => {
-    if (plan.revision > prevRevisionRef.current) {
+    if (derivedPlan.revision > prevRevisionRef.current) {
       const prevAnchorDay = activeDay;
       const prevAnchorTitle = prevPlanRef.current.days.find((d) => d.day === prevAnchorDay)?.items[0]?.title;
-      setDisplayPlan(plan);
-      prevRevisionRef.current = plan.revision;
-      prevPlanRef.current = plan;
+      prevRevisionRef.current = derivedPlan.revision;
+      prevPlanRef.current = derivedPlan;
       requestAnimationFrame(() => {
-        const targetDay = plan.days.find((d) => d.day === prevAnchorDay) ? prevAnchorDay : plan.days[0]?.day;
+        const targetDay = derivedPlan.days.find((d) => d.day === prevAnchorDay) ? prevAnchorDay : derivedPlan.days[0]?.day;
         const targetEl = targetDay != null ? dayRefs.current[targetDay] : null;
         if (targetEl) {
           if (prevAnchorTitle) {
-            const itemEl = plan.days.find((d) => d.day === targetDay)?.items.find((it) => it.title === prevAnchorTitle);
+            const itemEl = derivedPlan.days.find((d) => d.day === targetDay)?.items.find((it) => it.title === prevAnchorTitle);
             if (itemEl) {
               targetEl.scrollIntoView({ behavior: "smooth", block: "start" });
               return;
@@ -96,11 +230,10 @@ export default function DayCanvas({ plan, workflowCompleted = false, onSelectIte
           targetEl.scrollIntoView({ behavior: "smooth", block: "start" });
         }
       });
-    } else if (plan.revision === prevRevisionRef.current) {
-      setDisplayPlan(plan);
-      prevPlanRef.current = plan;
+    } else if (derivedPlan.revision === prevRevisionRef.current) {
+      prevPlanRef.current = derivedPlan;
     }
-  }, [plan, activeDay]);
+  }, [derivedPlan, activeDay]);
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -120,9 +253,20 @@ export default function DayCanvas({ plan, workflowCompleted = false, onSelectIte
     );
     Object.values(dayRefs.current).forEach((el) => el && observer.observe(el));
     return () => observer.disconnect();
-  }, [displayPlan.days.length]);
+  }, [derivedPlan.days.length]);
 
-  const sortedDays = [...displayPlan.days].sort((a, b) => a.day - b.day);
+  const sortedDays = [...derivedPlan.days].sort((a, b) => a.day - b.day);
+
+  const tripWindow = (() => {
+    const td = derivedPlan.trip_dates
+    if (td?.start && td?.end) return `${td.start} → ${td.end}${td.flexibility ? ` · ${td.flexibility}` : ''}`
+    if (td?.start || td?.end) return (td.start ?? td.end ?? '') + (td.flexibility ? ` · ${td.flexibility}` : '')
+    return ''
+  })()
+  const routeLabel = (derivedPlan.destination_route.length > 0
+    ? derivedPlan.destination_route.slice().sort((a,b)=>a.order-b.order).map(r=>r.place).join(" → ")
+    : derivedPlan.city_allocations.map(c=>c.place).join(" → ")) || derivedPlan.days.map(d=>d.place).join(" → ")
+  const budgetPos = derivedPlan.cost_summary?.budget_position ? budgetLabel(derivedPlan.cost_summary.budget_position) : ''
 
   return (
     <>
@@ -138,7 +282,6 @@ export default function DayCanvas({ plan, workflowCompleted = false, onSelectIte
           background: var(--voyager-bone-0);
           color: var(--voyager-ink-1);
         }
-        /* sticky vertical timeline */
         .day-canvas__index {
           position: sticky;
           top: 104px;
@@ -173,7 +316,6 @@ export default function DayCanvas({ plan, workflowCompleted = false, onSelectIte
         .day-canvas__index a:hover { color: var(--voyager-ink-2); }
         .day-canvas__feed { min-width: 0; }
 
-        /* day header */
         .day-article {
           scroll-margin-top: 104px;
           margin-bottom: 96px;
@@ -220,7 +362,6 @@ export default function DayCanvas({ plan, workflowCompleted = false, onSelectIte
           margin: 0 0 32px 0;
         }
 
-        /* editorial activity blocks */
         .activity-row {
           display: grid;
           grid-template-columns: 96px 1fr;
@@ -321,11 +462,9 @@ export default function DayCanvas({ plan, workflowCompleted = false, onSelectIte
           box-shadow: 0 0 0 3px rgba(216,193,154,.42);
         }
 
-        /* rest block editorial - lighter */
         .rest-row .activity-title { color: var(--voyager-ink-2); font-style: italic; }
         .rest-row .activity-desc { color: var(--voyager-ink-2); }
 
-        /* transport connector delicate */
         .transport-connector {
           display: grid;
           grid-template-columns: 96px 1fr;
@@ -364,7 +503,6 @@ export default function DayCanvas({ plan, workflowCompleted = false, onSelectIte
           letter-spacing: .04em;
         }
 
-        /* day note at end */
         .day-note {
           margin-top: 32px;
           padding: 20px 0 0 0;
@@ -389,7 +527,6 @@ export default function DayCanvas({ plan, workflowCompleted = false, onSelectIte
           margin: 0;
         }
 
-        /* draft subtle */
         .draft-indicator {
           font-family: General Sans, Inter, sans-serif;
           font-size: 11px;
@@ -403,7 +540,6 @@ export default function DayCanvas({ plan, workflowCompleted = false, onSelectIte
           margin-bottom: 16px;
         }
 
-        /* summary pills */
         .summary-pill {
           position: fixed;
           left: 50%;
@@ -439,6 +575,14 @@ export default function DayCanvas({ plan, workflowCompleted = false, onSelectIte
           gap: 12px 20px;
           background: var(--voyager-bone-1);
         }
+        .warn-banner, .unresolved-banner {
+          border-radius: 12px;
+          padding: 14px 16px;
+          margin-bottom: 20px;
+          border: 1px solid var(--voyager-bone-2);
+        }
+        .warn-banner { background: rgba(251, 245, 230, 0.9); }
+        .unresolved-banner { background: var(--voyager-bone-1); }
 
         @media (max-width: 1024px) {
           .day-canvas {
@@ -495,16 +639,40 @@ export default function DayCanvas({ plan, workflowCompleted = false, onSelectIte
               );
             })}
           </ul>
+          {tripWindow && (
+            <p style={{ marginTop: 16, fontSize: 11, lineHeight: '16px', color: 'var(--voyager-ink-3)', letterSpacing: '.06em' }}>{tripWindow}</p>
+          )}
+          <p style={{ marginTop: 8, fontSize: 11, lineHeight: '16px', color: 'var(--voyager-ink-3)', letterSpacing: '.04em' }}>{routeLabel}</p>
         </nav>
 
         <div className="day-canvas__feed" role="feed" aria-label="Day by day itinerary">
           <section className="summary-static" aria-label="Trip summary">
-            <span className="summary-pill__item">{displayPlan.traveler_profile_reference ?? "Profile"}</span>
-            <span className="summary-pill__item">
-              {(displayPlan.city_allocations ?? []).map((c) => `${c.place}`).join(" → ") || displayPlan.days.map((d) => d.place).join(" → ")}
-            </span>
-            <span className="summary-pill__item">{displayPlan.cost_summary?.budget_position ?? ""}</span>
+            <span className="summary-pill__item">{derivedPlan.traveler_profile_reference ?? "Profile"}</span>
+            <span className="summary-pill__item">{routeLabel}</span>
+            <span className="summary-pill__item">{budgetPos}</span>
           </section>
+
+          {/* warnings / unresolved banner — from schema, was missing */}
+          {derivedPlan.warnings.length > 0 && (
+            <section className="warn-banner" aria-label="Warnings">
+              <p style={{ fontSize: 11, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--voyager-ink-3)', fontWeight: 600, margin: '0 0 8px 0' }}>Heads up</p>
+              <ul style={{ margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {derivedPlan.warnings.map((w, i) => (
+                  <li key={i} style={{ fontSize: 13, lineHeight: '20px', color: 'var(--voyager-ink-2)' }}>{w}</li>
+                ))}
+              </ul>
+            </section>
+          )}
+          {derivedPlan.unresolved_details.length > 0 && (
+            <section className="unresolved-banner" aria-label="Unresolved details">
+              <p style={{ fontSize: 11, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--voyager-ink-3)', fontWeight: 600, margin: '0 0 8px 0' }}>Unresolved details</p>
+              <ul style={{ margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {derivedPlan.unresolved_details.map((u, i) => (
+                  <li key={i} style={{ fontSize: 13, lineHeight: '20px', color: 'var(--voyager-ink-2)' }}>{u}</li>
+                ))}
+              </ul>
+            </section>
+          )}
 
           {sortedDays.map((day, dayIdx) => (
             <article
@@ -534,7 +702,8 @@ export default function DayCanvas({ plan, workflowCompleted = false, onSelectIte
                     [item.movement?.duration, item.movement?.mode].filter(Boolean).join(" · ") ||
                     item.title ||
                     "Transfer";
-                  const cost = item.movement?.estimated_cost ? ` · ${item.movement.estimated_cost}` : "";
+                  const costRaw = (item.movement as MovementInfo | null)?.estimated_cost ?? (item.movement as MovementInfo | null)?.cost
+                  const cost = costRaw ? ` · ${costRaw}` : (item.estimated_cost ? ` · ${item.estimated_cost}` : "");
                   return (
                     <div key={idx} className="transport-connector" role="note" aria-label="Movement">
                       <div className="transport-connector__line" aria-hidden="true">
@@ -575,6 +744,7 @@ export default function DayCanvas({ plan, workflowCompleted = false, onSelectIte
                               <span className="activity-tag">{item.flexibility}</span>
                             </div>
                           ) : null}
+                          {item.estimated_cost ? <p className="activity-cost">{item.estimated_cost}</p> : null}
                         </>
                       )}
                     </div>
@@ -629,13 +799,13 @@ export default function DayCanvas({ plan, workflowCompleted = false, onSelectIte
                         {item.estimated_cost ? <p className="activity-cost">{item.estimated_cost}</p> : null}
                       </>
                     )}
-                    {item.movement && (item.movement.mode || item.movement.duration || item.movement.estimated_cost) ? (
+                    {item.movement && (item.movement.mode || item.movement.duration || (item.movement as MovementInfo).estimated_cost || (item.movement as MovementInfo).cost) ? (
                       <div style={{ gridColumn: "2", marginTop: 16 }}>
                         <div className="transport-connector" style={{ padding: "8px 0 0 0" }} aria-label="Movement connector">
                           <div className="transport-connector__line" aria-hidden="true" style={{ display: "none" }} />
                           <span className="transport-connector__text" style={{ fontSize: 11, letterSpacing: ".06em" }}>
                             {[item.movement.duration, item.movement.mode].filter(Boolean).join(" · ")}
-                            {item.movement.estimated_cost ? ` · ${item.movement.estimated_cost}` : ""}
+                            {(item.movement as MovementInfo).estimated_cost ?? (item.movement as MovementInfo).cost ? ` · ${(item.movement as MovementInfo).estimated_cost ?? (item.movement as MovementInfo).cost}` : ""}
                           </span>
                         </div>
                       </div>
@@ -644,7 +814,7 @@ export default function DayCanvas({ plan, workflowCompleted = false, onSelectIte
                 );
               })}
 
-              {/* DAY NOTE at end */}
+              {/* DAY NOTE at end — keep daily_notes as source */}
               {day.daily_notes ? (
                 <div className="day-note">
                   <p className="day-note__label">Day note</p>
@@ -662,13 +832,11 @@ export default function DayCanvas({ plan, workflowCompleted = false, onSelectIte
       </main>
 
       <div className="summary-pill" role="status" aria-label="Trip summary">
-        <span className="summary-pill__item">{displayPlan.traveler_profile_reference ?? "Trip"}</span>
+        <span className="summary-pill__item">{derivedPlan.traveler_profile_reference ?? "Trip"}</span>
         <span className="summary-pill__sep" aria-hidden="true" />
-        <span className="summary-pill__item">
-          {(displayPlan.city_allocations ?? []).map((c) => `${c.place}`).join(" → ") || displayPlan.days.map((d) => d.place).join(" → ")}
-        </span>
+        <span className="summary-pill__item">{routeLabel}</span>
         <span className="summary-pill__sep" aria-hidden="true" />
-        <span className="summary-pill__item">{displayPlan.cost_summary?.budget_position ?? ""}</span>
+        <span className="summary-pill__item">{budgetPos}</span>
       </div>
     </>
   );
