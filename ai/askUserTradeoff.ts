@@ -11,6 +11,8 @@ export interface AskUserTradeoffRequest {
   attraction_id_a: string;
   attraction_id_b: string;
   question: string;
+  tradeoff_a: string;
+  tradeoff_b: string;
 }
 
 export type AskUserTradeoffResolver = (
@@ -21,6 +23,8 @@ export interface TradeoffHistoryEntry {
   question: string;
   attraction_id_a: string;
   attraction_id_b: string;
+  tradeoff_a: string;
+  tradeoff_b: string;
   choice: string;
 }
 
@@ -61,8 +65,10 @@ export function buildAskUserTradeoffToolSchema(): unknown {
             description:
               "Natural tradeoff question including both attraction names and contrast, e.g. 'Amber Fort vs City Palace, one has ... but the other has ...'. Vary phrasing each time.",
           },
+          tradeoff_a: { type: "string", description: "Tradeoff description for attraction A displayed as option tradeoff" },
+          tradeoff_b: { type: "string", description: "Tradeoff description for attraction B displayed as option tradeoff" },
         },
-        required: ["attraction_id_a", "attraction_id_b", "question"],
+        required: ["attraction_id_a", "attraction_id_b", "question", "tradeoff_a", "tradeoff_b"],
       },
     },
   };
@@ -136,10 +142,12 @@ export async function executeAskUserTradeoffTool(
     return JSON.stringify({ error: { code: "invalid_arguments", message: "Tool arguments must be valid JSON object arguments." } });
   }
   try {
-    exactKeys(args, ["attraction_id_a", "attraction_id_b", "question"], "ask_user_tradeoff arguments");
+    exactKeys(args, ["attraction_id_a", "attraction_id_b", "question", "tradeoff_a", "tradeoff_b"], "ask_user_tradeoff arguments");
     const aId = nonEmptyString(args.attraction_id_a, "ask_user_tradeoff.attraction_id_a");
     const bId = nonEmptyString(args.attraction_id_b, "ask_user_tradeoff.attraction_id_b");
     const question = nonEmptyString(args.question, "ask_user_tradeoff.question");
+    const tradeoffA = nonEmptyString(args.tradeoff_a, "ask_user_tradeoff.tradeoff_a");
+    const tradeoffB = nonEmptyString(args.tradeoff_b, "ask_user_tradeoff.tradeoff_b");
     if (aId === bId) {
       return JSON.stringify({ error: { code: "invalid_tradeoff_pair", message: "attraction IDs must be distinct" } });
     }
@@ -154,15 +162,15 @@ export async function executeAskUserTradeoffTool(
     if (!includesA || !includesB) {
       return JSON.stringify({ error: { code: "invalid_question", message: `Question must include both attraction names: ${a.name} and ${b.name}.` } });
     }
-    const choiceRaw = await withDeadline(state.options.askUserTradeoff({ attraction_id_a: aId, attraction_id_b: bId, question }), state.deadline, "ask_user_tradeoff");
+    const choiceRaw = await withDeadline(state.options.askUserTradeoff({ attraction_id_a: aId, attraction_id_b: bId, question, tradeoff_a: tradeoffA, tradeoff_b: tradeoffB }), state.deadline, "ask_user_tradeoff");
     const choice = typeof choiceRaw === "string" ? choiceRaw.trim() : String(choiceRaw ?? "").trim();
     if (!choice) {
       return JSON.stringify({ error: { code: "invalid_choice", message: "User reply was empty." } });
     }
-    state.tradeoff_history.push({ question, attraction_id_a: aId, attraction_id_b: bId, choice });
+    state.tradeoff_history.push({ question, attraction_id_a: aId, attraction_id_b: bId, tradeoff_a: tradeoffA, tradeoff_b: tradeoffB, choice });
     // increment calls after successful round-trip (backend -> frontend -> user -> backend)
     (state as { tradeoff_calls: number }).tradeoff_calls += 1;
-    return JSON.stringify({ choice, question, attraction_id_a: aId, attraction_id_b: bId, tradeoff_calls_used: state.tradeoff_calls, tradeoff_calls_remaining: MAX_TRADEOFF_CALLS - state.tradeoff_calls });
+    return JSON.stringify({ choice, question, attraction_id_a: aId, attraction_id_b: bId, tradeoff_a: tradeoffA, tradeoff_b: tradeoffB, tradeoff_calls_used: state.tradeoff_calls, tradeoff_calls_remaining: MAX_TRADEOFF_CALLS - state.tradeoff_calls });
   } catch (error) {
     const msg = error instanceof Error ? error.message : "unknown error";
     if (msg.includes("exceeded the run timeout")) throw error;

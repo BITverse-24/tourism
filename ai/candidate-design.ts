@@ -34,12 +34,16 @@ export interface AskUserTradeoffRequest {
   attraction_id_a: string;
   attraction_id_b: string;
   question: string;
+  tradeoff_a: string;
+  tradeoff_b: string;
 }
 export type AskUserTradeoffResolver = (request: AskUserTradeoffRequest) => Promise<string>;
 export interface TradeoffHistoryEntry {
   question: string;
   attraction_id_a: string;
   attraction_id_b: string;
+  tradeoff_a: string;
+  tradeoff_b: string;
   choice: string;
 }
 export function buildAskUserTradeoffToolSchema(): unknown {
@@ -61,8 +65,10 @@ export function buildAskUserTradeoffToolSchema(): unknown {
             description:
               "Natural tradeoff question including both attraction names and contrast, e.g. 'Amber Fort vs City Palace, one has ... but the other has ...'. Vary phrasing each time.",
           },
+          tradeoff_a: { type: "string", description: "Tradeoff description for attraction A displayed as option tradeoff" },
+          tradeoff_b: { type: "string", description: "Tradeoff description for attraction B displayed as option tradeoff" },
         },
-        required: ["attraction_id_a", "attraction_id_b", "question"],
+        required: ["attraction_id_a", "attraction_id_b", "question", "tradeoff_a", "tradeoff_b"],
       },
     },
   };
@@ -95,12 +101,14 @@ async function executeAskUserTradeoffTool(
   } catch {
     return JSON.stringify({ error: { code: "invalid_arguments", message: "Tool arguments must be valid JSON object arguments." } });
   }
-  const expectedKeys = new Set(["attraction_id_a", "attraction_id_b", "question"]);
+  const expectedKeys = new Set(["attraction_id_a", "attraction_id_b", "question", "tradeoff_a", "tradeoff_b"]);
   for (const key of Object.keys(args)) if (!expectedKeys.has(key)) return JSON.stringify({ error: { code: "invalid_arguments", message: `ask_user_tradeoff contains unsupported field ${key}` } });
   const aId = typeof args.attraction_id_a === "string" && args.attraction_id_a.trim() ? args.attraction_id_a.trim() : "";
   const bId = typeof args.attraction_id_b === "string" && args.attraction_id_b.trim() ? args.attraction_id_b.trim() : "";
   const question = typeof args.question === "string" && args.question.trim() ? args.question.trim() : "";
-  if (!aId || !bId || !question) return JSON.stringify({ error: { code: "invalid_arguments", message: "attraction_id_a, attraction_id_b, question must be non-empty strings" } });
+  const tradeoffA = typeof args.tradeoff_a === "string" && args.tradeoff_a.trim() ? args.tradeoff_a.trim() : "";
+  const tradeoffB = typeof args.tradeoff_b === "string" && args.tradeoff_b.trim() ? args.tradeoff_b.trim() : "";
+  if (!aId || !bId || !question || !tradeoffA || !tradeoffB) return JSON.stringify({ error: { code: "invalid_arguments", message: "attraction_id_a, attraction_id_b, question, tradeoff_a, tradeoff_b must be non-empty strings" } });
   if (aId === bId) return JSON.stringify({ error: { code: "invalid_tradeoff_pair", message: "attraction IDs must be distinct" } });
   const a = state.known_attractions.get(aId);
   const b = state.known_attractions.get(bId);
@@ -120,12 +128,12 @@ async function executeAskUserTradeoffTool(
     const timeout = new Promise<never>((_, reject) => {
       timer = setTimeout(() => reject(new Error("ask_user_tradeoff exceeded the run timeout")), remaining);
     });
-    const choiceRaw = await Promise.race([state.options.askUserTradeoff!({ attraction_id_a: aId, attraction_id_b: bId, question }), timeout]).finally(() => { if (timer) clearTimeout(timer); });
+    const choiceRaw = await Promise.race([state.options.askUserTradeoff!({ attraction_id_a: aId, attraction_id_b: bId, question, tradeoff_a: tradeoffA, tradeoff_b: tradeoffB }), timeout]).finally(() => { if (timer) clearTimeout(timer); });
     const choice = typeof choiceRaw === "string" ? choiceRaw.trim() : String(choiceRaw ?? "").trim();
     if (!choice) return JSON.stringify({ error: { code: "invalid_choice", message: "User reply was empty." } });
-    state.tradeoff_history.push({ question, attraction_id_a: aId, attraction_id_b: bId, choice });
+    state.tradeoff_history.push({ question, attraction_id_a: aId, attraction_id_b: bId, tradeoff_a: tradeoffA, tradeoff_b: tradeoffB, choice });
     (state as { tradeoff_calls: number }).tradeoff_calls += 1;
-    return JSON.stringify({ choice, question, attraction_id_a: aId, attraction_id_b: bId, tradeoff_calls_used: state.tradeoff_calls, tradeoff_calls_remaining: MAX_TRADEOFF_CALLS - state.tradeoff_calls });
+    return JSON.stringify({ choice, question, attraction_id_a: aId, attraction_id_b: bId, tradeoff_a: tradeoffA, tradeoff_b: tradeoffB, tradeoff_calls_used: state.tradeoff_calls, tradeoff_calls_remaining: MAX_TRADEOFF_CALLS - state.tradeoff_calls });
   } catch (error) {
     if (error instanceof Error && error.message.includes("exceeded the run timeout")) throw error;
     return JSON.stringify({ error: { code: "tradeoff_failed", message: "Tradeoff resolver failed without exposing details." } });
