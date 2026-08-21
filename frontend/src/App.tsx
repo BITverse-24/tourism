@@ -46,23 +46,42 @@ function DayCanvasGuard({ plan, state, revision, hasLivePlan, onSelectItem }: { 
 }
 
 function DiscoveryRoute(){
-  const { question, profile, sequence, busy, feedback, connected, sendAnswer } = useDiscovery()
-  const { allowMock } = useMockFallback()
-  // Mock fallback ONLY when ws failed at start
-  const mockQuestion = allowMock && !connected && !question ? (mockQuestions[0] as unknown as ReturnType<typeof useDiscovery>['question']) : null
+  const navigate = useNavigate()
+  const { question, profile, sequence, busy: liveBusy, feedback, connected, sendAnswer } = useDiscovery()
+  const { allowMock, wsFailedAtStart, isWaitingForLive } = useMockFallback()
+  const [mockIdx, setMockIdx] = useState(0)
+  const [mockBusy, setMockBusy] = useState(false)
+  useEffect(() => { if (question) { setMockIdx(0); setMockBusy(false) } }, [question?.question_id])
+  // Live WS is default; mock appears only when WS is not connected and no live question.
+  // While waiting for live (1.5s window) we still show mock for quick testing, but live question replaces it immediately when it arrives.
+  const shouldShowMock = !question && !connected && (allowMock || wsFailedAtStart || isWaitingForLive)
+  const isMockMode = shouldShowMock
+  const mockQuestion = isMockMode ? (mockQuestions[mockIdx] as unknown as ReturnType<typeof useDiscovery>['question']) : null
   const effectiveQuestion = question ?? mockQuestion
-  const effectiveProfile = profile ?? (allowMock && !connected ? { revision: 7, profile: { trip_context: { destination_request: "Kyoto in autumn, slow" }, preferences: [{ category:"Photography", strength:"strong", source:"stated" as const, notes:"sunrise" }], unknowns: [{ topic:"budget", impact:"minor", description:"flights excluded?" }], assumptions: [{ topic:"pace", value:"slow", reason:"preference", user_confirmation_needed:true }] } } as unknown as ReturnType<typeof useDiscovery>['profile'] : null)
-  const effectiveSequence = sequence ?? (effectiveQuestion ? 2 : null)
-  const mockSequenceTotal = 5
+  const effectiveProfile = profile ?? (isMockMode ? { revision: mockIdx + 1, profile: { trip_context: { destination_request: "Kyoto in autumn, slow" }, preferences: [{ category:"Photography", strength:"strong", source:"stated" as const, notes:"sunrise" }], unknowns: mockIdx < mockQuestions.length - 1 ? [{ topic:"budget", impact:"minor" as const, description:"flights excluded?" }] : [], assumptions: [{ topic:"pace", value:"slow", reason:"preference", user_confirmation_needed:true }] } } as unknown as ReturnType<typeof useDiscovery>['profile'] : null)
+  const effectiveSequence = sequence ?? (effectiveQuestion ? mockIdx + 1 : null)
+  const mockSequenceTotal = mockQuestions.length
+  const busy = liveBusy || mockBusy
   const handleAnswer = (payload: { question_id: string; selected_option_ids: string[]; free_text: string; command_id: string }) => {
-    // Live path
     if (question) {
       sendAnswer({ selected_option_ids: payload.selected_option_ids, free_text: payload.free_text, command_id: payload.command_id })
       return
     }
-    // Mock path — no-op, Discovery will show mock but not advance live state
+    if (isMockMode && !mockBusy) {
+      // For testing: mock WS data displays with 5s delay to replicate server latency + busy sphere
+      setMockBusy(true)
+      window.setTimeout(() => {
+        setMockBusy(false)
+        if (mockIdx < mockQuestions.length - 1) {
+          setMockIdx(i => i + 1)
+        } else {
+          navigate('/profile-review')
+        }
+      }, 5000)
+      return
+    }
   }
-  return <Discovery question={effectiveQuestion} profile={effectiveProfile as unknown as never} sequence={effectiveSequence ?? undefined} sequenceTotal={mockSequenceTotal} busy={busy} feedback={feedback} onAnswer={handleAnswer} />
+  return <Discovery question={effectiveQuestion} profile={effectiveProfile as unknown as never} sequence={effectiveSequence ?? undefined} sequenceTotal={question ? undefined : mockSequenceTotal} busy={busy} feedback={feedback} onAnswer={handleAnswer} />
 }
 
 function AppShell(){

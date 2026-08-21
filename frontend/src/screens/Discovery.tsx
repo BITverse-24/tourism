@@ -493,6 +493,23 @@ export default function Discovery({
   const paddedSeq = sequence != null ? String(sequence).padStart(2, "0") : "--";
   const paddedTotal = sequenceTotal != null ? String(sequenceTotal).padStart(2, "0") : "--";
 
+  // Busy overlay — keep same ivory background, center sphere; fade out when next question arrives
+  const [busyOverlayMounted, setBusyOverlayMounted] = useState(false)
+  const [busyExiting, setBusyExiting] = useState(false)
+  useEffect(() => {
+    if (busy) {
+      setBusyOverlayMounted(true)
+      setBusyExiting(false)
+    } else if (busyOverlayMounted) {
+      setBusyExiting(true)
+      const t = window.setTimeout(() => {
+        setBusyOverlayMounted(false)
+        setBusyExiting(false)
+      }, 420)
+      return () => window.clearTimeout(t)
+    }
+  }, [busy, busyOverlayMounted])
+
   return (
     <>
       <style>{css}</style>
@@ -501,6 +518,22 @@ export default function Discovery({
           <span className="discovery__watermarkText">THE ART OF TRAVEL</span>
           <span className="discovery__watermarkNum">02</span>
         </div>
+        {busyOverlayMounted && (
+          <div
+            className={`discovery__busyOverlay ${busyExiting ? 'is-exiting' : 'is-entering'}`}
+            aria-hidden="true"
+            data-testid="discovery-busy"
+          >
+            <div className="discovery__busySphere">
+              <div className="discovery-busy-ripple" aria-hidden="true">
+                <div className="discovery-busy-glow" />
+                <div className="discovery-busy-core" />
+              </div>
+              <p className="discovery__busyText">Weaving your answers…</p>
+              <p className="discovery__busySub">Shaping the next question — this can take 10–15s</p>
+            </div>
+          </div>
+        )}
         {(onBack || onToggleNav) && (
           <nav className="discovery__nav" aria-label="Discovery navigation">
             {onBack ? (
@@ -1170,5 +1203,96 @@ const css = `
 @media (max-width: 480px) {
   .discovery__choices { flex-direction: column; }
   .chip { width: 100%; }
+}
+
+/* ——— Busy overlay — centered glowing sphere, same ivory background, aesthetic fade ——— */
+.discovery__busyOverlay {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  background: var(--voyager-ivory);
+  /* keep watermark visible faintly underneath, but cover interview */
+}
+.discovery__busyOverlay.is-entering {
+  animation: discovery-busy-enter 420ms cubic-bezier(.22,1,.36,1) both;
+}
+.discovery__busyOverlay.is-exiting {
+  animation: discovery-busy-exit 420ms ease both;
+}
+@keyframes discovery-busy-enter {
+  from { opacity: 0; backdrop-filter: blur(2px); }
+  to   { opacity: 1; backdrop-filter: blur(0); }
+}
+@keyframes discovery-busy-exit {
+  from { opacity: 1; transform: scale(1); filter: blur(0); }
+  to   { opacity: 0; transform: scale(0.98); filter: blur(3px); }
+}
+.discovery__busySphere {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  text-align: center;
+  padding: 24px;
+  animation: discovery-busy-sphere-enter 480ms cubic-bezier(.22,1,.36,1) 120ms both;
+}
+@keyframes discovery-busy-sphere-enter {
+  from { opacity: 0; transform: translateY(10px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.discovery-busy-ripple {
+  width: 192px;
+  height: 192px;
+  display: grid;
+  place-items: center;
+  position: relative;
+}
+.discovery-busy-glow {
+  position: absolute;
+  width: 192px;
+  height: 192px;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(179,138,85,0.42) 0%, rgba(179,138,85,0.18) 38%, rgba(179,138,85,0.06) 62%, transparent 72%);
+  filter: blur(0.5px);
+  animation: breathe-glow 3s ease-in-out infinite;
+}
+.discovery-busy-core {
+  width: 96px;
+  height: 96px;
+  border-radius: 999px;
+  background: radial-gradient(circle at 50% 45%, #D8C19A 0%, #B38A55 58%, #8E6A3F 100%);
+  box-shadow: 0 0 48px rgba(179,138,85,0.42), 0 0 96px rgba(179,138,85,0.18);
+  opacity: 0.92;
+  animation: breathe-core 3s ease-in-out infinite;
+}
+@keyframes breathe-glow {
+  0%,100% { transform: scale(0.86); opacity: 0.72; }
+  50%      { transform: scale(1.06); opacity: 0.38; }
+}
+@keyframes breathe-core {
+  0%,100% { transform: scale(0.94); opacity: 0.90; }
+  50%      { transform: scale(1.04); opacity: 0.62; }
+}
+.discovery__busyText {
+  margin: 0;
+  font-family: Fraunces, Georgia, serif;
+  font-size: 17px;
+  line-height: 24px;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  color: var(--voyager-charcoal);
+}
+.discovery__busySub {
+  margin: 0;
+  margin-top: -10px;
+  font: 400 13px/18px General Sans, Inter, ui-sans-serif, sans-serif;
+  letter-spacing: .02em;
+  color: var(--voyager-ink-2);
+}
+@media (prefers-reduced-motion: reduce) {
+  .discovery__busyOverlay.is-entering, .discovery__busyOverlay.is-exiting,
+  .discovery__busySphere, .discovery-busy-glow, .discovery-busy-core { animation: none; }
 }
 `

@@ -113,6 +113,16 @@ export default function ProfileReview() {
 
   const doConfirm = () => {
     if (busy) return
+    // Mock fallback: when WS failed at start we have a mock profile — allow confirm without live snapshot
+    if (isMockProfileActive) {
+      setBusy(true)
+      setNotice('')
+      setTimeout(() => {
+        setBusy(false)
+        navigate('/consultation')
+      }, 300)
+      return
+    }
     if (!liveSnapshot || !liveReady) {
       setNotice('Profile snapshot not yet available — please wait for the live profile to load.')
       return
@@ -152,6 +162,17 @@ export default function ProfileReview() {
     const freeTextTrimmed = note.trim()
     if (topicsTrimmed.length === 0 && !freeTextTrimmed) {
       setNotice('Provide at least one topic or a note describing the change.')
+      return
+    }
+    // Mock fallback: when WS failed at start, just return to discovery locally
+    if (isMockProfileActive) {
+      setBusy(true)
+      setNotice('')
+      setTimeout(() => {
+        setBusy(false)
+        setEditorOpen(false)
+        navigate('/discovery')
+      }, 300)
       return
     }
     setBusy(true)
@@ -476,19 +497,21 @@ export default function ProfileReview() {
         <button
           className="pr-btn pr-btn--primary"
           onClick={doConfirm}
-          disabled={!canConfirm}
-          aria-disabled={!canConfirm}
-          style={{ opacity: !canConfirm ? 0.45 : 1 }}
+          disabled={isMockProfileActive ? busy : !canConfirm}
+          aria-disabled={isMockProfileActive ? (busy ? 'true' : undefined) : (!canConfirm ? 'true' : undefined)}
+          style={{ opacity: (isMockProfileActive ? busy : !canConfirm) ? 0.45 : 1 }}
           title={
-            !liveSnapshot
-              ? 'Waiting for live snapshot'
-              : !isReadyState
-                ? 'Profile not ready — state must be ready'
-                : !isLatestRevision
-                  ? `Stale revision — latest is ${liveReady?.profile_revision}`
-                  : !hasNoBlockingUnknowns
-                    ? `Blocking unknowns: ${liveReady?.blocking_unknowns.join(', ')}`
-                    : 'Confirm profile and start planning'
+            isMockProfileActive
+              ? 'Confirm mock profile and start planning (websocket failed at start)'
+              : !liveSnapshot
+                ? 'Waiting for live snapshot'
+                : !isReadyState
+                  ? 'Profile not ready — state must be ready'
+                  : !isLatestRevision
+                    ? `Stale revision — latest is ${liveReady?.profile_revision}`
+                    : !hasNoBlockingUnknowns
+                      ? `Blocking unknowns: ${liveReady?.blocking_unknowns.join(', ')}`
+                      : 'Confirm profile and start planning'
           }
         >
           Confirm &amp; continue

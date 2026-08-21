@@ -30,7 +30,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useWsOptional } from '../ws/WsProvider'
 import { getWsClient } from '../ws/index'
 
-const FALLBACK_TIMEOUT_MS = 3500
+const FALLBACK_TIMEOUT_MS = 1500
 
 export interface MockFallbackState {
   wsFailedAtStart: boolean

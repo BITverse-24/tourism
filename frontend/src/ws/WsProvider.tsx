@@ -181,7 +181,7 @@ export function WsProvider({ children }: { children: React.ReactNode }) {
           setConnected(false)
         }
       }
-    }, 3500)
+    }, 1500)
     return () => { unsub(); window.clearTimeout(fallbackTimer) }
   }, [client])
 
