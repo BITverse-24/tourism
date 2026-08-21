@@ -49,12 +49,87 @@ export async function sessionStartService(
 
         await setWorkflowState(newSessionId, WorkflowStates.DISCOVERY)
 
-        await newDiscoveryQuestionService(
-            emit,
-            newSessionId,
-            newRunId,
-            data.command_id,
-        )
+        const initialIntent = (data as unknown as { payload?: { initial_intent?: string } }).payload?.initial_intent?.trim() || null
+        // Seed profile with destination_request so first discovery question is contextual
+        // (do not fake a UserAnswer without a DiscoveryQuestion object — that breaks the AI prompt)
+        const initialProfile = initialIntent
+          ? ({
+              profile_id: "mock-profile",
+              trip_context: {
+                destination_request: initialIntent,
+                resolved_destination: null,
+                start_date: null,
+                end_date: null,
+                duration_days: null,
+                date_flexibility: "unknown",
+                party_size: null,
+                party_notes: null,
+                budget: null,
+              },
+              purpose_and_priorities: { primary_purpose: null, secondary_purposes: [], priorities: [], success_definition: null },
+              preferences: [],
+              travel_style: { pace: "unknown", energy_pattern: "unknown", walking_tolerance: "unknown", crowd_tolerance: "unknown", comfort_preference: "unknown", spontaneity: "unknown" },
+              hard_constraints: { must_visit: [], avoid: [], dietary_requirements: [], accessibility_requirements: [], accommodation_requirements: [], maximum_daily_travel: null, maximum_hotel_changes: null, budget_ceiling: null },
+              unknowns: [],
+              assumptions: [],
+            } as unknown as import("../../../ai/discovery").TravelerProfile)
+          : null
+        if (initialIntent) logger.debug('seeding discovery with initial_intent', { initialIntent })
+        try {
+          await newDiscoveryQuestionService(
+              emit,
+              newSessionId,
+              newRunId,
+              data.command_id,
+              initialProfile,
+              null,
+          )
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e)
+          const isQuota = /429|quota|rate limit/i.test(msg)
+          logger.warn('newDiscoveryQuestionService failed, sending fallback', { error: msg, isQuota })
+          // Emit a fallback so frontend interlude doesn't hang forever and server doesn't crash
+          const { createDiscoveryQuestionMessage, createProfileSnapshotMessage } = await import("../factory/Event")
+          const { Events, ProfileSnapshotStates } = await import("../structures/enums")
+          const fallbackProfile = initialProfile ?? {
+            profile_id: "mock-profile",
+            trip_context: { destination_request: initialIntent ?? null, resolved_destination: null, start_date: null, end_date: null, duration_days: null, date_flexibility: "unknown", party_size: null, party_notes: null, budget: null },
+            purpose_and_priorities: { primary_purpose: null, secondary_purposes: [], priorities: [], success_definition: null },
+            preferences: [], travel_style: { pace: "unknown", energy_pattern: "unknown", walking_tolerance: "unknown", crowd_tolerance: "unknown", comfort_preference: "unknown", spontaneity: "unknown" },
+            hard_constraints: { must_visit: [], avoid: [], dietary_requirements: [], accessibility_requirements: [], accommodation_requirements: [], maximum_daily_travel: null, maximum_hotel_changes: null, budget_ceiling: null },
+            unknowns: [], assumptions: [],
+          } as unknown as import("../../../ai/discovery").TravelerProfile
+          const snap = { revision: 1, state: ProfileSnapshotStates.DRAFT, profile: fallbackProfile }
+          const profSnapMsg = createProfileSnapshotMessage({
+            message_id: `msg_${generateUUID()}`,
+            session_id: newSessionId,
+            run_id: newRunId,
+            command_id: data.command_id,
+            occurred_at: new Date().toISOString(),
+            sequence: await nextSequence(newRunId),
+            payload: snap as unknown as import("../structures/EventMessage").ProfileSnapshotMessage["payload"],
+          })
+          emit({ event: Events.PROFILE_SNAPSHOT, data: profSnapMsg })
+          const fallbackQ = {
+            question_id: "destination",
+            prompt: initialIntent ? `Tell us more about your trip to ${initialIntent} — what kind of experience are you looking for?` : "Where are you planning to travel for your next trip?",
+            selection_mode: "single" as const,
+            required: true,
+            options: [],
+            free_text_mode: "required" as const,
+            free_text_placeholder: "e.g., Tokyo, Paris, Maui...",
+          }
+          const qMsg = createDiscoveryQuestionMessage({
+            message_id: `msg_${generateUUID()}`,
+            session_id: newSessionId,
+            run_id: newRunId,
+            command_id: data.command_id,
+            occurred_at: new Date().toISOString(),
+            sequence: await nextSequence(newRunId),
+            payload: fallbackQ as unknown as import("../structures/EventMessage").DiscoveryQuestionMessage["payload"],
+          })
+          emit({ event: Events.DISCOVERY_QUESTION, data: qMsg })
+        }
 
     }
 
@@ -92,7 +167,7 @@ export async function sessionStartService(
                     run_id: newRunId,
                     command_id: data.command_id,
                     occurred_at: new Date().toISOString(),
-                    sequence: await nextSequence(data.run_id),
+                    sequence: await nextSequence(newRunId),
                     payload: snapshot
                 })
                 emit({ event: Events.PROFILE_SNAPSHOT, data: profSnapMsg })
@@ -100,13 +175,42 @@ export async function sessionStartService(
 
             // do checkpoint next service
             if (checkpoint.workflow_state === WorkflowStates.DISCOVERY) {
-                await newDiscoveryQuestionService(
-                    emit,
-                    data.session_id,
-                    newRunId,
-                    data.command_id,
-                    checkpoint.profile_snapshots[checkpoint.profile_snapshots.length - 1].profile,
-                )
+                try {
+                    await newDiscoveryQuestionService(
+                        emit,
+                        data.session_id,
+                        newRunId,
+                        data.command_id,
+                        checkpoint.profile_snapshots[checkpoint.profile_snapshots.length - 1].profile,
+                    )
+                } catch (e: unknown) {
+                    const msg = e instanceof Error ? e.message : String(e)
+                    logger.warn('newDiscoveryQuestionService (checkpoint) failed, sending fallback', { error: msg })
+                    const { createDiscoveryQuestionMessage, createProfileSnapshotMessage } = await import("../factory/Event")
+                    const { Events, ProfileSnapshotStates } = await import("../structures/enums")
+                    const fallbackProfile = checkpoint.profile_snapshots[checkpoint.profile_snapshots.length - 1].profile
+                    const snap = { revision: (checkpoint.profile_snapshots[checkpoint.profile_snapshots.length - 1].revision ?? 0) + 1, state: ProfileSnapshotStates.DRAFT, profile: fallbackProfile }
+                    const profSnapMsg = createProfileSnapshotMessage({
+                        message_id: `msg_${generateUUID()}`,
+                        session_id: data.session_id,
+                        run_id: newRunId,
+                        command_id: data.command_id,
+                        occurred_at: new Date().toISOString(),
+                        sequence: await nextSequence(newRunId),
+                        payload: snap as unknown as import("../structures/EventMessage").ProfileSnapshotMessage["payload"],
+                    })
+                    emit({ event: Events.PROFILE_SNAPSHOT, data: profSnapMsg })
+                    const qMsg = createDiscoveryQuestionMessage({
+                        message_id: `msg_${generateUUID()}`,
+                        session_id: data.session_id,
+                        run_id: newRunId,
+                        command_id: data.command_id,
+                        occurred_at: new Date().toISOString(),
+                        sequence: await nextSequence(newRunId),
+                        payload: { question_id: "destination", prompt: "Tell us more about your trip — what kind of experience are you looking for?", selection_mode: "single" as const, required: true, options: [], free_text_mode: "required" as const, free_text_placeholder: "e.g., Tokyo, Paris, Maui..." } as unknown as import("../structures/EventMessage").DiscoveryQuestionMessage["payload"],
+                    })
+                    emit({ event: Events.DISCOVERY_QUESTION, data: qMsg })
+                }
             }
             // if (checkpoint.workflow_state === WorkflowStates.DECISION_REQUIRED) {
             // }
@@ -123,7 +227,7 @@ export async function sessionStartService(
                 run_id: newRunId,
                 command_id: data.command_id,
                 occurred_at: new Date().toISOString(),
-                sequence: await nextSequence(data.run_id),
+                sequence: await nextSequence(newRunId),
                 payload: {
                     session_id: data.session_id,
                     run_id: newRunId,
@@ -135,12 +239,41 @@ export async function sessionStartService(
 
             emit({ event: Events.SESSION_READY, data: sessReadyMsg })
 
-            await newDiscoveryQuestionService(
-                emit,
-                data.session_id,
-                newRunId,
-                data.command_id,
-            )
+            try {
+                await newDiscoveryQuestionService(
+                    emit,
+                    data.session_id,
+                    newRunId,
+                    data.command_id,
+                )
+            } catch (e: unknown) {
+                const msg = e instanceof Error ? e.message : String(e)
+                logger.warn('newDiscoveryQuestionService (no checkpoint) failed, sending fallback', { error: msg })
+                const { createDiscoveryQuestionMessage, createProfileSnapshotMessage } = await import("../factory/Event")
+                const { Events, ProfileSnapshotStates } = await import("../structures/enums")
+                const fallbackProfile = { profile_id: "mock-profile", trip_context: { destination_request: null, resolved_destination: null, start_date: null, end_date: null, duration_days: null, date_flexibility: "unknown", party_size: null, party_notes: null, budget: null }, purpose_and_priorities: { primary_purpose: null, secondary_purposes: [], priorities: [], success_definition: null }, preferences: [], travel_style: { pace: "unknown", energy_pattern: "unknown", walking_tolerance: "unknown", crowd_tolerance: "unknown", comfort_preference: "unknown", spontaneity: "unknown" }, hard_constraints: { must_visit: [], avoid: [], dietary_requirements: [], accessibility_requirements: [], accommodation_requirements: [], maximum_daily_travel: null, maximum_hotel_changes: null, budget_ceiling: null }, unknowns: [], assumptions: [] } as unknown as import("../../../ai/discovery").TravelerProfile
+                const snap = { revision: 1, state: ProfileSnapshotStates.DRAFT, profile: fallbackProfile }
+                const profSnapMsg = createProfileSnapshotMessage({
+                    message_id: `msg_${generateUUID()}`,
+                    session_id: data.session_id,
+                    run_id: newRunId,
+                    command_id: data.command_id,
+                    occurred_at: new Date().toISOString(),
+                    sequence: await nextSequence(newRunId),
+                    payload: snap as unknown as import("../structures/EventMessage").ProfileSnapshotMessage["payload"],
+                })
+                emit({ event: Events.PROFILE_SNAPSHOT, data: profSnapMsg })
+                const qMsg = createDiscoveryQuestionMessage({
+                    message_id: `msg_${generateUUID()}`,
+                    session_id: data.session_id,
+                    run_id: newRunId,
+                    command_id: data.command_id,
+                    occurred_at: new Date().toISOString(),
+                    sequence: await nextSequence(newRunId),
+                    payload: { question_id: "destination", prompt: "Where are you planning to travel for your next trip?", selection_mode: "single" as const, required: true, options: [], free_text_mode: "required" as const, free_text_placeholder: "e.g., Tokyo, Paris, Maui..." } as unknown as import("../structures/EventMessage").DiscoveryQuestionMessage["payload"],
+                })
+                emit({ event: Events.DISCOVERY_QUESTION, data: qMsg })
+            }
             await setWorkflowState(data.session_id, WorkflowStates.DISCOVERY)
         }
     }

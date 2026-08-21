@@ -15,6 +15,7 @@ import React, { createContext, useContext, useCallback, useEffect, useMemo, useR
 import { WsClient, genCommandId } from './client'
 import { createWsClient } from './index'
 import { buildWsUrl } from './transport'
+import { wsLogger } from './logger'
 
 export const SESSION_STORAGE_KEY = 'voyager_session_id'
 
@@ -61,7 +62,7 @@ export interface WsContextValue {
   isExpired: boolean
   isSuperseded: boolean
   replacementRunId: string | null
-  sendSessionStart: () => void
+  sendSessionStart: (initialIntent?: string | null) => void
   startNewSession: () => void
   disconnect: () => void
 }
@@ -116,6 +117,8 @@ export function WsProvider({ children }: { children: React.ReactNode }) {
     const unsub = client.subscribe((env) => {
       const type = (env as unknown as { type: string }).type
       const payload = (env as unknown as { payload: Record<string, unknown> }).payload ?? {}
+      wsLogger.envelope("↓", env)
+      wsLogger.debug(`WsProvider handling ${type}`, payload)
       if (type === 'session.ready') {
         const sid = payload.session_id as string | undefined
         const rid = payload.run_id as string | undefined
@@ -185,7 +188,7 @@ export function WsProvider({ children }: { children: React.ReactNode }) {
     return () => { unsub(); window.clearTimeout(fallbackTimer) }
   }, [client])
 
-  const sendSessionStart = useCallback(() => {
+  const sendSessionStart = useCallback((initialIntent?: string | null) => {
     const stored = getStoredSessionId()
     const command_id = genCommandId()
 
@@ -194,8 +197,17 @@ export function WsProvider({ children }: { children: React.ReactNode }) {
     }
 
     try {
-      client.sendSessionStart(stored ?? null, command_id)
-    } catch {}
+      const payload: Record<string, unknown> = { session_id: stored ?? null }
+      if (initialIntent && initialIntent.trim().length > 0) {
+        payload.initial_intent = initialIntent.trim().slice(0, 2000)
+      }
+      // Reuse WsClient's at-least-once path so we don't bypass its registry/retry.
+      // sendCommand handles build, register, sendRaw, pendingRetries and scheduleRetry.
+      client.sendCommand('session.start', payload, command_id)
+      wsLogger.debug("sendSessionStart", { stored, command_id, hasIntent: !!payload.initial_intent })
+    } catch (e) {
+      wsLogger.error("sendSessionStart failed", e)
+    }
   }, [client, wsUrl])
 
   const startNewSession = useCallback(() => {

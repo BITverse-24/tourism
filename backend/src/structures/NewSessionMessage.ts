@@ -6,7 +6,7 @@ export const NewSessionMessageSchema = z.object({
     type: z.literal("session.start"),
     command_id: z.string(),
     occurred_at: z.string(),
-    payload: z.object({ session_id: z.string().nullable().optional() })
+    payload: z.object({ session_id: z.string().nullable().optional(), initial_intent: z.string().max(2000).optional() })
 })
 
 export type NewSessionMessage = z.infer<typeof NewSessionMessageSchema>;

@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { getSharedWsClient } from '../ws/WsProvider'
 import type { WsClient } from '../ws/client'
+import { wsLogger } from '../ws/logger'
 import {
   parseDiscoveryQuestion,
   parseProfileSnapshot,
@@ -72,6 +73,7 @@ export function useDiscovery(clientOpt?: WsClient): UseDiscoveryReturn {
       const type = (env as { type: string }).type
       const seq = (env as { sequence?: number | null }).sequence ?? null
       const payload = (env as { payload: Record<string, unknown> }).payload ?? {}
+      wsLogger.envelope("↓", env)
 
       if (kind === 'event' && type === 'discovery.question') {
         const parsed = parseDiscoveryQuestion(payload)

@@ -7,6 +7,7 @@
 import { io, type Socket } from 'socket.io-client'
 import { buildWsUrl } from './transport'
 import type { Envelope } from './client'
+import { wsLogger } from './logger'
 
 export type SocketState = 'idle' | 'connecting' | 'open' | 'closed' | 'error'
 
@@ -79,15 +80,18 @@ export class SocketTransport {
     if (typeof (socket as any).onAny === 'function') {
       ;(socket as any).onAny((event: string, ...args: unknown[]) => {
         const data = args[0]
+        wsLogger.debug(`onAny ${event}`, data)
         // data is already envelope object from backend socket.emit(event, envelope)
         if (data && typeof data === 'object') {
           try {
             const raw = JSON.stringify(data)
+            wsLogger.envelope("↓", data)
             this.opts.onEnvelope?.(data as Envelope, raw)
           } catch {}
         } else if (typeof data === 'string') {
           try {
             const parsed = JSON.parse(data)
+            wsLogger.envelope("↓", parsed)
             this.opts.onEnvelope?.(parsed as Envelope, data)
           } catch {}
         }
@@ -105,21 +109,24 @@ export class SocketTransport {
     for (const ev of knownEvents) {
       socket.on(ev, (data: unknown) => {
         if (data && typeof data === 'object') {
-          try { const raw = JSON.stringify(data); this.opts.onEnvelope?.(data as Envelope, raw) } catch {}
+          try { const raw = JSON.stringify(data); wsLogger.envelope("↓", data); this.opts.onEnvelope?.(data as Envelope, raw) } catch {}
         }
       })
     }
 
     socket.on('connect', () => {
       this.state = 'open'
+      wsLogger.info(`socket connected ${this.url}`)
       this.opts.onOpen?.()
     })
     socket.on('disconnect', (reason: string) => {
       this.state = 'closed'
+      wsLogger.warn(`socket disconnected`, reason)
       this.opts.onClose?.(reason)
     })
     socket.on('connect_error', (err: Error) => {
       this.state = 'error'
+      wsLogger.error(`connect_error`, err.message)
       this.opts.onError?.(err)
       // socket.io will retry automatically per default
       setTimeout(() => { this.state = 'closed' }, 0)
@@ -133,6 +140,7 @@ export class SocketTransport {
     if (!this.socket || !this.socket.connected) {
       throw new Error('Socket not connected — call connect() first')
     }
+    wsLogger.envelope("↑", env)
     // Backend handlers listen on socket.on(envelope.type, data) where type is like "session.start"
     // So emit on that channel with envelope as payload
     this.socket.emit(env.type, env)

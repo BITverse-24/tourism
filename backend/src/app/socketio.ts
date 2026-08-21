@@ -14,6 +14,8 @@ export function createWebsocket(expressServer: Application, options: CreateSocke
     const webSocketServer = createServer(expressServer)
     const io = new socketIO.Server(webSocketServer, {
         cors: buildCorsOptions(options.config),
+        path: '/ws',
+        transports: ['websocket', 'polling'],
     });
 
     connectionEvents(io);
