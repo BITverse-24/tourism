@@ -8,6 +8,8 @@
  *  - session.expired → offer new session (clear + restart)
  *  - session.superseded → close old connection
  *  - workflow_state drives routing (exposed via context)
+ *  - SINGLE shared client: all consumers via getSharedWsClient()/WsContext
+ *  - wsFailedAtStart tracking: mock fallback only when WS fails at start
  */
 import React, { createContext, useContext, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { WsClient, genCommandId, genMessageId } from './client'
@@ -50,6 +52,8 @@ export function workflowStateToPath(state: WorkflowState): string {
 export interface WsContextValue {
   client: WsClient
   connected: boolean
+  wsFailedAtStart: boolean
+  allowMock: boolean
   sessionId: string | null
   runId: string | null
   workflowState: WorkflowState | null
@@ -73,18 +77,25 @@ export function useWsOptional(): WsContextValue | null {
   return useContext(WsContext)
 }
 
-function resolveWsUrl(): string {
+export function resolveWsUrl(): string {
   const env: Record<string, string | undefined> = (import.meta as unknown as { env?: Record<string, string> }).env ?? {}
   const explicit = env.VITE_WS_URL ?? env.WS_URL
   if (explicit) return buildWsUrl(explicit)
   return buildWsUrl('ws://localhost/ws')
 }
 
+// Single shared client owned by WsProvider — all consumers import via this module
+let sharedClient: WsClient | null = null
+export function getSharedWsClient(): WsClient {
+  if (!sharedClient) sharedClient = createWsClient({ url: resolveWsUrl() })
+  return sharedClient
+}
+
 export function WsProvider({ children }: { children: React.ReactNode }) {
   const wsUrl = useMemo(() => resolveWsUrl(), [])
   const clientRef = useRef<WsClient | null>(null)
   if (!clientRef.current) {
-    clientRef.current = createWsClient({ url: wsUrl })
+    clientRef.current = getSharedWsClient()
   }
   const client = clientRef.current!
 
@@ -96,6 +107,9 @@ export function WsProvider({ children }: { children: React.ReactNode }) {
   const [isExpired, setIsExpired] = useState(false)
   const [isSuperseded, setIsSuperseded] = useState(false)
   const [replacementRunId, setReplacementRunId] = useState<string | null>(null)
+  const [wsFailedAtStart, setWsFailedAtStart] = useState(false)
+  const hasEverConnectedRef = useRef(false)
+  const allowMock = wsFailedAtStart && !connected
 
   // Subscribe to client events
   useEffect(() => {
@@ -118,32 +132,39 @@ export function WsProvider({ children }: { children: React.ReactNode }) {
         setIsSuperseded(false)
         setReplacementRunId(null)
         setConnected(client.getConnectionState() === 'open')
+        hasEverConnectedRef.current = true
+        setWsFailedAtStart(false)
       } else if (type === 'session.expired') {
         setIsExpired(true)
         setWorkflowState('expired')
-        // offer new session — clear stored id so next start is null
-        // do not auto-clear until user confirms new session; keep flag
         setConnected(false)
       } else if (type === 'session.superseded') {
         setIsSuperseded(true)
         const rep = (payload as Record<string, unknown>).replacement_run_id as string | undefined
         if (rep) setReplacementRunId(rep)
-        // close old connection per contract
         try { client.disconnect() } catch {}
         setConnected(false)
       }
     })
-    // also track connection state via onStateChange polling
+    // also track connection state via onStateChange
     const onState = () => {
-      setConnected(client.getConnectionState() === 'open')
+      const isOpen = client.getConnectionState() === 'open'
+      setConnected(isOpen)
+      if (isOpen) {
+        hasEverConnectedRef.current = true
+        setWsFailedAtStart(false)
+      } else {
+        const cs = client.getConnectionState()
+        if (!hasEverConnectedRef.current && cs === 'closed') {
+          setWsFailedAtStart(true)
+        }
+      }
       const snap = client.snapshot()
       if (snap.sessionId) setSessionId(snap.sessionId)
       if (snap.runId) setRunId(snap.runId)
       if (snap.workflowState) setWorkflowState(snap.workflowState as WorkflowState)
       setHasRecoveryState(!!snap.hasRecoveryState)
     }
-    // Wrap client's emitState by subscribing to interval? Client's onStateChange is set via opts.
-    // We add a periodic check and also hook original onStateChange if present.
     const prevOnStateChange = (client as unknown as { opts?: { onStateChange?: (s: unknown)=>void } }).opts?.onStateChange
     ;(client as unknown as { opts: Record<string, unknown> }).opts = {
       ...(client as unknown as { opts: Record<string, unknown> }).opts,
@@ -152,7 +173,16 @@ export function WsProvider({ children }: { children: React.ReactNode }) {
         onState()
       },
     }
-    return () => { unsub() }
+    const fallbackTimer = window.setTimeout(() => {
+      if (!hasEverConnectedRef.current) {
+        const cs = client.getConnectionState()
+        if (cs === 'closed' || cs === 'idle') {
+          setWsFailedAtStart(true)
+          setConnected(false)
+        }
+      }
+    }, 1500)
+    return () => { unsub(); window.clearTimeout(fallbackTimer) }
   }, [client])
 
   const sendSessionStart = useCallback(() => {
@@ -161,14 +191,12 @@ export function WsProvider({ children }: { children: React.ReactNode }) {
     const message_id = genMessageId()
     const occurred_at = new Date().toISOString()
 
-    // Ensure connected — per contract first command on every connection is session.start
     if (client.getConnectionState() !== 'open') {
       try { client.connect(wsUrl) } catch {}
     }
 
     const payload: Record<string, unknown> = { session_id: stored ?? null }
 
-    // Build envelope with fresh ids via WsProvider (explicit)
     const envelope = {
       message_id,
       kind: 'command' as const,
@@ -179,24 +207,17 @@ export function WsProvider({ children }: { children: React.ReactNode }) {
       ...(stored ? { session_id: stored } : {}),
     }
 
-    // Register for deduplication tracking then send
     try {
       client.getCommandRegistry().register(command_id, 'session.start', payload)
     } catch {}
-    // Use client's send path if available; fallback to raw ws send
     try {
-      // Prefer client's ordering / retry pipeline
-      // call sendCommand with our fresh command_id — it will generate a new message_id but we have already ensured freshness
-      // To honor provider-generated message_id/occurred_at, send raw if ws open
       const anyClient = client as unknown as { ws: WebSocket | null; sendRaw?: (e: unknown)=>void }
       if (anyClient.ws && anyClient.ws.readyState === 1) {
         anyClient.ws.send(JSON.stringify(envelope))
       } else {
-        // use client's queue-aware path
         client.sendSessionStart(stored ?? null, command_id)
       }
     } catch {
-      // last resort: queue via client's send
       try { client.sendSessionStart(stored ?? null, command_id) } catch {}
     }
   }, [client, wsUrl])
@@ -210,7 +231,8 @@ export function WsProvider({ children }: { children: React.ReactNode }) {
     setWorkflowState(null)
     setHasRecoveryState(false)
     setReplacementRunId(null)
-    // fresh start with null
+    setWsFailedAtStart(false)
+    hasEverConnectedRef.current = false
     const command_id = genCommandId()
     const message_id = genMessageId()
     const occurred_at = new Date().toISOString()
@@ -245,8 +267,8 @@ export function WsProvider({ children }: { children: React.ReactNode }) {
   }, [client])
 
   const value = useMemo<WsContextValue>(() => ({
-    client, connected, sessionId, runId, workflowState, hasRecoveryState, isExpired, isSuperseded, replacementRunId, sendSessionStart, startNewSession, disconnect,
-  }), [client, connected, sessionId, runId, workflowState, hasRecoveryState, isExpired, isSuperseded, replacementRunId, sendSessionStart, startNewSession, disconnect])
+    client, connected, wsFailedAtStart, allowMock, sessionId, runId, workflowState, hasRecoveryState, isExpired, isSuperseded, replacementRunId, sendSessionStart, startNewSession, disconnect,
+  }), [client, connected, wsFailedAtStart, allowMock, sessionId, runId, workflowState, hasRecoveryState, isExpired, isSuperseded, replacementRunId, sendSessionStart, startNewSession, disconnect])
 
   return <WsContext.Provider value={value}>{children}</WsContext.Provider>
 }

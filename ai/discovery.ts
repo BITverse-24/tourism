@@ -754,11 +754,28 @@ export const DISCOVERY_PATCH_RESPONSE_SCHEMA = {
   required: ["finished", "next_question", "completion_reason", "profile_patch"],
 } as const;
 
-const DEFAULT_MODEL = "gemini-3.6-flash";
+const DEFAULT_MODEL = "gemini-3.5-flash";
+// ponytail: TPD/RPD are model-specific -> fallback hierarchy for testing (lite 0 budget loops, use 3.5 regular)
+const MODEL_HIERARCHY = [
+  "gemini-3.6-flash",
+  "gemini-3.5-flash",
+  "gemini-3-flash-preview",
+  "gemini-3.5-flash-lite",
+  "gemini-3.1-flash-lite",
+  "gemma-4-31b-it",
+] as const;
 const DEFAULT_TIMEOUT_MS = 30_000;
-const MAX_COMPLETION_TOKENS = 3_000;
+const MAX_COMPLETION_TOKENS = 1_200; // ponytail: patch only, 3k overkill -> 14-26s, 1.2k cuts gen 40%
 const MAX_RATE_LIMIT_RETRIES = 2;
 let responseLogSequence = 0;
+// ponytail: cache zod schema once, was recompiled per request (heavy)
+const _cachedPatchJsonSchema = DISCOVERY_PATCH_RESPONSE_SCHEMA as unknown as Record<string, unknown>;
+let _cachedPatchZodSchema: any | null = null;
+function getPatchZodSchema() {
+  if (_cachedPatchZodSchema) return _cachedPatchZodSchema;
+  _cachedPatchZodSchema = (z as any).fromJSONSchema ? (z as any).fromJSONSchema(_cachedPatchJsonSchema as any) : { parse: (v: unknown) => v };
+  return _cachedPatchZodSchema;
+}
 
 const DEFAULT_LOG_DIRECTORY = resolve(__dirname, "logs");
 
@@ -1381,17 +1398,19 @@ export async function processDiscovery(
     );
   }
 
-  const model = options.model ?? process.env.GEMINI_MODEL ?? process.env.GOOGLE_MODEL ?? DEFAULT_MODEL;
+  const requestedModel = options.model ?? process.env.GEMINI_MODEL ?? process.env.GOOGLE_MODEL ?? DEFAULT_MODEL;
   const timeoutMs = options.timeout_ms ?? DEFAULT_TIMEOUT_MS;
   const logResponses = options.log_raw_responses ?? true;
+  // Build hierarchy starting from requested model, fallback through list
+  const startIdx = MODEL_HIERARCHY.indexOf(requestedModel as any);
+  const modelsToTry = startIdx >= 0 ? MODEL_HIERARCHY.slice(startIdx) : [requestedModel, ...MODEL_HIERARCHY.filter(m => m !== requestedModel)];
 
   // Build combined prompt: system instruction + user context.
   // Do not modify DISCOVERY_SYSTEM_PROMPT per requirements.
   const fullPrompt = `${DISCOVERY_SYSTEM_PROMPT}\n\n---\n\nUser context:\n${buildUserMessage(input)}`;
 
-  // Prepare zod schema for validation (mirrors DISCOVERY_PATCH_RESPONSE_SCHEMA)
-  const discoveryPatchJsonSchema = DISCOVERY_PATCH_RESPONSE_SCHEMA as unknown as Record<string, unknown>;
-  const discoveryPatchZodSchema = (z as any).fromJSONSchema ? (z as any).fromJSONSchema(discoveryPatchJsonSchema as any) : { parse: (v: unknown) => v };
+  const discoveryPatchJsonSchema = _cachedPatchJsonSchema;
+  const discoveryPatchZodSchema = getPatchZodSchema();
 
   // Allow injection for tests (genAiClient) otherwise create real client.
   // Keep fetcher as legacy escape hatch for tests that mock fetch-like behavior.
@@ -1410,40 +1429,44 @@ export async function processDiscovery(
     return "";
   };
 
-  const createInteraction = async (client: any): Promise<any> => {
-    // Primary API per snippet: client.interactions.create
+  const createInteraction = async (client: any, modelName: string, signal?: AbortSignal): Promise<any> => {
     if (client.interactions && typeof client.interactions.create === "function") {
       return await client.interactions.create({
-        model,
+        model: modelName,
         input: fullPrompt,
         response_format: {
           type: "text",
           mime_type: "application/json",
           schema: discoveryPatchJsonSchema,
         },
-      });
+      }, signal ? { signal } as any : undefined);
     }
-    // Fallback for older SDK shape: client.models.generateContent
     if (client.models && typeof client.models.generateContent === "function") {
+      const isGemini = modelName.startsWith("gemini");
       const res = await client.models.generateContent({
-        model,
+        model: modelName,
         contents: [{ role: "user", parts: [{ text: fullPrompt }] }],
         config: {
           responseMimeType: "application/json",
           responseJsonSchema: discoveryPatchJsonSchema,
           temperature: 0.2,
           maxOutputTokens: MAX_COMPLETION_TOKENS,
-        },
+          ...(isGemini ? { thinkingConfig: { thinkingBudget: 0 } as any } : {}),
+          httpOptions: signal ? { signal } as any : undefined,
+        } as any,
       });
       return res;
     }
     throw new DiscoveryApiError("Unsupported GoogleGenAI client shape.", 0);
   };
 
-  const withTimeout = async <T>(promise: Promise<T>, ms: number): Promise<T> => {
+  const withTimeout = async <T>(promise: Promise<T>, ms: number, controller?: AbortController): Promise<T> => {
     let timeoutId: ReturnType<typeof setTimeout>;
     const timeoutPromise = new Promise<never>((_, reject) => {
-      timeoutId = setTimeout(() => reject(new DOMException("Timeout", "AbortError")), ms);
+      timeoutId = setTimeout(() => {
+        controller?.abort();
+        reject(new DOMException("Timeout", "AbortError"));
+      }, ms);
     });
     try {
       const result = await Promise.race([promise, timeoutPromise]);
@@ -1457,13 +1480,16 @@ export async function processDiscovery(
 
   let lastOutputText = "";
   let lastStatus = 200;
+  let lastRateLimitError: any = null;
 
+  for (const model of modelsToTry) {
   for (let attempt = 0; attempt <= MAX_RATE_LIMIT_RETRIES; attempt += 1) {
     try {
       let interaction: any;
 
       if (injectedClient) {
-        interaction = await withTimeout(createInteraction(injectedClient), timeoutMs);
+        const ctrl = new AbortController();
+        interaction = await withTimeout(createInteraction(injectedClient, model, ctrl.signal), timeoutMs, ctrl);
       } else if (fetcher) {
         // Legacy fetch-style mock: allow tests to provide fetcher that returns Gemini-like envelope.
         // We synthesize a Gemini interaction from fetcher response to keep migration testable without real API.
@@ -1477,6 +1503,7 @@ export async function processDiscovery(
             schema: discoveryPatchJsonSchema,
           },
         });
+        const ctrl = new AbortController();
         const response = await withTimeout(
           fetcher(mockUrl, {
             method: "POST",
@@ -1485,12 +1512,14 @@ export async function processDiscovery(
               "Content-Type": "application/json",
             },
             body: mockBody,
+            signal: ctrl.signal as any,
           } as any),
           timeoutMs,
+          ctrl,
         ) as any;
         const responseText = await response.text();
         lastStatus = response.status ?? 200;
-        if (logResponses) await logRawResponse(responseText, lastStatus, attempt + 1);
+        if (logResponses) { void logRawResponse(responseText, lastStatus, attempt + 1).catch(()=>{}); } // ponytail: fire-and-forget, was blocking return
         if (response.status === 429 && attempt < MAX_RATE_LIMIT_RETRIES) {
           await wait(rateLimitDelayMs(responseText));
           continue;
@@ -1525,13 +1554,13 @@ export async function processDiscovery(
         }
       } else {
         const client = new GoogleGenAI({ apiKey } as any);
-        interaction = await withTimeout(createInteraction(client), timeoutMs);
+        const ctrl = new AbortController();
+        interaction = await withTimeout(createInteraction(client, model, ctrl.signal), timeoutMs, ctrl);
       }
 
       lastOutputText = getOutputText(interaction);
       if (logResponses && !fetcher) {
-        // Log the raw JSON output when using real client (fetcher path already logged)
-        await logRawResponse(lastOutputText, 200, attempt + 1);
+        void logRawResponse(lastOutputText, 200, attempt + 1).catch(()=>{}); // ponytail: fire-and-forget
       }
 
       if (!lastOutputText || lastOutputText.trim().length === 0) {
@@ -1573,7 +1602,8 @@ export async function processDiscovery(
         error?.status === 429 ||
         error?.code === 429 ||
         (typeof error?.message === "string" && error.message.includes("429")) ||
-        (typeof error?.message === "string" && /rate limit/i.test(error.message));
+        (typeof error?.message === "string" && /rate limit/i.test(error.message)) ||
+        (typeof error?.message === "string" && /quota exceeded/i.test(error.message));
 
       if (isRateLimited && attempt < MAX_RATE_LIMIT_RETRIES) {
         const delayMs = rateLimitDelayMs(error?.message ?? "");
@@ -1581,20 +1611,31 @@ export async function processDiscovery(
         continue;
       }
 
+      // ponytail: TPD/RPD fallback to next model in hierarchy (for testing)
+      const hasNextModel = modelsToTry.indexOf(model as any) < modelsToTry.length - 1;
+      if (isRateLimited && hasNextModel) {
+        lastRateLimitError = error;
+        const delayMs = rateLimitDelayMs(error?.message ?? "");
+        await wait(Math.min(delayMs, 2000));
+        break; // try next model
+      }
+
       if (error instanceof DiscoveryApiError || error instanceof DiscoveryResponseError) throw error;
       if (error instanceof DOMException && error.name === "AbortError") {
         throw new DiscoveryApiError(`Gemini request timed out after ${timeoutMs}ms.`, 408);
       }
       const message = error instanceof Error ? error.message : "Unknown Gemini request failure.";
-      // If it's a Gemini API error with status, preserve it
       const status = typeof error?.status === "number" ? error.status : 0;
       if (status === 429 || status >= 400) {
+        // if rate limited and has next model, already handled above -> throw only if last model
         throw new DiscoveryApiError(`Gemini request failed: ${message}`, status);
       }
       throw new DiscoveryApiError(`Unable to reach Gemini: ${message}`, 0);
     }
   }
+  } // end model loop
 
+  if (lastRateLimitError) throw lastRateLimitError;
   throw new DiscoveryApiError("Gemini did not return a response.", 0);
 }
 

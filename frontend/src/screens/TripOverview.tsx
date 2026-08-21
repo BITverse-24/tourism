@@ -1,22 +1,55 @@
+import type { FinalPlan } from '../types'
 import { mockPlan } from '../data/mockPlan'
+import { formatMoney, formatMoneyCompact, budgetLabel } from '../types/planAdapter'
+import { useMockFallback } from '../hooks/useMockFallback'
 
-function budgetText(pos: string): string {
-  switch (pos) {
-    case 'within_target': return 'Within target'
-    case 'near_target': return 'Near target'
-    case 'above_target': return 'Above target'
-    default: return 'Budget unknown'
+export interface TripOverviewProps {
+  plan?: FinalPlan | null
+  state?: 'draft' | 'final'
+  revision?: number
+}
+
+function statusLabel(s: string): string {
+  switch (s) {
+    case 'suggested': return 'Suggested'
+    case 'selected_by_traveler': return 'Selected by traveler'
+    case 'not_yet_decided': return 'Not yet decided'
+    default: return s
   }
 }
 
-export default function TripOverview() {
-  const plan = mockPlan
-  const allocations = plan.city_allocations
+export default function TripOverview({ plan: incoming, state, revision }: TripOverviewProps) {
+  const { allowMock, wsFailedAtStart, isWaitingForLive } = useMockFallback()
+  // Live WS is default; mockPlan ONLY when websocket failed at start.
+  const fallbackPlan = allowMock && wsFailedAtStart ? (mockPlan as unknown as FinalPlan) : null
+  const plan = incoming ?? fallbackPlan
+  const isMockActive = !incoming && !!fallbackPlan
+
+  if (!plan) {
+    return (
+      <main style={{ width: 'min(1360px,92vw)', margin: '0 auto', paddingTop: 56, paddingBottom: 96 }}>
+        <p style={{ fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--voyager-ink-3)', fontWeight: 500 }}>01 — THE JOURNEY</p>
+        <h1 className="serif" style={{ marginTop: 18, fontSize: 'clamp(32px,4vw,44px)', fontWeight: 300, color: 'var(--voyager-ink-1)' }}>Your trip will appear here</h1>
+        <p style={{ marginTop: 12, fontSize: 14, lineHeight: '22px', color: 'var(--voyager-ink-2)', maxWidth: 520 }}>
+          {isWaitingForLive
+            ? 'Waiting for live snapshot — connecting to the concierge…'
+            : 'Confirm your profile to generate a plan. When a live Final Trip Plan arrives, it will render here with full route, stay, and budget details.'}
+        </p>
+        {isWaitingForLive && <p style={{ marginTop: 12, fontSize: 12, color: 'var(--voyager-ink-3)' }}>Live WS is the default. Mock fallback will activate only if the websocket fails at start.</p>}
+      </main>
+    )
+  }
+
+  const isDraft = state === 'draft'
+  const allocations = plan.city_allocations ?? []
+  const route = plan.destination_route ?? []
+  // route label prefers destination_route ordering; falls back to allocations
+  const routeLabel = route.length > 0
+    ? route.slice().sort((a, b) => a.order - b.order).map(r => r.place.toUpperCase()).join(' → ')
+    : allocations.map(a => a.place.toUpperCase()).join(' → ') || '—'
   const totalNights = allocations.reduce((s, a) => s + (a.nights ?? 0), 0)
-  const primary = allocations[0]
-  const nightLabel = totalNights ? `${totalNights} NIGHTS` : primary ? `${primary.nights ?? primary.days} NIGHTS` : ''
-  const placeLabel = primary?.place?.toUpperCase() ?? 'KYOTO'
-  const marker = `${placeLabel} · ${nightLabel}`
+  const nightLabel = totalNights ? `${totalNights} NIGHTS` : allocations[0] ? `${allocations[0].nights ?? allocations[0].days} NIGHTS` : ''
+  const marker = nightLabel ? `${routeLabel} · ${nightLabel}` : routeLabel
 
   const dateLine = (() => {
     const td = plan.trip_dates
@@ -27,8 +60,12 @@ export default function TripOverview() {
     return ''
   })()
 
-  // stay — first accommodation
-  const stay = plan.accommodation?.[0]
+  const accommodations = plan.accommodation ?? []
+  const cs = plan.cost_summary
+  const categories = cs?.categories ?? []
+  const totalLabel = cs ? formatMoney(cs.estimated_total, cs.currency) : ''
+  const caveats = cs?.caveats ?? []
+  const budgetPosLabel = budgetLabel(cs?.budget_position ?? '')
 
   return (
     <main
@@ -52,7 +89,15 @@ export default function TripOverview() {
           }}
         >
           01 — THE JOURNEY
+          {typeof revision === 'number' ? ` · REV ${String(revision).padStart(2, '0')}` : ''}
+          {isDraft ? ' · DRAFT' : ''}
+          {isMockActive ? ' · MOCK FALLBACK' : ''}
         </p>
+        {isMockActive && (
+          <p style={{ marginTop: 8, fontSize: 11, letterSpacing: '0.08em', color: 'var(--voyager-ink-3)' }}>
+            Mock fallback active — websocket failed at start. Live data will replace this when the concierge connects.
+          </p>
+        )}
 
         <h1
           className="serif"
@@ -67,6 +112,12 @@ export default function TripOverview() {
         >
           {plan.plan_title}
         </h1>
+
+        {isDraft && (
+          <div style={{ marginTop: 14 }}>
+            <span style={{ fontSize: 11, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--voyager-brass-1)', border: '1px dashed var(--voyager-brass-1)', borderRadius: 999, padding: '4px 10px' }}>Draft — not yet confirmed</span>
+          </div>
+        )}
 
         {dateLine && (
           <p
@@ -123,7 +174,7 @@ export default function TripOverview() {
         <div>
           {/* Destination / Stay as quiet rows — not accordions */}
           <div style={{ borderTop: '1px solid var(--voyager-bone-2)' }}>
-            {/* Destination row */}
+            {/* Destination row — full route + allocations */}
             <div
               style={{
                 display: 'grid',
@@ -146,26 +197,39 @@ export default function TripOverview() {
                 Destination
               </span>
               <div>
-                <p
-                  className="serif"
-                  style={{
-                    fontSize: 18,
-                    lineHeight: '26px',
-                    color: 'var(--voyager-ink-1)',
-                    fontWeight: 400,
-                  }}
-                >
-                  {primary ? `${primary.place} · ${primary.nights != null ? `${primary.nights} nights` : `${primary.days} days`}` : 'Kyoto · 3 nights'}
-                </p>
-                {primary?.reason && (
-                  <p style={{ marginTop: 8, fontSize: 14, lineHeight: '22px', color: 'var(--voyager-ink-2)', maxWidth: 520 }}>
-                    {primary.reason}
+                {route.length > 0 && (
+                  <p style={{ fontSize: 14, lineHeight: '20px', color: 'var(--voyager-ink-2)', letterSpacing: '0.04em' }}>
+                    {route.slice().sort((a, b) => a.order - b.order).map((r, i) => (
+                      <span key={`${r.place}-${r.order}`}>{i > 0 ? ' → ' : ''}{r.place}{r.arrival_from ? ` (from ${r.arrival_from})` : ''}</span>
+                    ))}
                   </p>
+                )}
+                {allocations.length > 0 ? allocations.map((a) => (
+                  <div key={a.place} style={{ marginTop: route.length > 0 ? 12 : 0, paddingTop: route.length > 0 ? 12 : 0, borderTop: route.length > 0 ? '1px solid var(--voyager-bone-2)' : 'none' }}>
+                    <p
+                      className="serif"
+                      style={{
+                        fontSize: 18,
+                        lineHeight: '26px',
+                        color: 'var(--voyager-ink-1)',
+                        fontWeight: 400,
+                      }}
+                    >
+                      {a.place} · {a.nights != null ? `${a.nights} nights` : `${a.days} days`}
+                    </p>
+                    {a.reason && (
+                      <p style={{ marginTop: 8, fontSize: 14, lineHeight: '22px', color: 'var(--voyager-ink-2)', maxWidth: 520 }}>
+                        {a.reason}
+                      </p>
+                    )}
+                  </div>
+                )) : (
+                  <p style={{ fontSize: 14, lineHeight: '22px', color: 'var(--voyager-ink-2)' }}>Route will be determined after profile confirmation.</p>
                 )}
               </div>
             </div>
 
-            {/* Stay row */}
+            {/* Stay row — all accommodations */}
             <div
               style={{
                 display: 'grid',
@@ -188,8 +252,8 @@ export default function TripOverview() {
                 Stay
               </span>
               <div>
-                {stay ? (
-                  <>
+                {accommodations.length > 0 ? accommodations.map((stay, idx) => (
+                  <div key={`${stay.place}-${idx}`} style={{ paddingTop: idx > 0 ? 16 : 0, marginTop: idx > 0 ? 16 : 0, borderTop: idx > 0 ? '1px solid var(--voyager-bone-2)' : 'none' }}>
                     <p
                       style={{
                         fontSize: 15,
@@ -203,13 +267,13 @@ export default function TripOverview() {
                     <p style={{ marginTop: 6, fontSize: 13, lineHeight: '19px', color: 'var(--voyager-ink-2)' }}>
                       {stay.place} · {stay.nights} nights · {stay.reason}
                     </p>
-                    {stay.estimated_cost && (
+                    {(stay.estimated_cost || stay.status) && (
                       <p style={{ marginTop: 6, fontSize: 12, lineHeight: '16px', color: 'var(--voyager-ink-3)' }}>
-                        {stay.estimated_cost} · {stay.status === 'suggested' ? 'Suggested' : stay.status === 'selected_by_traveler' ? 'Selected by traveler' : 'Not yet decided'}
+                        {[stay.estimated_cost, statusLabel(stay.status)].filter(Boolean).join(' · ')}
                       </p>
                     )}
-                  </>
-                ) : (
+                  </div>
+                )) : (
                   <p style={{ fontSize: 14, lineHeight: '22px', color: 'var(--voyager-ink-2)' }}>
                     Lodging not yet decided — recommendations will appear here when selected.
                   </p>
@@ -218,7 +282,7 @@ export default function TripOverview() {
             </div>
           </div>
 
-          {/* The intention */}
+          {/* The intention — now purely from plan.summary + fit_explanation, no hard-coded copy */}
           <div style={{ marginTop: 44 }}>
             <p
               style={{
@@ -243,57 +307,63 @@ export default function TripOverview() {
                 maxWidth: 560,
               }}
             >
-              Slow mornings, quiet temples, neighborhood wandering — one main experience per part of day, time to breathe.
-            </p>
-            <p
-              style={{
-                marginTop: 14,
-                fontSize: 14,
-                lineHeight: '23px',
-                color: 'var(--voyager-ink-2)',
-                maxWidth: 560,
-              }}
-            >
               {plan.summary}
             </p>
+            {plan.fit_explanation && plan.fit_explanation !== plan.summary && (
+              <p style={{ marginTop: 14, fontSize: 14, lineHeight: '23px', color: 'var(--voyager-ink-2)', maxWidth: 560 }}>
+                {plan.fit_explanation}
+              </p>
+            )}
           </div>
 
-          {/* What this trip feels like */}
-          <div
-            style={{
-              marginTop: 36,
-              paddingTop: 20,
-              borderTop: '1px solid var(--voyager-bone-2)',
-            }}
-          >
-            <p
-              style={{
-                fontSize: 11,
-                letterSpacing: '0.14em',
-                textTransform: 'uppercase',
-                color: 'var(--voyager-ink-3)',
-                fontWeight: 500,
-              }}
-            >
-              What this trip feels like
-            </p>
-            <p
-              style={{
-                marginTop: 10,
-                fontSize: 11,
-                letterSpacing: '0.16em',
-                textTransform: 'uppercase',
-                color: 'var(--voyager-ink-2)',
-                fontWeight: 500,
-                lineHeight: '20px',
-              }}
-            >
-              EARLY LIGHT · LOW CROWDS · LOCAL FOOD · UNHURRIED DAYS
-            </p>
-          </div>
+          {/* Tradeoffs / Assumptions / Warnings / Unresolved — was missing */}
+          {plan.tradeoffs.length > 0 && (
+            <div style={{ marginTop: 32, paddingTop: 20, borderTop: '1px solid var(--voyager-bone-2)' }}>
+              <p style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--voyager-ink-3)', fontWeight: 500 }}>Tradeoffs</p>
+              <ul style={{ marginTop: 12, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {plan.tradeoffs.map((t, i) => (
+                  <li key={i} style={{ fontSize: 14, lineHeight: '22px', color: 'var(--voyager-ink-2)' }}>{t}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {plan.assumptions.length > 0 && (
+            <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--voyager-bone-2)' }}>
+              <p style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--voyager-ink-3)', fontWeight: 500 }}>Assumptions</p>
+              <ul style={{ marginTop: 12, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {plan.assumptions.map((a, i) => (
+                  <li key={i} style={{ fontSize: 13, lineHeight: '20px', color: 'var(--voyager-ink-2)' }}>{a}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {plan.warnings.length > 0 && (
+            <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--voyager-bone-2)' }}>
+              <p style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--voyager-ink-3)', fontWeight: 500 }}>Heads up</p>
+              <ul style={{ marginTop: 12, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {plan.warnings.map((w, i) => (
+                  <li key={i} style={{ fontSize: 13, lineHeight: '20px', color: 'var(--voyager-ink-2)' }}>{w}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {plan.unresolved_details.length > 0 && (
+            <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--voyager-bone-2)' }}>
+              <p style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--voyager-ink-3)', fontWeight: 500 }}>Unresolved details</p>
+              <ul style={{ marginTop: 12, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {plan.unresolved_details.map((u, i) => (
+                  <li key={i} style={{ fontSize: 13, lineHeight: '20px', color: 'var(--voyager-ink-2)' }}>{u}</li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           {/* subtle closing rule */}
           <div style={{ marginTop: 36, height: 1, background: 'var(--voyager-bone-2)' }} aria-hidden />
+          <p style={{ marginTop: 10, fontSize: 10, letterSpacing: '0.08em', color: 'var(--voyager-ink-3)' }}>Ref: {plan.traveler_profile_reference}</p>
         </div>
 
         {/* RIGHT — 35% Concierge estimate : the visual anchor */}
@@ -319,7 +389,7 @@ export default function TripOverview() {
             CONCIERGE ESTIMATE
           </p>
 
-          {/* price + tiny status */}
+          {/* price + status */}
           <div
             style={{
               marginTop: 14,
@@ -339,7 +409,7 @@ export default function TripOverview() {
                 color: 'var(--voyager-ink-1)',
               }}
             >
-              INR 63,000
+              {totalLabel || '—'}
             </span>
             <span
               style={{
@@ -355,22 +425,24 @@ export default function TripOverview() {
                 background: 'var(--voyager-bone-0)',
               }}
             >
-              {budgetText(plan.cost_summary.budget_position)}
+              {budgetPosLabel}
             </span>
           </div>
 
-          <p
-            style={{
-              marginTop: 10,
-              fontSize: 12,
-              lineHeight: '18px',
-              color: 'var(--voyager-ink-3)',
-            }}
-          >
-            {plan.cost_summary.scope}
-          </p>
+          {cs?.scope && (
+            <p
+              style={{
+                marginTop: 10,
+                fontSize: 12,
+                lineHeight: '18px',
+                color: 'var(--voyager-ink-3)',
+              }}
+            >
+              {cs.scope}
+            </p>
+          )}
 
-          {/* dotted ledger */}
+          {/* ledger from categories */}
           <div
             style={{
               marginTop: 22,
@@ -382,12 +454,7 @@ export default function TripOverview() {
             }}
             aria-label="Cost breakdown"
           >
-            {[
-              { name: 'Accommodation', amount: '36,000' },
-              { name: 'Local transport', amount: '6,000' },
-              { name: 'Food', amount: '18,000' },
-              { name: 'Experiences', amount: '3,000' },
-            ].map(row => (
+            {categories.length > 0 ? categories.map(row => (
               <div
                 key={row.name}
                 style={{
@@ -418,87 +485,30 @@ export default function TripOverview() {
                     whiteSpace: 'nowrap',
                   }}
                 >
-                  {row.amount}
+                  {formatMoneyCompact(row.amount)}
                 </span>
               </div>
-            ))}
+            )) : (
+              <p style={{ fontSize: 12, lineHeight: '18px', color: 'var(--voyager-ink-3)' }}>No cost breakdown available.</p>
+            )}
           </div>
 
-          {/* Included / Not included */}
-          <div
-            style={{
-              marginTop: 22,
-              paddingTop: 18,
-              borderTop: '1px solid var(--voyager-bone-2)',
-              display: 'grid',
-              gridTemplateColumns: '1fr 1fr',
-              gap: 20,
-            }}
-          >
-            <div>
-              <p
-                style={{
-                  fontSize: 10,
-                  letterSpacing: '0.14em',
-                  textTransform: 'uppercase',
-                  color: 'var(--voyager-ink-3)',
-                  fontWeight: 500,
-                }}
-              >
-                Included
-              </p>
-              <ul
-                style={{
-                  marginTop: 8,
-                  listStyle: 'none',
-                  padding: 0,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 4,
-                  fontSize: 12,
-                  lineHeight: '18px',
-                  color: 'var(--voyager-ink-2)',
-                }}
-              >
-                <li>Kyoto stay (3 nights)</li>
-                <li>Local activities</li>
-                <li>Lodging estimate</li>
-              </ul>
+          {/* Included / Not included derived from scope — no hard-coded Kyoto text */}
+          {cs?.scope && (
+            <div
+              style={{
+                marginTop: 22,
+                paddingTop: 18,
+                borderTop: '1px solid var(--voyager-bone-2)',
+              }}
+            >
+              <p style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--voyager-ink-3)', fontWeight: 500 }}>Scope</p>
+              <p style={{ marginTop: 8, fontSize: 12, lineHeight: '18px', color: 'var(--voyager-ink-2)' }}>{cs.scope}</p>
             </div>
-            <div>
-              <p
-                style={{
-                  fontSize: 10,
-                  letterSpacing: '0.14em',
-                  textTransform: 'uppercase',
-                  color: 'var(--voyager-ink-3)',
-                  fontWeight: 500,
-                }}
-              >
-                Not included
-              </p>
-              <ul
-                style={{
-                  marginTop: 8,
-                  listStyle: 'none',
-                  padding: 0,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 4,
-                  fontSize: 12,
-                  lineHeight: '18px',
-                  color: 'var(--voyager-ink-2)',
-                }}
-              >
-                <li>International flights</li>
-                <li>Travel insurance</li>
-                <li>Personal purchases</li>
-              </ul>
-            </div>
-          </div>
+          )}
 
           {/* caveats — quiet footnote */}
-          {plan.cost_summary.caveats.length > 0 && (
+          {caveats.length > 0 && (
             <div
               style={{
                 marginTop: 18,
@@ -509,7 +519,7 @@ export default function TripOverview() {
                 gap: 8,
               }}
             >
-              {plan.cost_summary.caveats.map((c, i) => (
+              {caveats.map((c, i) => (
                 <p key={i} style={{ fontSize: 11, lineHeight: '16px', color: 'var(--voyager-ink-3)' }}>
                   — {c}
                 </p>

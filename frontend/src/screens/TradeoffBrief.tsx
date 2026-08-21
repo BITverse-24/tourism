@@ -1,10 +1,35 @@
 import { mockPlan } from '../data/mockPlan'
+import type { FinalPlan } from '../types'
+import { usePlan } from '../hooks/usePlan'
+import { useMockFallback } from '../hooks/useMockFallback'
 
-export default function TradeoffBrief() {
-  const plan: any = mockPlan
+export interface TradeoffBriefProps {
+  plan?: FinalPlan | null
+}
 
+export default function TradeoffBrief({ plan: incoming }: TradeoffBriefProps = {}) {
+  const { plan: livePlan } = usePlan()
+  const { allowMock, wsFailedAtStart, isWaitingForLive } = useMockFallback()
+  // Live WS is default; only use mockPlan when websocket failed at start.
+  const mockFallbackPlan: FinalPlan | null = allowMock && wsFailedAtStart ? (mockPlan as unknown as FinalPlan) : null
+  const resolved: FinalPlan | null = incoming ?? livePlan ?? mockFallbackPlan
+  const isMockActive = !incoming && !livePlan && !!mockFallbackPlan
+  const plan: any = resolved
+
+  // Distinguish waiting-for-live vs mock fallback active
+  if (!plan) {
+    return (
+      <main style={{ width: '90vw', maxWidth: 980, margin: '0 auto', padding: '96px 0 128px' }}>
+        <p style={{ fontSize: 11, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--voyager-ink-3)' }}>Trade-off brief</p>
+        <h1 className="serif" style={{ marginTop: 12, fontSize: 28, fontWeight: 400, color: 'var(--voyager-ink-1)' }}>Your trade-offs will appear here</h1>
+        <p style={{ marginTop: 12, fontSize: 14, lineHeight: '22px', color: 'var(--voyager-ink-2)', maxWidth: 560 }}>
+          {isWaitingForLive ? 'Waiting for live snapshot — connecting to the concierge…' : 'No trade-offs yet — they will appear when the Final Trip Plan snapshot arrives.'}
+        </p>
+      </main>
+    )
+  }
   // Do not render a blank shell when there are no material tradeoffs
-  if (!plan || !Array.isArray(plan.tradeoffs) || plan.tradeoffs.length === 0) return null
+  if (!Array.isArray(plan.tradeoffs) || plan.tradeoffs.length === 0) return null
 
   // Draft content belongs on consultation/day surfaces with draft badge — do not show brief for drafts
   const isDraft = plan.isDraft === true || (typeof plan.plan_title === 'string' && plan.plan_title.includes('(Draft)'))
@@ -27,6 +52,11 @@ export default function TradeoffBrief() {
         minWidth: 0,
       }}
     >
+      {isMockActive && (
+        <p style={{ textAlign: 'center', fontSize: 11, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--voyager-ink-3)', marginBottom: 12 }}>
+          Mock fallback active — websocket failed at start
+        </p>
+      )}
       <h1
         className="serif"
         style={{

@@ -7,6 +7,7 @@ import type {
 } from "../ws/discovery";
 import { validateAnswer, generateCommandId } from "../ws/discovery";
 import { getWsClient } from "../ws";
+import { useDiscovery } from "../hooks/useDiscovery";
 
 // Re-export for backwards compat — consumers importing from this screen keep working
 export type { DiscoveryQuestion, DiscoveryOption, SelectionMode, FreeTextMode };
@@ -44,10 +45,10 @@ export type ProfileSnapshot = {
 };
 
 export type DiscoveryProps = {
-  question: DiscoveryQuestion | null;
+  question?: DiscoveryQuestion | null;
   profile?: ProfileSnapshot | null;
-  sequence?: number;
-  sequenceTotal?: number;
+  sequence?: number | null;
+  sequenceTotal?: number | null;
   busy?: boolean;
   feedback?: string | null;
   onAnswer?: (payload: {
@@ -199,12 +200,12 @@ function formatConstraints(hc: Record<string, unknown> | null | undefined): Reac
 // ---------------------------------------------------------------------------
 
 export default function Discovery({
-  question,
-  profile,
-  sequence,
-  sequenceTotal,
-  busy = false,
-  feedback = null,
+  question: questionProp,
+  profile: profileProp,
+  sequence: sequenceProp,
+  sequenceTotal: sequenceTotalProp,
+  busy: busyProp = false,
+  feedback: feedbackProp = null,
   onAnswer,
   onBack,
   onToggleNav,
@@ -216,6 +217,24 @@ export default function Discovery({
   const promptId = useId();
   const feedbackId = useId();
   const prevQRef = useRef<string | null>(null);
+
+  // Live wiring — when parent does NOT supply a question, consume WS discovery stream directly.
+  // This makes Discovery self-sufficient in the live app (App.tsx renders <Discovery /> with no props).
+  // When questionProp is provided (storybook/tests), that value is authoritative and the hook is still
+  // subscribed but its question is ignored.
+  const live = useDiscovery();
+  const isLiveMode = questionProp == null && onAnswer == null;
+
+  // Effective values: live WS data wins when in live mode; otherwise props win.
+  const question = isLiveMode ? live.question : questionProp;
+  const profile = isLiveMode ? (live.profile as unknown as ProfileSnapshot | null) ?? profileProp ?? null : (profileProp ?? null);
+  const liveSequence = live.sequence;
+  const sequence = isLiveMode ? (liveSequence ?? sequenceProp ?? null) : (sequenceProp ?? null);
+  const sequenceTotal = sequenceTotalProp ?? live.sequenceTotal ?? null;
+  const busy = isLiveMode ? live.busy : busyProp;
+  // Feedback priority: live hook feedback > local recovery > prop feedback
+  const liveFeedback = live.feedback;
+  const feedback = (isLiveMode ? (liveFeedback ?? localRecoveryFeedback) : (localRecoveryFeedback ?? feedbackProp)) ?? null;
 
   // Reset selection/text when server pushes a new discovery.question (forward-only)
   useEffect(() => {
@@ -230,8 +249,11 @@ export default function Discovery({
     }
   }, [question?.question_id]);
 
-  // Handle question_not_current recovery — server rejected stale answer, wait for new question
+  // Handle question_not_current recovery — server rejected stale answer, wait for new question.
+  // When in live mode the hook already handles this and exposes live.feedback; keep a
+  // fallback subscription for prop-driven (test/storybook) usage.
   useEffect(() => {
+    if (isLiveMode) return;
     let unsub: (() => void) | null = null;
     try {
       const client = getWsClient();
@@ -240,9 +262,6 @@ export default function Discovery({
           const p = env.payload as Record<string, unknown>;
           if (p.code === "question_not_current") {
             setLocalRecoveryFeedback("That question is no longer current — showing the latest one.");
-            // keep busy false so user can answer the new question once it arrives
-            // selection/text will be reset when question_id changes via effect above
-            // recovery payload contains current_question_id if server included it
           }
         }
       });
@@ -252,7 +271,7 @@ export default function Discovery({
     return () => {
       if (unsub) unsub();
     };
-  }, []);
+  }, [isLiveMode]);
 
   const toggleOption = (optionId: string) => {
     if (!question || busy) return;
@@ -304,43 +323,58 @@ export default function Discovery({
 
   const handleSubmit = () => {
     if (!question || !canSubmit) return;
-    // Pre-validate again at submit time (UX only) — do not block server truth
+    // Pre-validate again at submit time (UX only) — server remains truth
     const v = validateAnswer(question, selected, text);
     if (!v.valid) return;
 
     const fm = question.free_text_mode;
-    let ids = [...selected];
     let ft = text;
-    // Normalize per contract: disabled => free_text must be "", only_if_no_option mutual exclusion
     if (fm === "disabled") ft = "";
     else if (fm === "only_if_no_option" && hasSelection && hasText) {
-      // Should be invalid per validateAnswer, but defensively drop text if caller forced it
       ft = "";
     }
 
-    const payload = {
-      question_id: question.question_id,
-      selected_option_ids: ids,
-      free_text: ft,
-      command_id: genCommandId(),
-    };
+    const commandId = genCommandId();
 
-    // Prefer parent-provided onAnswer (which may be wired to useWs().sendAnswer / ws.send),
-    // fallback to direct WsClient send for live WebSocket operation.
+    // If parent supplied onAnswer (storybook/tests or App wiring), delegate to it.
     if (onAnswer) {
-      onAnswer(payload);
+      onAnswer({
+        question_id: question.question_id,
+        selected_option_ids: [...selected],
+        free_text: ft,
+        command_id: commandId,
+      });
       return;
     }
-    // No onAnswer — send directly via WsClient (live mode)
+
+    // Live path: single unified WsClient via useDiscovery (handles validateAnswer, busy, feedback,
+    // question_not_current recovery, and sequence tracking). Falls back to direct client call
+    // if hook is not yet fully initialized (e.g., early render before subscription).
+    if (isLiveMode) {
+      const res = live.sendAnswer({
+        selected_option_ids: [...selected],
+        free_text: ft,
+        command_id: commandId,
+      });
+      // sendAnswer already manages busy/feedback; surface local recovery note if it failed locally
+      if (!res.ok && res.error && !live.feedback) {
+        setLocalRecoveryFeedback(res.error);
+      }
+      // Also send via WsClient directly if hook's send was no-op (defensive: keep single unified client)
+      // No second send — live.sendAnswer already called client.sendDiscoveryAnswer with same commandId.
+      return;
+    }
+
+    // Fallback direct WsClient send (covers prop-less but non-live edge, e.g., tests without hook)
     try {
       const client = getWsClient();
       client.sendDiscoveryAnswer(
         {
-          question_id: payload.question_id,
-          selected_option_ids: payload.selected_option_ids,
-          free_text: payload.free_text,
+          question_id: question.question_id,
+          selected_option_ids: [...selected],
+          free_text: ft,
         },
-        payload.command_id
+        commandId,
       );
     } catch {
       // If WsClient unavailable (e.g., storybook), silently ignore — parent should provide onAnswer
@@ -459,6 +493,23 @@ export default function Discovery({
   const paddedSeq = sequence != null ? String(sequence).padStart(2, "0") : "--";
   const paddedTotal = sequenceTotal != null ? String(sequenceTotal).padStart(2, "0") : "--";
 
+  // Busy overlay — keep same ivory background, center sphere; fade out when next question arrives
+  const [busyOverlayMounted, setBusyOverlayMounted] = useState(false)
+  const [busyExiting, setBusyExiting] = useState(false)
+  useEffect(() => {
+    if (busy) {
+      setBusyOverlayMounted(true)
+      setBusyExiting(false)
+    } else if (busyOverlayMounted) {
+      setBusyExiting(true)
+      const t = window.setTimeout(() => {
+        setBusyOverlayMounted(false)
+        setBusyExiting(false)
+      }, 420)
+      return () => window.clearTimeout(t)
+    }
+  }, [busy, busyOverlayMounted])
+
   return (
     <>
       <style>{css}</style>
@@ -467,6 +518,22 @@ export default function Discovery({
           <span className="discovery__watermarkText">THE ART OF TRAVEL</span>
           <span className="discovery__watermarkNum">02</span>
         </div>
+        {busyOverlayMounted && (
+          <div
+            className={`discovery__busyOverlay ${busyExiting ? 'is-exiting' : 'is-entering'}`}
+            aria-hidden="true"
+            data-testid="discovery-busy"
+          >
+            <div className="discovery__busySphere">
+              <div className="discovery-busy-ripple" aria-hidden="true">
+                <div className="discovery-busy-glow" />
+                <div className="discovery-busy-core" />
+              </div>
+              <p className="discovery__busyText">Weaving your answers…</p>
+              <p className="discovery__busySub">Shaping the next question — this can take 10–15s</p>
+            </div>
+          </div>
+        )}
         {(onBack || onToggleNav) && (
           <nav className="discovery__nav" aria-label="Discovery navigation">
             {onBack ? (
@@ -1136,5 +1203,96 @@ const css = `
 @media (max-width: 480px) {
   .discovery__choices { flex-direction: column; }
   .chip { width: 100%; }
+}
+
+/* ——— Busy overlay — centered glowing sphere, same ivory background, aesthetic fade ——— */
+.discovery__busyOverlay {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  background: var(--voyager-ivory);
+  /* keep watermark visible faintly underneath, but cover interview */
+}
+.discovery__busyOverlay.is-entering {
+  animation: discovery-busy-enter 420ms cubic-bezier(.22,1,.36,1) both;
+}
+.discovery__busyOverlay.is-exiting {
+  animation: discovery-busy-exit 420ms ease both;
+}
+@keyframes discovery-busy-enter {
+  from { opacity: 0; backdrop-filter: blur(2px); }
+  to   { opacity: 1; backdrop-filter: blur(0); }
+}
+@keyframes discovery-busy-exit {
+  from { opacity: 1; transform: scale(1); filter: blur(0); }
+  to   { opacity: 0; transform: scale(0.98); filter: blur(3px); }
+}
+.discovery__busySphere {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  text-align: center;
+  padding: 24px;
+  animation: discovery-busy-sphere-enter 480ms cubic-bezier(.22,1,.36,1) 120ms both;
+}
+@keyframes discovery-busy-sphere-enter {
+  from { opacity: 0; transform: translateY(10px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.discovery-busy-ripple {
+  width: 192px;
+  height: 192px;
+  display: grid;
+  place-items: center;
+  position: relative;
+}
+.discovery-busy-glow {
+  position: absolute;
+  width: 192px;
+  height: 192px;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(179,138,85,0.42) 0%, rgba(179,138,85,0.18) 38%, rgba(179,138,85,0.06) 62%, transparent 72%);
+  filter: blur(0.5px);
+  animation: breathe-glow 3s ease-in-out infinite;
+}
+.discovery-busy-core {
+  width: 96px;
+  height: 96px;
+  border-radius: 999px;
+  background: radial-gradient(circle at 50% 45%, #D8C19A 0%, #B38A55 58%, #8E6A3F 100%);
+  box-shadow: 0 0 48px rgba(179,138,85,0.42), 0 0 96px rgba(179,138,85,0.18);
+  opacity: 0.92;
+  animation: breathe-core 3s ease-in-out infinite;
+}
+@keyframes breathe-glow {
+  0%,100% { transform: scale(0.86); opacity: 0.72; }
+  50%      { transform: scale(1.06); opacity: 0.38; }
+}
+@keyframes breathe-core {
+  0%,100% { transform: scale(0.94); opacity: 0.90; }
+  50%      { transform: scale(1.04); opacity: 0.62; }
+}
+.discovery__busyText {
+  margin: 0;
+  font-family: Fraunces, Georgia, serif;
+  font-size: 17px;
+  line-height: 24px;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  color: var(--voyager-charcoal);
+}
+.discovery__busySub {
+  margin: 0;
+  margin-top: -10px;
+  font: 400 13px/18px General Sans, Inter, ui-sans-serif, sans-serif;
+  letter-spacing: .02em;
+  color: var(--voyager-ink-2);
+}
+@media (prefers-reduced-motion: reduce) {
+  .discovery__busyOverlay.is-entering, .discovery__busyOverlay.is-exiting,
+  .discovery__busySphere, .discovery-busy-glow, .discovery-busy-core { animation: none; }
 }
 `

@@ -31,4 +31,25 @@ export const mockQuestions: DiscoveryQuestion[] = [
       { option_id: 'include', label: 'Flights included', description: 'Budget covers flights and stay.' },
     ]
   },
+  {
+    question_id: 'q_party', prompt: 'Who are you travelling with?',
+    selection_mode: 'single', required: true,
+    free_text_mode: 'optional', free_text_placeholder: 'Tell us about your group, if anything feels specific',
+    options: [
+      { option_id: 'solo', label: 'Solo', description: 'Just me — flexible and light.' },
+      { option_id: 'couple', label: 'Partner', description: 'Two travellers, shared rhythm.' },
+      { option_id: 'friends', label: 'Friends', description: 'Small group, shared interests.' },
+      { option_id: 'family', label: 'Family', description: 'With kids or elders — ease matters.' },
+    ]
+  },
+  {
+    question_id: 'q_comfort', prompt: 'How much walking feels comfortable in a day?',
+    selection_mode: 'single', required: true,
+    free_text_mode: 'optional', free_text_placeholder: 'Add nuance — hills, breaks, pace?',
+    options: [
+      { option_id: 'light', label: 'Light — 2–3 km', description: 'Short walks, plenty of rest.' },
+      { option_id: 'moderate', label: 'Moderate — 5–7 km', description: 'Neighbourhood wandering with breaks.' },
+      { option_id: 'high', label: 'High — 10km+', description: 'Happy to be on foot most of the day.' },
+    ]
+  },
 ]

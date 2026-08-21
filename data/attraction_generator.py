@@ -40,7 +40,7 @@ ATTRACTION_RESPONSE_SCHEMA = {
             "description": {"type": "STRING", "description": "Concise, factual explanation of what visitors encounter and primary significance"},
             "significance": {
                 "type": "ARRAY",
-                "items": {"type": "STRING"},
+                "items": {"type": "STRING", "enum": ["Historical", "Architectural", "Religious", "Cultural", "Archaeological", "Natural", "Ecological", "Wildlife", "Culinary", "Scenic", "Geological", "Spiritual", "UNESCO_Heritage", "Artistic", "Literary", "Military", "Royal", "Industrial", "Festive", "Craft", "Educational", "Recreational", "Pilgrimage"]},
                 "description": "Intrinsic significance reasons (e.g. Historical, Architectural, Religious, Cultural, Natural, UNESCO_Heritage)"
             },
             "location_area": {"type": "STRING", "description": "Neighborhood, locality, district, or area name"},
@@ -51,37 +51,37 @@ ATTRACTION_RESPONSE_SCHEMA = {
             "visit_duration_max": {"type": "INTEGER", "description": "Thorough exploration visit duration in MINUTES (must be >= typical)"},
             "best_time_of_day": {
                 "type": "ARRAY",
-                "items": {"type": "STRING"},
+                "items": {"type": "STRING", "enum": ["Early_Morning", "Morning", "Afternoon", "Late_Afternoon", "Sunset", "Evening", "Night", "Anytime"]},
                 "description": "Best visiting times (Early_Morning, Morning, Afternoon, Late_Afternoon, Sunset, Evening, Night, Anytime)"
             },
             "best_months": {
                 "type": "ARRAY",
-                "items": {"type": "STRING"},
+                "items": {"type": "STRING", "enum": ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]},
                 "description": "Best months to visit (full month names)"
             },
             "avoid_months": {
                 "type": "ARRAY",
-                "items": {"type": "STRING"},
+                "items": {"type": "STRING", "enum": ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]},
                 "description": "Months when visiting is substantially less desirable due to weather/monsoon/closure"
             },
-            "crowd_level": {"type": "STRING", "description": "Typical crowd intensity: Very_Low, Low, Moderate, High, Very_High"},
-            "tourism_level": {"type": "STRING", "description": "Tourism ecosystem prominence: Major_Tourist, Popular, Moderately_Touristed, Local, Niche"},
+            "crowd_level": {"type": "STRING", "description": "Typical crowd intensity: Very_Low, Low, Moderate, High, Very_High", "enum": ["Very_Low", "Low", "Moderate", "High", "Very_High"]},
+            "tourism_level": {"type": "STRING", "description": "Tourism ecosystem prominence: Major_Tourist, Popular, Moderately_Touristed, Local, Niche", "enum": ["Major_Tourist", "Popular", "Moderately_Touristed", "Local", "Niche"]},
             "hidden_gem": {"type": "BOOLEAN", "description": "Set to true only if attraction is genuinely lesser-known with high tourism value"},
-            "discovery_category": {"type": "STRING", "description": "Surface category: Must_See, Popular, Local_Favorite, Hidden_Gem, Offbeat, Seasonal, Special_Interest, Worth_Detour"},
-            "local_authenticity": {"type": "STRING", "description": "Representation of local culture/life: Very_High, High, Moderate, Low, Very_Low"},
-            "photography_value": {"type": "STRING", "description": "Suitability for photography: Very_High, High, Moderate, Low, Very_Low"},
-            "indoor_outdoor": {"type": "STRING", "description": "Physical environment: Indoor, Outdoor, Mixed"},
-            "adventure_level": {"type": "STRING", "description": "Adventure/physical intensity: None, Low, Moderate, High, Extreme"},
-            "accessibility_level": {"type": "STRING", "description": "Physical access difficulty: Very_Easy, Easy, Moderate, Difficult, Very_Difficult"},
-            "family_suitability": {"type": "STRING", "description": "Suitability for families: Excellent, Good, Moderate, Poor, Unsuitable"},
-            "elderly_suitability": {"type": "STRING", "description": "Suitability for elderly travelers: Excellent, Good, Moderate, Poor, Unsuitable"},
-            "child_suitability": {"type": "STRING", "description": "Suitability for children: Excellent, Good, Moderate, Poor, Unsuitable"},
-            "romantic_suitability": {"type": "STRING", "description": "Suitability for couples: Excellent, Good, Moderate, Poor, Unsuitable"},
+            "discovery_category": {"type": "STRING", "description": "Surface category: Must_See, Popular, Local_Favorite, Hidden_Gem, Offbeat, Seasonal, Special_Interest, Worth_Detour", "enum": ["Must_See", "Popular", "Local_Favorite", "Hidden_Gem", "Offbeat", "Seasonal", "Special_Interest", "Worth_Detour"]},
+            "local_authenticity": {"type": "STRING", "description": "Representation of local culture/life: Very_High, High, Moderate, Low, Very_Low", "enum": ["Very_High", "High", "Moderate", "Low", "Very_Low"]},
+            "photography_value": {"type": "STRING", "description": "Suitability for photography: Very_High, High, Moderate, Low, Very_Low", "enum": ["Very_High", "High", "Moderate", "Low", "Very_Low"]},
+            "indoor_outdoor": {"type": "STRING", "description": "Physical environment: Indoor, Outdoor, Mixed", "enum": ["Indoor", "Outdoor", "Mixed"]},
+            "adventure_level": {"type": "STRING", "description": "Adventure/physical intensity: None, Low, Moderate, High, Extreme", "enum": ["None", "Low", "Moderate", "High", "Extreme"]},
+            "accessibility_level": {"type": "STRING", "description": "Physical access difficulty: Very_Easy, Easy, Moderate, Difficult, Very_Difficult", "enum": ["Very_Easy", "Easy", "Moderate", "Difficult", "Very_Difficult"]},
+            "family_suitability": {"type": "STRING", "description": "Suitability for families: Excellent, Good, Moderate, Poor, Unsuitable", "enum": ["Excellent", "Good", "Moderate", "Poor", "Unsuitable"]},
+            "elderly_suitability": {"type": "STRING", "description": "Suitability for elderly travelers: Excellent, Good, Moderate, Poor, Unsuitable", "enum": ["Excellent", "Good", "Moderate", "Poor", "Unsuitable"]},
+            "child_suitability": {"type": "STRING", "description": "Suitability for children: Excellent, Good, Moderate, Poor, Unsuitable", "enum": ["Excellent", "Good", "Moderate", "Poor", "Unsuitable"]},
+            "romantic_suitability": {"type": "STRING", "description": "Suitability for couples: Excellent, Good, Moderate, Poor, Unsuitable", "enum": ["Excellent", "Good", "Moderate", "Poor", "Unsuitable"]},
             "booking_required": {"type": "BOOLEAN", "description": "True if advance reservation is normally required"},
-            "entry_type": {"type": "STRING", "description": "Access payment model: Free, Paid, Donation, Restricted, Reservation_Required, Permit_Required, Seasonal"},
+            "entry_type": {"type": "STRING", "description": "Access payment model: Free, Paid, Donation, Restricted, Reservation_Required, Permit_Required, Seasonal", "enum": ["Free", "Paid", "Donation", "Restricted", "Reservation_Required", "Permit_Required", "Seasonal"]},
             "best_for": {
                 "type": "ARRAY",
-                "items": {"type": "STRING"},
+                "items": {"type": "STRING", "enum": ["History", "Architecture", "Culture", "Religion", "Spirituality", "Nature", "Wildlife", "Adventure", "Photography", "Food", "Shopping", "Art", "Local_Life", "Nightlife", "Relaxation", "Families", "Couples", "Solo_Travel", "Luxury", "Budget_Travel", "Backpacking", "Offbeat_Travel"]},
                 "description": "Relevant traveler motivations (History, Architecture, Culture, Nature, Wildlife, Photography, Food, etc.)"
             },
             "source": {
@@ -223,14 +223,25 @@ DO NOT include any of the above places or their direct duplicates. Discover NEW,
 - Longitude: {city['longitude']}
 
 TASK:
-Generate exactly {count} NEW, distinct, researched tourism attractions for {city['city_name']} (Batch {batch_index + 1}).
+Generate UP TO {count} NEW, distinct, researched tourism attractions for {city['city_name']} (Batch {batch_index + 1}).
+
+COUNT IS A MAXIMUM, NOT A QUOTA:
+- Ideal is {count}, but QUALITY GATE takes precedence.
+- Only return places that meet the QUALITY THRESHOLD (genuine tourism value, verifiable, distinct).
+- If fewer than {count} high-quality distinct attractions remain after applying the exclusion list, return ONLY those — may be fewer than {count}, may be [].
+- NEVER invent, duplicate, or include low-value places (generic restaurants, malls, random streets) to reach {count}. Returning [] means "no more high-quality POIs for this city" — not an error.
+
+THINKING ALLOCATION (80/20 — USE THE 1024 BUDGET HERE):
+- Spend ~80% of thinking on: (1) Is city exhausted? Compare exclusion list + already-generated vs. known Must_See/Popular and secondary layers — are all high-quality exhausted? (2) If not exhausted, deep-search Layer 3/4: local favorites, artisan areas, old neighborhoods, small museums, viewpoints, seasonal/special-interest, genuine hidden gems (must satisfy HIDDEN GEM RULE). Prioritize those over padding with generic places.
+- Spend ~20% on formatting, coords, enums, IDs.
+- If 80% check concludes exhausted → return [] or <{count} immediately, do not pad.
 
 CRITICAL INVARIANTS:
 1. "city_id" MUST strictly be "{city['city_id']}".
-2. "attraction_id" MUST follow format "attraction_name_{city['city_id']}" in lowercase with underscores.
+2. "attraction_id" MUST follow format "attraction_name_{city['city_id']}" in lowercase with underscores and ASCII only (transliterate Devanagari).
 3. Every attraction MUST be a real, verifiable POI in or practically associated with {city['city_name']}.
 4. "last_updated" MUST be "{today}".
-5. Output ONLY a valid JSON array matching the provided response schema.
+5. Output ONLY a valid JSON array matching the provided response schema (may be empty [] or shorter than {count}).
 {exclusion_clause}
 """
 

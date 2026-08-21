@@ -22,7 +22,7 @@ if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
 
 from city_loader import load_cities
-from rate_limiter import RateLimiter
+from rate_limiter import RateLimiter, PerModelRateLimiter
 from model_manager import ModelManager
 from attraction_generator import (
     generate_prompt_for_city_batch,
@@ -38,7 +38,7 @@ from writer import DatasetWriter
 def call_gemini_api(model_name: str, prompt: str, api_key: str, system_instruction: str = "") -> Tuple[str, int, int]:
     """
     Invoke official Google GenAI Python SDK using Chat.send_message pattern.
-    Configures thinking_budget=1024 (~5-10s reasoning).
+    Configures thinking_budget=1024 (quality-focused: ~80% of thinking on city exhaustion + hidden-gem discovery).
     Returns (response_text, total_tokens, status_code).
     Raises urllib.error.HTTPError on 429 rate limit / quota errors.
     """
@@ -108,10 +108,15 @@ def run_pipeline(
         main_json = "attractions.json"
 
     rate_cfg = config.get("rate_limits", {})
-    rate_limiter = RateLimiter(
-        max_rpm=rate_cfg.get("max_rpm", 5),
-        max_rpd=rate_cfg.get("max_rpd", 20),
-        max_tpm=rate_cfg.get("max_tpm", 250000)
+    per_model_cfg = config.get("per_model_rate_limits", {})
+    # Per-model limiter: lite RPD=500, gemma RPM=30 RPD=14000 TPM=16000, others default 5/20/250k
+    rate_limiter = PerModelRateLimiter(
+        default_limits={
+            "max_rpm": rate_cfg.get("max_rpm", 5),
+            "max_rpd": rate_cfg.get("max_rpd", 20),
+            "max_tpm": rate_cfg.get("max_tpm", 250000),
+        },
+        per_model_limits=per_model_cfg,
     )
 
     model_manager = ModelManager(
@@ -171,9 +176,10 @@ def run_pipeline(
 
         print("-" * 60)
         print(f"[{idx}/{len(cities)}] Processing City: {city['city_name']} ({city_id})")
-        print(f"  State: {city['state']} | Target POIs: {target_attractions} (Already saved: {already_generated}, Remaining: {remaining_target} in {needed_batches} batches)")
+        print(f"  State: {city['state']} | Target POIs (ceiling): {target_attractions} (Already saved: {already_generated}, Remaining ceil: {remaining_target} in ~{needed_batches} batches)")
 
         city_batch_generated = 0
+        short_batch_streak = 0  # track consecutive short returns to detect city exhaustion
 
         for batch_idx in range(needed_batches):
             attractions_in_batch = min(batch_size, remaining_target - city_batch_generated)
@@ -191,22 +197,25 @@ def run_pipeline(
             )
             estimated_tokens = 2500 + (attractions_in_batch * 200)
 
-            # Proactive DAILY QUOTA handling: RPD exhaustion triggers model step-down, NOT 24h sleep
-            # Fires on internal tracking regardless of API 429. Reactive path below handles API-triggered quota.
-            if rate_limiter.get_current_rpd() >= rate_limiter.max_rpd:
-                pre_model = model_manager.get_active_model()
+            # Proactive per-model DAILY QUOTA handling: only step down when *active model*'s own RPD is hit
+            # lite models allow 500, gemma 14000, standard 20 — not global 20
+            active_model = model_manager.get_active_model()
+            lim = rate_limiter.get_limiter(active_model)
+            if rate_limiter.is_rpd_exhausted(active_model):
+                pre_model = active_model
                 next_m = model_manager.handle_rate_limit(pre_model, is_daily_quota=True)
-                print(f"[Pipeline] Proactive RPD limit hit ({rate_limiter.get_current_rpd()}/{rate_limiter.max_rpd} in 24h). Stepping down {pre_model} -> {next_m} instead of waiting 24h", flush=True)
+                print(f"[Pipeline] Proactive RPD limit hit for {pre_model} ({lim.get_current_rpd()}/{lim.max_rpd} in 24h). Stepping down {pre_model} -> {next_m} instead of waiting 24h", flush=True)
+                active_model = next_m
 
-            # Proactive minute-limit delay check (RPM/TPM only — 60s wait, never 24h)
-            rate_limiter.wait_if_needed(estimated_tokens=estimated_tokens, verbose=True)
+            # Proactive minute-limit delay check per-model (RPM/TPM only — 60s wait, gemma 30 RPM / 16k TPM)
+            rate_limiter.wait_if_needed(active_model, estimated_tokens=estimated_tokens, verbose=True)
 
             active_model = model_manager.get_active_model()
             valid_batch = []
 
             if dry_run:
                 records, tokens_used = mock_generate_attractions(city, attractions_in_batch, offset=len(existing_city_names))
-                rate_limiter.record_request(tokens_used)
+                rate_limiter.record_request(active_model, tokens_used)
                 model_manager.record_success(active_model)
                 valid_batch = records
                 print(f"  Batch {batch_idx+1}/{needed_batches}: Generated {len(valid_batch)} mock POIs using {active_model} ({tokens_used} tokens)", flush=True)
@@ -218,11 +227,13 @@ def run_pipeline(
 
                 while not success and attempts < max_attempts:
                     attempts += 1
-                    # Proactive daily quota check inside retry loop — step down even between attempts
-                    if rate_limiter.get_current_rpd() >= rate_limiter.max_rpd:
-                        pre = model_manager.get_active_model()
+                    # Proactive per-model daily quota check inside retry loop
+                    probe_model = model_manager.get_active_model()
+                    if rate_limiter.is_rpd_exhausted(probe_model):
+                        lim_probe = rate_limiter.get_limiter(probe_model)
+                        pre = probe_model
                         nxt = model_manager.handle_rate_limit(pre, is_daily_quota=True)
-                        print(f"    [Retry] Proactive RPD hit ({rate_limiter.get_current_rpd()}/{rate_limiter.max_rpd}). {pre} -> {nxt}", flush=True)
+                        print(f"    [Retry] Proactive RPD hit for {pre} ({lim_probe.get_current_rpd()}/{lim_probe.max_rpd}). {pre} -> {nxt}", flush=True)
                     active_model = model_manager.get_active_model()
 
                     try:
@@ -234,7 +245,7 @@ def run_pipeline(
                             system_instruction=system_instruction
                         )
 
-                        rate_limiter.record_request(tokens_used)
+                        rate_limiter.record_request(active_model, tokens_used)
                         model_manager.record_success(active_model)
 
                         parsed = extract_json_from_response(response_text)
@@ -276,6 +287,7 @@ def run_pipeline(
                         time.sleep(3)
 
             # IMMEDIATE BATCHWISE PERSISTENCE: Save into output file as soon as batch completes!
+            # Accept short batches — LLM may return < requested when quality gate triggers
             if valid_batch:
                 total_attractions = writer.append_city_attractions(city_id, valid_batch)
                 city_batch_generated += len(valid_batch)
@@ -292,9 +304,27 @@ def run_pipeline(
                     total_attractions=total_attractions,
                     metrics=metrics
                 )
-                print(f"    --> BATCH PERSISTED: Appended {len(valid_batch)} POIs to {writer.json_path}. Checkpoint updated.", flush=True)
+                print(f"    --> BATCH PERSISTED: Appended {len(valid_batch)} POIs (requested {attractions_in_batch}) to {writer.json_path}. Checkpoint updated.", flush=True)
 
-        # Mark city as fully completed when all batches finish
+            # Short-batch / empty-array handling: LLM signals no more high-quality POIs
+            if len(valid_batch) == 0:
+                if city_batch_generated > 0:
+                    print(f"    [Pipeline] LLM returned [] for {city_id} (batch {batch_idx+1}) — no more high-quality POIs. Marking city complete early.", flush=True)
+                    break
+                else:
+                    # First batch empty — treat as transient, but don't loop forever
+                    print(f"    [Pipeline] Warning: first batch empty for {city_id} — skipping city.", flush=True)
+                    break
+            elif len(valid_batch) < attractions_in_batch:
+                short_batch_streak += 1
+                print(f"    [Pipeline] Short batch: got {len(valid_batch)}/{attractions_in_batch} (streak {short_batch_streak}/2)", flush=True)
+                if short_batch_streak >= 2:
+                    print(f"    [Pipeline] 2 consecutive short batches for {city_id} — quality ceiling reached. Stopping.", flush=True)
+                    break
+            else:
+                short_batch_streak = 0  # full batch resets streak
+
+        # Mark city as fully completed when all batches finish (or early break due to quality ceiling)
         completed_cities.add(city_id)
         writer.save_checkpoint(
             completed_city_ids=list(completed_cities),
