@@ -5,14 +5,16 @@ Guarantees exact city_id alignment with Dataset 1 contract in docs/DATASET.md.
 
 import csv
 import os
+import zlib
 from typing import Dict, List, Any
 
 
 def calculate_target_attractions(city_row: Dict[str, str]) -> int:
     """
-    Calculate target attraction count (50-80) based on recommended_days_max
-    and tourism_popularity.
+    Deterministically calculate target attraction count (50-80) based on
+    recommended_days_max, tourism_popularity, and a stable CRC32 seed.
     """
+    city_id = city_row.get("city_id", "").strip().lower()
     try:
         max_days = int(city_row.get("recommended_days_max", 2))
     except ValueError:
@@ -20,12 +22,15 @@ def calculate_target_attractions(city_row: Dict[str, str]) -> int:
 
     popularity = city_row.get("tourism_popularity", "Moderate").strip().lower()
 
+    # Stable 100% deterministic hash integer based on city_id string
+    stable_hash = zlib.crc32(city_id.encode("utf-8"))
+
     if max_days >= 5 or popularity == "very high":
-        target = 75 + (hash(city_row.get("city_id", "")) % 6)  # 75 - 80
+        target = 75 + (stable_hash % 6)  # Exactly 75 to 80
     elif max_days >= 3 or popularity == "high":
-        target = 63 + (hash(city_row.get("city_id", "")) % 8)  # 63 - 70
+        target = 63 + (stable_hash % 8)  # Exactly 63 to 70
     else:
-        target = 50 + (hash(city_row.get("city_id", "")) % 10)  # 50 - 59
+        target = 50 + (stable_hash % 10) # Exactly 50 to 59
 
     return min(80, max(50, target))
 
@@ -35,7 +40,6 @@ def load_cities(csv_path: str = "data/city.csv") -> List[Dict[str, Any]]:
     Load city records from CSV and return structured dicts with exact city_ids.
     """
     if not os.path.isabs(csv_path):
-        # Resolve path relative to project root if needed
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         candidate = os.path.join(base_dir, csv_path)
         if os.path.exists(candidate):
@@ -81,5 +85,5 @@ def load_cities(csv_path: str = "data/city.csv") -> List[Dict[str, Any]]:
 if __name__ == "__main__":
     loaded = load_cities()
     print(f"Loaded {len(loaded)} canonical cities from city.csv.")
-    if loaded:
-        print(f"Sample city: {loaded[0]['city_id']} -> target attractions: {loaded[0]['target_attractions']}")
+    for c in loaded[:5]:
+        print(f"  {c['city_id']}: target POIs = {c['target_attractions']}")
