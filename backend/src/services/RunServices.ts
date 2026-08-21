@@ -4,7 +4,8 @@ import { WorkflowStates } from "../structures/enums";
 import { ServiceResult } from "../structures/types";
 
 export async function runCancelService(
-    data: RunCancelMessage
+    data: RunCancelMessage,
+    emit: (res: ServiceResult) => void
 ): Promise<ServiceResult[]> {
     const res: ServiceResult[] = []
 

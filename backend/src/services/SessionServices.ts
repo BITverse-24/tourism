@@ -1,7 +1,7 @@
 import { Socket } from "socket.io";
 import { createDiscoveryAnswerMessage } from "../factory/Command";
 import { createProfileSnapshotMessage, createSessionExpiredMessage, createSessionReadyMessage } from "../factory/Event";
-import { getNewRunId, getNewSessionId, getSessionCheckpoint, getSessionProfile, getValidSessionIds, moveSessionIdToExpired, setSocketForSession, setWorkflowState, unsetSocketForSession } from "../models/data";
+import { getNewRunId, getNewSessionId, getSessionCheckpoint, getSessionProfile, getValidSessionIds, moveSessionIdToExpired, setSocketIdForSession, setWorkflowState, unsetSocketIdForSession } from "../models/data";
 import { generateUUID } from "../modules/util";
 import { SessionCloseMessage, SessionStartMessage } from "../structures/CommandMessage";
 import { Events, WorkflowStates } from "../structures/enums";
@@ -12,8 +12,9 @@ import { discoveryAnswerService, newDiscoveryQuestionService } from "./Discovery
 import { nextSequence } from "./StateServices";
 
 export async function sessionStartService(
-    socket: Socket,
+    emit: (res: ServiceResult) => void,
     data: SessionStartMessage | NewSessionMessage,
+    socketid: string,
     isNewSessMsg: boolean,
 ): Promise<ServiceResult[]>  {
     const res: ServiceResult[] = []
@@ -38,25 +39,25 @@ export async function sessionStartService(
             }
         })
 
-        await setSocketForSession(newSessionId, socket)
+        await setSocketIdForSession(newSessionId, socketid)
 
-        res.push({event: Events.SESSION_READY, data: sessReadyMsg})
+        const sessionReadyRes = {event: Events.SESSION_READY, data: sessReadyMsg}
+        emit(sessionReadyRes)
 
         setWorkflowState(newSessionId, WorkflowStates.DISCOVERY)
 
-        res.concat(
-            await newDiscoveryQuestionService(
-                newSessionId,
-                newRunId,
-                data.command_id
-            )
+        await newDiscoveryQuestionService(
+            emit,
+            newSessionId,
+            newRunId,
+            data.command_id,
         )
 
     }
 
     else if ("session_id" in data) {
 
-        await setSocketForSession(data.session_id, socket)
+        await setSocketIdForSession(data.session_id, socketid)
         const newRunId = await getNewRunId(data.session_id)
         const checkpoint = await getSessionCheckpoint(data.session_id)
         if (checkpoint) {
@@ -76,7 +77,9 @@ export async function sessionStartService(
                     confirmed_profile_revision: checkpoint.latest_confirmed,
                 }
             })
-            res.push({ event: Events.SESSION_READY, data: sessReadyMsg })
+            const sessionReadyRes = { event: Events.SESSION_READY, data: sessReadyMsg }
+            emit(sessionReadyRes)
+
 
             for (let snapshot of checkpoint.profile_snapshots) {
                 const profSnapMsg: ProfileSnapshotMessage = createProfileSnapshotMessage({
@@ -88,18 +91,17 @@ export async function sessionStartService(
                     sequence: await nextSequence(data.session_id),
                     payload: snapshot
                 })
-                res.push({ event: Events.PROFILE_SNAPSHOT, data: profSnapMsg })
+                emit({ event: Events.PROFILE_SNAPSHOT, data: profSnapMsg })
             }
 
             // do checkpoint next service
             if (checkpoint.workflow_state === WorkflowStates.DISCOVERY) {
-                res.concat(
-                    await newDiscoveryQuestionService(
-                        data.session_id,
-                        newRunId,
-                        data.command_id,
-                        checkpoint.profile_snapshots[checkpoint.profile_snapshots.length-1].profile
-                    )
+                await newDiscoveryQuestionService(
+                    emit,
+                    data.session_id,
+                    newRunId,
+                    data.command_id,
+                    checkpoint.profile_snapshots[checkpoint.profile_snapshots.length - 1].profile,
                 )
             }
             // if (checkpoint.workflow_state === WorkflowStates.DECISION_REQUIRED) {
@@ -127,14 +129,13 @@ export async function sessionStartService(
                 }
             })
 
-            res.push({ event: Events.SESSION_READY, data: sessReadyMsg })
+            emit({ event: Events.SESSION_READY, data: sessReadyMsg })
 
-            res.concat(
-                await newDiscoveryQuestionService(
-                    data.session_id,
-                    newRunId,
-                    data.command_id
-                )
+            await newDiscoveryQuestionService(
+                emit,
+                data.session_id,
+                newRunId,
+                data.command_id,
             )
             await setWorkflowState(data.session_id, WorkflowStates.DISCOVERY)
         }
@@ -143,11 +144,15 @@ export async function sessionStartService(
     return res;
 }
 
-export async function sessionCloseService(data: SessionCloseMessage): Promise<ServiceResult[]> {
+export async function sessionCloseService(
+    emit: (res: ServiceResult) => void,
+    data: SessionCloseMessage,
+): Promise<ServiceResult[]> {
     const res: ServiceResult[] = []
 
     await moveSessionIdToExpired(data.session_id)
     await setWorkflowState(data.session_id, WorkflowStates.EXPIRED)
+    await unsetSocketIdForSession(data.session_id)
     const sessExpiredMsg = createSessionExpiredMessage({
         message_id: `msg_${generateUUID()}`,
         session_id: data.session_id,
@@ -160,7 +165,7 @@ export async function sessionCloseService(data: SessionCloseMessage): Promise<Se
             can_start_new_session: true
         }
     })
-    res.push({ event: Events.SESSION_EXPIRED, data: sessExpiredMsg })
+    emit({ event: Events.SESSION_EXPIRED, data: sessExpiredMsg })
 
     return res;
 }

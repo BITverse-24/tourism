@@ -28,8 +28,11 @@ export async function runCancelHandler(socket: Socket, data: RunCancelMessage) {
     })
     socket.emit(Acks.COMMAND_ACCEPTED, ackmsg)
 
-    const reses: ServiceResult[] = await runCancelService(data)
+    const reses: ServiceResult[] = await runCancelService(
+        data,
+        (res: ServiceResult) => socket.emit(res.event, res.data)
+    )
 
-    for (let res of reses)
-        socket.emit(res.event, res.data);
+    // for (let res of reses)
+    //     socket.emit(res.event, res.data);
 }

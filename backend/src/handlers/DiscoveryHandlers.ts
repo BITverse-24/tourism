@@ -32,7 +32,10 @@ export async function discoveryAnswerHandler(socket: Socket, data: DiscoveryAnsw
     })
     socket.emit(Acks.COMMAND_ACCEPTED, ackmsg)
 
-    const reses: ServiceResult[] = await discoveryAnswerService(data)
+    const reses: ServiceResult[] = await discoveryAnswerService(
+        (res: ServiceResult) => socket.emit(res.event, res.data),
+        data
+    )
 
     for (let res of reses)
         socket.emit(res.event, res.data);

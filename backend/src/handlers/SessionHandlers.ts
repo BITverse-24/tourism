@@ -10,6 +10,7 @@ import { checkBaseCommandRejections } from './BaseValidation';
 import { NewSessionMessageSchema } from '../structures/NewSessionMessage';
 import { createCommandAcceptedMessage } from '../factory/Ack';
 import { generateUUID } from '../modules/util';
+import { MessageEnvelope } from '../structures/MessageEnvelope';
 
 export async function sessionStartHandler(socket: Socket, data: SessionStartMessage) {
     logger.debug('recieved session.start', { socketid: socket.id, data: data });
@@ -34,10 +35,15 @@ export async function sessionStartHandler(socket: Socket, data: SessionStartMess
     })
     socket.emit(Acks.COMMAND_ACCEPTED, ackmsg)
 
-    const reses: ServiceResult[] = await sessionStartService(socket, data, isNewSessionMsg)
+    const reses: ServiceResult[] = await sessionStartService(
+        (res: ServiceResult) => socket.emit(res.event, res.data),
+        data,
+        socket.id,
+        isNewSessionMsg,
+    )
 
-    for (let res of reses)
-        socket.emit(res.event, res.data);
+    // for (let res of reses)
+    //     socket.emit(res.event, res.data);
 }
 
 export async function sessionCloseHandler(socket: Socket, data: SessionCloseMessage) {
@@ -57,8 +63,11 @@ export async function sessionCloseHandler(socket: Socket, data: SessionCloseMess
     })
     socket.emit(Acks.COMMAND_ACCEPTED, ackmsg)
 
-    const reses: ServiceResult[] = await sessionCloseService(data)
+    const reses: ServiceResult[] = await sessionCloseService(
+        (res: ServiceResult) => socket.emit(res.event, res.data),
+        data,
+    )
 
-    for (let res of reses)
-        socket.emit(res.event, res.data);
+    // for (let res of reses)
+    //     socket.emit(res.event, res.data);
 }

@@ -17,7 +17,8 @@ import { askUserDecisionTool } from "../agent_tools/CandidateDecision";
 import { NarrativeInput, NarrativeOptions, NarrativeResult, processNarrative } from "../../../ai/narrative";
 
 export async function profileConfirmService(
-    data: ProfileConfirmMessage
+    emit: (res: ServiceResult) => void,
+    data: ProfileConfirmMessage,
 ): Promise<ServiceResult[]> {
     const res: ServiceResult[] = []
 
@@ -46,7 +47,7 @@ export async function profileConfirmService(
         sequence: await nextSequence(data.session_id),
         payload: snapshot
     })
-    res.push({ event: Events.PROFILE_SNAPSHOT, data: profSnapMsg })
+    emit({ event: Events.PROFILE_SNAPSHOT, data: profSnapMsg })
 
     // set workflow to planning
     setWorkflowState(data.session_id, WorkflowStates.PLANNING)
@@ -123,14 +124,15 @@ export async function profileConfirmService(
             plan: narrativeRes.plan
         }
     })
-    res.push({ event: Events.PLAN_SNAPSHOT, data: planSnapMsg })
+    emit({ event: Events.PLAN_SNAPSHOT, data: planSnapMsg })
 
 
     return res
 }
 
 export async function profileRequestChangesService(
-    data: ProfileRequestChangesMessage
+    emit: (res: ServiceResult) => void,
+    data: ProfileRequestChangesMessage,
 ): Promise<ServiceResult[]> {
     const res: ServiceResult[] = []
 
@@ -148,19 +150,18 @@ export async function profileRequestChangesService(
         };
 
     await addDiscoveryQuestion(data.run_id, question)
-    res.concat(
-        await newDiscoveryQuestionService(
-            data.session_id,
-            data.run_id,
-            data.command_id,
-            await getSessionProfile(data.session_id),
-            {
-                question_id: `req-change_${data.command_id}`,
-                question: question,
-                selected_option_ids: [],
-                free_text: data.payload.free_text,
-            }
-        )
+    await newDiscoveryQuestionService(
+        emit,
+        data.session_id,
+        data.run_id,
+        data.command_id,
+        await getSessionProfile(data.session_id),
+        {
+            question_id: `req-change_${data.command_id}`,
+            question: question,
+            selected_option_ids: [],
+            free_text: data.payload.free_text,
+        },
     )
 
     return res

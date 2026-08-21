@@ -34,10 +34,13 @@ export async function profileConfirmHandler(socket: Socket, data: ProfileConfirm
     })
     socket.emit(Acks.COMMAND_ACCEPTED, ackmsg)
 
-    const reses: ServiceResult[] = await profileConfirmService(data)
+    const reses: ServiceResult[] = await profileConfirmService(
+        (res: ServiceResult) => socket.emit(res.event, res.data),
+        data,
+    )
 
-    for (let res of reses)
-        socket.emit(res.event, res.data);
+    // for (let res of reses)
+    //     socket.emit(res.event, res.data);
 }
 
 export async function profileRequestChangesHandler(
@@ -61,8 +64,11 @@ export async function profileRequestChangesHandler(
     })
     socket.emit(Acks.COMMAND_ACCEPTED, ackmsg)
 
-    const reses: ServiceResult[] = await profileRequestChangesService(data)
+    const reses: ServiceResult[] = await profileRequestChangesService(
+        (res: ServiceResult) => socket.emit(res.event, res.data),
+        data,
+    )
 
-    for (let res of reses)
-        socket.emit(res.event, res.data);
+    // for (let res of reses)
+    //     socket.emit(res.event, res.data);
 }

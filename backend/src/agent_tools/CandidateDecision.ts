@@ -1,6 +1,6 @@
 import { Socket } from "socket.io";
 import { AskUserDecisionRequest } from "../../../ai/candidate-design";
-import { getCurrentRunIdForSession, getSocketForSession } from "../models/data";
+import { getCurrentRunIdForSession, getSocketById, getSocketIdForSession } from "../models/data";
 import { Commands, Events } from "../structures/enums";
 import { DecisionRequestMessage } from "../structures/EventMessage";
 import { createDecisionRequestMessage } from "../factory/Event";
@@ -11,7 +11,8 @@ import { DecisionRespondMessage } from "../structures/CommandMessage";
 export async function askUserDecisionTool(
         request: AskUserDecisionRequest
 ): Promise<string> {
-    const sock: Socket = await getSocketForSession(request.session_id!)
+    const sockid: string = await getSocketIdForSession(request.session_id!)
+    const sock: Socket = await getSocketById(sockid)
     const run_id = await getCurrentRunIdForSession(request.session_id!);
     const seq = await nextSequence(run_id);
 

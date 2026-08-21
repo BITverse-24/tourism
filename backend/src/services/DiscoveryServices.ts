@@ -10,6 +10,7 @@ import { currentWorkflowState, nextSequence } from "./StateServices";
 import { AppConfig, loadConfig } from "../app/config";
 
 export async function discoveryAnswerService(
+    emit: (res: ServiceResult) => void,
     data: DiscoveryAnswerMessage
 ): Promise<ServiceResult[]> {
     const res: ServiceResult[] = []
@@ -72,7 +73,7 @@ export async function discoveryAnswerService(
         sequence: await nextSequence(data.session_id),
         payload: snapshot
     })
-    res.push({ event: Events.PROFILE_SNAPSHOT, data: profSnapMsg })
+    emit({ event: Events.PROFILE_SNAPSHOT, data: profSnapMsg })
 
     // if all questions are done, set workflow to profile_review
     if (discoveryRes.finished) {
@@ -89,7 +90,7 @@ export async function discoveryAnswerService(
                 blocking_unknowns: []
             }
         })
-        res.push({ event: Events.PROFILE_READY, data: profReadyMsg })
+        emit({ event: Events.PROFILE_READY, data: profReadyMsg })
     }
     // else add discovery.question msg to res
     else if (discoveryRes.next_question) {
@@ -104,7 +105,7 @@ export async function discoveryAnswerService(
                 sequence: await nextSequence(data.session_id),
                 payload: discoveryRes.next_question
             })
-        res.push({event: Events.DISCOVERY_QUESTION, data: discoveryQuestionMsg})
+        emit({event: Events.DISCOVERY_QUESTION, data: discoveryQuestionMsg})
     }
 
     checkpoint.workflow_state = await currentWorkflowState(data.session_id)
@@ -113,6 +114,7 @@ export async function discoveryAnswerService(
 }
 
 export async function newDiscoveryQuestionService(
+    emit: (res: ServiceResult) => void,
     session_id: string,
     run_id: string,
     command_id: string,
@@ -172,7 +174,7 @@ export async function newDiscoveryQuestionService(
         sequence: await nextSequence(session_id),
         payload: snapshot
     })
-    res.push({ event: Events.PROFILE_SNAPSHOT, data: profSnapMsg })
+    emit({ event: Events.PROFILE_SNAPSHOT, data: profSnapMsg })
 
     // if all questions are done, set workflow to profile_review
     if (discoveryRes.finished) {
@@ -189,7 +191,7 @@ export async function newDiscoveryQuestionService(
                 blocking_unknowns: []
             }
         })
-        res.push({ event: Events.PROFILE_READY, data: profReadyMsg })
+        emit({ event: Events.PROFILE_READY, data: profReadyMsg })
     }
     // else add discovery.question msg to res
     else if (discoveryRes.next_question) {
@@ -204,7 +206,7 @@ export async function newDiscoveryQuestionService(
                 sequence: await nextSequence(session_id),
                 payload: discoveryRes.next_question
             })
-        res.push({event: Events.DISCOVERY_QUESTION, data: discoveryQuestionMsg})
+        emit({event: Events.DISCOVERY_QUESTION, data: discoveryQuestionMsg})
     }
 
     return res

@@ -6,9 +6,11 @@ import { decisionEvents } from '../events/DecisionEvents';
 import { discoveryEvents } from '../events/DiscoveryEvents';
 import { replanEvents } from '../events/ReplanEvents';
 import { sessionEvents } from '../events/SessionEvents';
+import { registerSocket } from '../models/data';
 
-export function onConnect(socket: Socket) {
+export async function onConnect(socket: Socket) {
     logger.debug('socket connected', { socketid: socket.id });
+    await registerSocket(socket)
     sessionEvents(socket)
     runEvents(socket)
     profileEvents(socket)

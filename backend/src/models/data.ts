@@ -31,7 +31,10 @@ const DiscoveryQuestions: Record<string, DiscoveryQuestion[]> = {
 const SequenceNumbers: Record<string, number> = {
 }
 
-const SessionSockets: Record<string, Socket> = {
+const SessionSocketIds: Record<string, string> = {
+}
+
+const SocketIdtoSocket: Record<string, Socket> = {
 }
 
 
@@ -39,14 +42,23 @@ const SessionSockets: Record<string, Socket> = {
 
 
 
-export async function getSocketForSession(session_id: string): Promise<Socket> {
-    return sessionStorage[session_id]
+export async function registerSocket(socket: Socket) {
+    SocketIdtoSocket[socket.id] = socket
 }
-export async function setSocketForSession(session_id: string, socket: Socket) {
-    sessionStorage[session_id] = socket
+export async function getSocketById(socketid: string): Promise<Socket> {
+    return SocketIdtoSocket[socketid]
 }
-export async function unsetSocketForSession(session_id: string) {
-    delete sessionStorage[session_id]
+
+
+
+export async function getSocketIdForSession(session_id: string): Promise<string> {
+    return SessionSocketIds[session_id]
+}
+export async function setSocketIdForSession(session_id: string, socketid: string) {
+    SessionSocketIds[session_id] = socketid
+}
+export async function unsetSocketIdForSession(session_id: string) {
+    delete SessionSocketIds[session_id]
 }
 
 
