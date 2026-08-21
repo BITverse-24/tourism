@@ -111,3 +111,56 @@ Accurate count ensures 5–15 interview length is enforced from the first turn, 
 - Backend count fix: single reorder in `SessionServices.ts`, no API change.
 - AI fallback fix: small error-handling change in `ai/discovery.ts`; no prompt/schema change.
 
+
+---
+
+# Proposals — Consultation timeout + silent planning failure (2026-08-22)
+
+## Selected writable directory for this task
+`backend/` — all changes below outside `backend/` are proposals only, not applied.
+
+## Target 1 — Frontend consultation idle timeout
+`frontend/src/screens/Consultation.tsx:402-419`
+
+**Issue:** Consultation arms a 12s idle timer (`if (diff>=12000) setTimedOut(true)`) that resets only on `envelope.sequence` or `agent.lifecycle`/`planning.status`/`decision.request`. `backend/src/services/ProfileServices.ts` previously emitted only one `workflow.state` then blocked 20-40s inside `await processCandidateDesign()` + `await processNarrative()` with zero interim events, so frontend deterministically shows “Consultation paused. You can try again.” even when backend is healthy. User report for Mumbai 5-day family trip (rev 14 → 15) hit this exactly.
+
+**Evidence:** Frontend snippet `frontend/src/screens/Consultation.tsx:402` + `useLiveConsultation` at `168`; backend `ProfileServices.ts:52-69` emitted `workflow.state=planning` and no `planning.status` heartbeat before fix.
+
+**Suggested change (for frontend owner):**
+- Increase timeout from 12s to 45-60s, OR make it conditional: while `connected && workflow_state==='planning'` suppress timeout / show “Consulting — …” without Try Again.
+- Alternatively consume `planning.status` heartbeats (now emitted by backend every 4s) as reset source — already wired to `liveLastSeq` via `envelope.sequence`.
+
+**Reason:** `agent_timeout_ms` is 120s (`backend/src/app/config.ts:14`); 12s < LLM tool-loop is a guaranteed false timeout.
+
+**Impact:** Frontend-only.
+
+## Target 2 — AI candidate-design attraction grounding
+`ai/candidate-design.ts:1166-1174`
+
+**Issue:** `executeTool` for `query_attractions` increments `retrieved_rows` but the lines that populate `state.known_attractions` are commented out:
+```ts
+// for (const attraction of result.attractions) { validateAttractionRecord(...); state.known_attractions.set(...) }
+```
+`get_attractions_by_ids` correctly populates the map, but the cheap `query_attractions` path (used by Agent 2 for Mumbai `SELECT ... WHERE city_id='mumbai_maharashtra' LIMIT 30`) never registers attractions. Legacy `ask_user_decision` check at `ai/candidate-design.ts:90` then always returns `{code:"unknown_attraction"}` and `validateCandidate` cannot enforce grounding.
+
+**Suggested change (for ai owner):**
+Uncomment/populate:
+```ts
+for (const attraction of result.attractions) { validateAttractionRecord(attraction, (attraction as any).city_id ?? cityId); state.known_attractions.set(attraction.attraction_id, attraction as any); }
+```
+Validate against `attraction.city_id` from row (query may already filter by city_id).
+
+**Reason:** Without this, trade-off tool is broken for the common retrieval path.
+
+**Impact:** `ai/` only; backend change in `backend/src/services/ProfileServices.ts` now also forwards real `dataset_revisions` from `CandidateDesignResult` instead of hardcoded `{city:"HUH", attraction:"HUUH"}`.
+
+## Target 3 — Frontend decision vs. heartbeat interaction
+`frontend/src/screens/Consultation.tsx:405` already disables timeout during `isDecisionRequired || isResuming` — no change needed, but verify heartbeat does not overwrite decision_required state.
+
+## What was fixed in `backend/` this task
+`backend/src/services/ProfileServices.ts`:
+- emits initial `planning.status` (RUNNING, DESTINATION_DESIGN, progress 10) immediately after `workflow.state=planning` to reset consultation timer;
+- starts 4s heartbeat emitting `planning.status` (RUNNING) for DESTINATION_DESIGN then EXPLANATION phases;
+- wraps `processCandidateDesign` + `processNarrative` in try/catch; on error emits `planning.status` FAILED + `error` event (`code: planning_failed`, `retryable:true`) and logs via `serializeError` instead of bubbling as `unhandledRejection` which previously killed server per `backend/src/app/Server.ts:104`;
+- emits COMPLETED `planning.status` and forwards real `dataset_revisions` on success.
+
