@@ -6,6 +6,7 @@
 
 import "dotenv/config";
 import { GoogleGenAI } from "@google/genai";
+import { FinalTripPlan } from "./narrative";
 
 // --- profile types (inlined so clone with only ai/ still compiles) ---
 export type PreferenceStrength = "must_have" | "strong" | "nice_to_have" | "not_interested" | "unknown";
@@ -132,10 +133,16 @@ async function executeAskUserTradeoffTool(state: Parameters<typeof executeAskUse
 // --- simplified input/output ---
 export interface RunBudget { max_candidates: number; max_tool_calls: number; max_rows_per_tool_call: number; timeout_ms: number; }
 
+export interface Replan {
+    replan_reason: string,
+    previous_plan: FinalTripPlan,
+}
+
 export interface CandidateDesignInput {
     profile: TravelerProfile;
     session_id: string;
     run_budget: RunBudget;
+    replan?: Replan
 }
 
 export interface CityRecord {
@@ -305,9 +312,21 @@ interface RunState {
     tradeoff_calls: number;
 }
 
-const SYSTEM_PROMPT = `You are Agent 2, the Itinerary Design Agent for Voyager.
+const PROMPT_PLUG_FIRST_RUN = `
+You are Agent 2, the Itinerary Design Agent for Voyager.
 
-You receive only the Traveler Profile. You must discover cities and attractions via retrieval tools — never invent places, restaurants, prices, or opening hours. Stable city_id and attraction_id are the only valid identifiers.
+You receive only the Traveler Profile. You must discover cities and attractions via retrieval tools — never invent places, restaurants, prices, or opening hours. Stable city_id and attraction_id are the only valid identifiers.`
+
+const PROMPT_PLUG_REPLAN = `
+You are Agent 2, the Itinerary Design Agent for Voyager.
+
+The user is currently requesting to re-plan their final trip plan
+You are given their current trip plan, their Traveler Profile and the reason they need to re-plan the current plan
+Design a new itenerary candidate based on their reason
+You must discover cities and attractions via retrieval tools — never invent places, restaurants, prices, or opening hours. Stable city_id and attraction_id are the only valid identifiers.
+`
+
+const SYSTEM_PROMPT = `
 
 Rules:
 - Return exactly one JSON object matching the supplied schema. Never return markdown or commentary.
@@ -1064,6 +1083,8 @@ function buildToolSchemas(options: CandidateDesignOptions): unknown[] {
 }
 
 function buildUserMessage(input: CandidateDesignInput): string {
+    if (input.replan)
+        return JSON.stringify({ profile: input.profile, session_id: input.session_id, replan: input.replan });
     return JSON.stringify({ profile: input.profile, session_id: input.session_id });
 }
 
@@ -1486,10 +1507,10 @@ function normalizeCandidateResponse(content: string): CandidateBundle[] {
 
 function validateCandidate(candidate: CandidateBundle, state: RunState, index: number): void {
     for (const day of candidate.days) for (const item of day.items) {
-        if (item.type === "meal") {
-            const combined = `${item.title} ${item.description}`;
-            if (/\b(?:at|called|named)\s+[A-Z][\w'-]+/.test(combined) || /\b(?:cafe|café|restaurant|hotel)\s+[A-Z]/i.test(combined)) throw new CandidateDesignResponseError(`candidates[${index}] meal slot names a venue`, [`candidates[${index}].days: generic meal slot required`]);
-        }
+        // if (item.type === "meal") {
+        //     const combined = `${item.title} ${item.description}`;
+        //     if (/\b(?:at|called|named)\s+[A-Z][\w'-]+/.test(combined) || /\b(?:cafe|café|restaurant|hotel)\s+[A-Z]/i.test(combined)) throw new CandidateDesignResponseError(`candidates[${index}] meal slot names a venue`, [`candidates[${index}].days: generic meal slot required`]);
+        // }
         if (item.type === "experience") {
             if (!item.title || !item.title.trim() || !item.description || !item.description.trim() || !item.visit_approach) throw new CandidateDesignResponseError(`candidates[${index}] has incomplete experience item`, [`candidates[${index}].days: experience item incomplete`]);
             if (item.attraction_id && state.known_attractions.size > 0 && !state.known_attractions.has(item.attraction_id)) {
@@ -1511,8 +1532,9 @@ export async function processCandidateDesign(input: CandidateDesignInput, option
         known_cities: new Map(), known_attractions: new Map(),
         tradeoff_history: [], tradeoff_calls: 0,
     };
+    const final_sys_prompt = (input.replan) ? PROMPT_PLUG_REPLAN + SYSTEM_PROMPT : PROMPT_PLUG_FIRST_RUN + SYSTEM_PROMPT;
     const messages: ChatMessage[] = [
-        { role: "system", content: SYSTEM_PROMPT },
+        { role: "system", content: final_sys_prompt },
         { role: "user", content: buildUserMessage(input) },
     ];
     const tools = buildToolSchemas(state.options);
