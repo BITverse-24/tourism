@@ -6,8 +6,8 @@ import { getCity, searchCities } from "./agent_tools/CityKnowledgebaseTools";
 import { mockprof, profJSON } from "./mockprofile";
 import 'dotenv/config';
 
-const profile: TravelerProfile = profJSON
-// const profile: TravelerProfile = mockprof
+// const profile: TravelerProfile = profJSON
+const profile: TravelerProfile = mockprof
 
 const candinput: CandidateDesignInput = {
     profile: profile,
