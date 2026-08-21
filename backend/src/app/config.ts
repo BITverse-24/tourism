@@ -7,7 +7,7 @@ const envSchema = z.object({
     AGENT_API_KEY: z.string(),
     AGENT_MODEL: z.string(),
     AGENT_REASONING_EFFORT: z.enum(['low', 'medium', 'high']),
-    AGENT_API_URL: z.string(),
+    AGENT_API_URL: z.string().default(''),
     AGENT_TIMEOUT_MS: z.number().default(20_000),
     CITY_KNOWLEDGEBASE_CSV: z.string(),
     ATTRACTIONS_KNOWLEDGEBASE_SQLITE: z.string(),
