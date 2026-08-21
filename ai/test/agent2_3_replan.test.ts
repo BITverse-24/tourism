@@ -3,10 +3,11 @@ import { NarrativeInput, NarrativeOptions, processNarrative } from "../narrative
 import { getAttractionsByIds, queryAttractions } from "./agent_tools/AttractionKnowledgebaseTools";
 import { askUserDecisionTool } from "./agent_tools/CandidateDecision";
 import { getCity, searchCities } from "./agent_tools/CityKnowledgebaseTools";
-import { profJSON } from "./mockprofile";
+import { mockprof, profJSON } from "./mockprofile";
 import 'dotenv/config';
 
 const profile: TravelerProfile = profJSON
+// const profile: TravelerProfile = mockprof
 
 const candinput: CandidateDesignInput = {
     profile: profile,
@@ -27,22 +28,21 @@ const candtools: CandidateDesignTools = {
 const candopt: CandidateDesignOptions = {
     tools: candtools,
     api_key: process.env.AGENT_API_KEY,
-    model: 'gemini-3.5-flash-lite',
-    reasoning_effort: "medium",
+    // model: 'gemini-3.5-flash-lite',
+    reasoning_effort: "high",
     askUserDecision: askUserDecisionTool
 }
 
 const narratopt: NarrativeOptions = {
     api_key: process.env.AGENT_API_KEY,
-    model: 'gemini-3.5-flash-lite',
-    // reasoning_effort: "medium",
+    // model: 'gemini-3.5-flash-lite',
 }
 
 processCandidateDesign(
     candinput,
     candopt
 ).then((candbundl) => {
-    console.log("\n\nCandidate Bundle: " + JSON.stringify(candbundl))
+    console.log("\n\n(TIME:"+ new Date().toISOString() +")Candidate Bundle: " + JSON.stringify(candbundl))
 
     const cand = candbundl.candidates[0]
     const narratinput: NarrativeInput = {
@@ -59,7 +59,7 @@ processCandidateDesign(
         narratinput,
         narratopt
     ).then((narrresone) => {
-        console.log("\n\n Final Trip Plan: " + JSON.stringify(narrresone))
+        console.log("\n\n(TIME:"+ new Date().toISOString() +") Final Trip Plan: " + JSON.stringify(narrresone))
 
         const replcandinp: CandidateDesignInput = {
             profile: profile,
@@ -81,7 +81,7 @@ processCandidateDesign(
             candopt
         ).then((replcandbundl) => {
 
-            console.log("\n\nReplan Candidate Bundle: " + JSON.stringify(replcandbundl))
+            console.log("\n\n(TIME:"+ new Date().toISOString() +")Replan Candidate Bundle: " + JSON.stringify(replcandbundl))
 
             const cand = replcandbundl.candidates[0]
             const replnarratinput: NarrativeInput = {
@@ -98,7 +98,7 @@ processCandidateDesign(
                 replnarratinput,
                 narratopt
             ).then((narrrestwo) => {
-                console.log("\n\n Replanned Final Trip Plan: " + JSON.stringify(narrrestwo))
+                console.log("\n\n(TIME:"+ new Date().toISOString() +") Replanned Final Trip Plan: " + JSON.stringify(narrrestwo))
             })
         })
     })
