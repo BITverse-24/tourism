@@ -12,8 +12,9 @@ import { fileURLToPath } from "node:url";
 import { config as loadEnv } from "dotenv";
 import { GoogleGenAI } from "@google/genai";
 import * as z from "zod";
+import { DiscoveryAnsSelectionModes, DiscoveryFreeTextModes } from "../backend/src/structures/enums.js";
 
-loadEnv({ path: resolve(dirname(fileURLToPath(import.meta.url)), ".env") });
+loadEnv({ path: resolve(__dirname, ".env") });
 
 export type PreferenceStrength =
   | "must_have"
@@ -23,8 +24,8 @@ export type PreferenceStrength =
   | "unknown";
 
 export type InferenceConfidence = "high" | "medium" | "low";
-export type QuestionSelectionMode = "single" | "multiple";
-export type FreeTextMode = "disabled" | "optional" | "only_if_no_option" | "required";
+// export type QuestionSelectionMode = "single" | "multiple";
+// export type FreeTextMode = "disabled" | "optional" | "only_if_no_option" | "required";
 
 export interface Budget {
   amount: number | null;
@@ -113,10 +114,10 @@ export interface QuestionOption {
 export interface DiscoveryQuestion {
   question_id: string;
   prompt: string;
-  selection_mode: QuestionSelectionMode;
+  selection_mode: DiscoveryAnsSelectionModes;
   required: boolean;
   options: QuestionOption[];
-  free_text_mode: FreeTextMode;
+  free_text_mode: DiscoveryFreeTextModes;
   free_text_placeholder: string | null;
 }
 
@@ -759,7 +760,7 @@ const MAX_COMPLETION_TOKENS = 3_000;
 const MAX_RATE_LIMIT_RETRIES = 2;
 let responseLogSequence = 0;
 
-const DEFAULT_LOG_DIRECTORY = resolve(dirname(fileURLToPath(import.meta.url)), "logs");
+const DEFAULT_LOG_DIRECTORY = resolve(__dirname, "logs");
 
 export class DiscoveryConfigurationError extends Error {
   constructor(message: string) {

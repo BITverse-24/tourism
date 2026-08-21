@@ -1,0 +1,184 @@
+#+title: Backend - Tourism
+
+* env fields
+- AGENT_API_KEY                    - api key for google studio https://aistudio.google.com/api-keys (REQUIRED)
+- CITY_KNOWLEDGEBASE_CSV           - path to city knowledgebase csv (REQUIRED)
+- ATTRACTIONS_KNOWLEDGEBASE_SQLITE - path to sqlite db for attractions (REQUIRED)
+- AGENT_MODEL                      - model of llm [default: gemini-3.6-flash]
+- AGENT_REASONING_EFFORT           - reasoning effort of llm [default: medium]
+- HTTPPORT                         - port for http server [default: 3000]
+- WSPORT                           - port for ws server [default: 3001]
+and some more stuff internally defined with defaults that arent stuff to be set
+
+* run
+make sure to have .env file with required fields in the backend directory
+then do
+#+begin_src sh
+  npm i
+  npm run build
+  npm run start
+#+end_src
+* tests
+make sure to have .env file with required fields in the backend directory
+then do
+#+begin_src sh
+  npm i
+  npm run test
+#+end_src
+some tests may require the server to be running (with some specific ports too hardcoded in the test files)
+
+
+* Todo [7/8] [87%]
+1. [X] add agent 1 calls
+2. [X] add agent 2 calls
+3. [X] add agent 3 calls
+4. [X] profile request changes - give request topics to agent 1 somehow
+5. [X] profile confirm - revision number, blocking unknowns validation ---------- SKIPPING
+6. [X] discovery answer - question id, answer selection validation -------- SKIPPING
+7. [X] fix input to agent 2
+8. [ ] test everything
+9. [ ] fix sequence numbers lol
+
+* General flow with associated workflow states
+#+begin_src
+
+  -------------------------------------------------------
+  workflow_state: discovery/none
+  =======================================================
+
+  Client: emit session.start
+
+  |
+  v
+
+  Server:
+  if session_id not provided
+  -> new session, new run
+  -> emit discovery.question
+
+  if valid/existing session_id provided -> 
+  -> new run
+  -> use checkpoint to set workflow state and emit next action
+
+  if invalid/nonexistent session_id provided ->
+  -> session doesnotexist/expired ack/error?
+  -> dont do anything else
+  -------------------------------------------------------
+
+
+  -------------------------------------------------------
+  workflow_state: discovery
+  =======================================================
+
+  Server: emit discovery.question
+
+  |
+  v
+
+  Client: emit discovery.answer
+
+  |
+  v
+
+  Server:
+  if question_id is not current or answer invalid in some way:
+  -> send rejection ack
+
+  if valid msg:
+  -> agent do its work
+  -> save as checkpoint
+  -> get next question
+  -> emit discovery.question
+  -------------------------------------------------------
+
+  -------------------------------------------------------
+  workflow_state: profile_review
+  =======================================================
+
+  after required questions have been answered
+
+  Server: emit profile.ready
+
+  |
+  v
+
+  Server: emit profile.snapshot
+
+  |                          
+  v                          
+
+  Client: emit profile.confirm    (or)   Client: emit profile.request_changes
+
+                                         |
+                                         v
+                                         
+                                         Server: emit discovery.question
+  -------------------------------------------------------
+
+  -------------------------------------------------------
+  workflow_state: planning
+  =======================================================
+  Client: emit profile.confirm
+
+  |
+  v
+
+  Server:
+  save profile
+  do llm stuff for planning and optimization
+  somewhere in between send status updates?
+  if client decision required:
+  -> emit plan.snapshot with draft plan
+  -> emit decision.request
+  -------------------------------------------------------
+
+  -------------------------------------------------------
+  workflow_state: decision_required
+  =======================================================
+  Server: emit decision.request
+
+  |
+  v
+
+  Client: emit decision.response
+
+  |
+  v
+
+  Server:
+  if another decision required:
+  -> emit plan.snapshot with draft plan
+  -> emit decision.request
+
+  if all decisions made:
+  -> save final trip plan
+  -> emit plan.snapshot with final plan
+  -> emit profile.ready
+  -------------------------------------------------------
+
+  -------------------------------------------------------
+  workflow_state: cancelled
+  =======================================================
+  Client: emit run.cancel
+
+  |
+  v
+
+  Server:
+  cancel the current run
+  -------------------------------------------------------
+
+  -------------------------------------------------------
+  workflow_state: expired
+  =======================================================
+  Client: emit session.close / session.start with invalid session_id
+
+  |
+  v
+
+  Server:
+  end the current session
+  -------------------------------------------------------
+                                           
+
+#+end_src
