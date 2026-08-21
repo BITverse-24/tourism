@@ -234,7 +234,7 @@ export class CandidateDesignToolError extends Error { readonly code: string; con
 export class CandidateDesignResponseError extends Error { readonly validation_errors: string[]; constructor(message: string, validation_errors: string[] = []) { super(message); this.name = "CandidateDesignResponseError"; this.validation_errors = validation_errors; } }
 export class CandidateDesignTimeoutError extends Error { constructor(message: string) { super(message); this.name = "CandidateDesignTimeoutError"; } }
 
-const DEFAULT_MODEL = "gemini-2.0-flash";
+const DEFAULT_MODEL = "gemini-3.6-flash";
 const DEFAULT_TIMEOUT_MS = 30_000;
 
 const stringOrNullSchema = { type: ["string", "null"] } as const;
