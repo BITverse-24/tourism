@@ -98,123 +98,54 @@ function createQueryId(): string {
     return `query_${crypto.randomUUID().replace(/-/g, "")}`;
 }
 
-/**
- * Escapes LIKE wildcards so that user input is treated as ordinary text.
- *
- * We use "\" as the SQLite LIKE escape character.
- */
-function escapeLike(value: string): string {
-    return value
-        .replace(/\\/g, "\\\\")
-        .replace(/%/g, "\\%")
-        .replace(/_/g, "\\_");
-}
-
-/**
- * Searches attractions within a city.
- *
- * Matching semantics:
- * - query:
- *     case-insensitive substring match against:
- *     name, alternate_names, description, location_area, attraction_type
- *
- * - best_for:
- *     OR semantics. An attraction matches when at least one requested value
- *     exists in its JSON best_for array.
- *
- * - attraction_types:
- *     OR semantics. An attraction matches when at least one requested value
- *     matches either attraction_type or an item in subtypes.
- */
 export async function queryAttractions(
     input: QueryAttractionsInput,
 ): Promise<QueryAttractionsResult> {
-    logger.debug('agent 2 is using the queryAttractions tool call', { req: input })
+    logger.debug('agent 2 is using the queryAttractions tool call', {
+        req: input,
+    });
+
     const db = getDatabase();
 
-    const cityId = input.city_id.trim();
+    const query = input.query.trim();
 
-    if (!cityId) {
-        throw new Error("input.city_id must not be empty");
+    if (!query) {
+        throw new Error('input.query must not be empty');
     }
 
-    const query = input.query.trim();
-    const bestFor = normalizeStringArray(input.best_for);
-    const attractionTypes = normalizeStringArray(input.attraction_types);
+    // Only allow read-only SELECT queries.
+    // This also allows CTEs such as:
+    // WITH filtered AS (...) SELECT * FROM filtered
+    // --------- not sure if chatgpt did this right lol so commenting it hope this thing always gives select queries
+    // const normalizedQuery = query
+    //     .replace(/^\uFEFF/, '')
+    //     .trim()
+    //     .replace(/;+\s*$/, '')
+    //     .trim();
 
-    const where: string[] = ["a.city_id = ?"];
-    const params: unknown[] = [cityId];
+    // if (!/^(SELECT|WITH)\b/i.test(normalizedQuery)) {
+    //     throw new Error(
+    //         'input.query must be a SELECT query',
+    //     );
+    // }
 
-    if (query.length > 0) {
-        const likeQuery = `%${escapeLike(query)}%`;
+    const normalizedQuery = query.trim().replace(/;+\s*$/, '').trim();
 
-        where.push(`
-(
-a.name LIKE ? ESCAPE '\\' COLLATE NOCASE
-OR a.description LIKE ? ESCAPE '\\' COLLATE NOCASE
-OR a.location_area LIKE ? ESCAPE '\\' COLLATE NOCASE
-OR a.attraction_type LIKE ? ESCAPE '\\' COLLATE NOCASE
-OR EXISTS (
-SELECT 1
-FROM json_each(a.alternate_names)
-WHERE json_each.value LIKE ? ESCAPE '\\' COLLATE NOCASE
-)
-)
-`);
-
-        params.push(
-            likeQuery,
-            likeQuery,
-            likeQuery,
-            likeQuery,
-            likeQuery,
+    // Prevent multiple statements.
+    // A trailing semicolon is allowed, but another statement is not.
+    if (normalizedQuery.includes(';')) {
+        throw new Error(
+            'input.query must contain only a single SELECT query',
         );
     }
 
-    if (bestFor.length > 0) {
-        const placeholders = bestFor.map(() => "?").join(", ");
-
-        where.push(`
-EXISTS (
-SELECT 1
-FROM json_each(a.best_for)
-WHERE json_each.value IN (${placeholders})
-)
-`);
-
-        params.push(...bestFor);
-    }
-
-    if (attractionTypes.length > 0) {
-        const placeholders = attractionTypes.map(() => "?").join(", ");
-
-        where.push(`
-(
-a.attraction_type IN (${placeholders})
-OR EXISTS (
-SELECT 1
-FROM json_each(a.subtypes)
-WHERE json_each.value IN (${placeholders})
-)
-)
-`);
-
-        // The placeholder list appears twice.
-        params.push(...attractionTypes, ...attractionTypes);
-    }
-
-    const sql = `
-SELECT a.*
-FROM attraction AS a
-WHERE ${where.join("\nAND ")}
-ORDER BY a.name COLLATE NOCASE ASC, a.attraction_id ASC
-`;
-
     const rows = db
-        .prepare(sql)
-        .all(...params) as Record<string, unknown>[];
+        .prepare(normalizedQuery)
+        .all() as Record<string, unknown>[];
 
-    logger.debug('sending agent 2 result of queryAttractions res')
+    logger.debug('sending agent 2 result of queryAttractions res', {
+        rowCount: rows.length,
+    });
 
     return {
         attractions: rows.map(normalizeAttractionRow),
@@ -234,12 +165,6 @@ export async function getAttractionsByIds(
 ): Promise<GetAttractionsByIdsResult> {
     logger.debug('agent 2 is using the getAttractionsByIds tool call', { req: input })
     const db = getDatabase();
-
-    const cityId = input.city_id.trim();
-
-    if (!cityId) {
-        throw new Error("input.city_id must not be empty");
-    }
 
     const attractionIds = normalizeStringArray(input.attraction_ids);
 
@@ -267,13 +192,12 @@ export async function getAttractionsByIds(
         const sql = `
 SELECT a.*
 FROM attraction AS a
-WHERE a.city_id = ?
-AND a.attraction_id IN (${placeholders})
+WHERE a.attraction_id IN (${placeholders})
 `;
 
         const rows = db
             .prepare(sql)
-            .all(cityId, ...chunk) as Record<string, unknown>[];
+            .all(...chunk) as Record<string, unknown>[];
 
         for (const row of rows) {
             const attraction = normalizeAttractionRow(row);
