@@ -28,117 +28,119 @@ export interface UserAnswer { question_id: string; question: DiscoveryQuestion; 
 export interface DiscoveryInput { profile: TravelerProfile | null; answer: UserAnswer | null; }
 export interface DiscoveryResult { profile: TravelerProfile; finished: boolean; next_question: DiscoveryQuestion | null; completion_reason: string | null; }
 
-// --- tradeoff tool (separate file also at src/tools/askUserTradeoff.ts, inlined here so backend only needs candidate-design.ts) ---
+// --- ask_user_decision tool (separate file also at askUserTradeoff.ts, inlined here so backend only needs candidate-design.ts) ---
 export const MAX_TRADEOFF_CALLS = 3;
-export interface AskUserTradeoffRequest {
-  attraction_id_a: string;
-  attraction_id_b: string;
-  question: string;
-  tradeoff_a: string;
-  tradeoff_b: string;
-}
-export type AskUserTradeoffResolver = (request: AskUserTradeoffRequest) => Promise<string>;
-export interface TradeoffHistoryEntry {
-  question: string;
-  attraction_id_a: string;
-  attraction_id_b: string;
-  tradeoff_a: string;
-  tradeoff_b: string;
-  choice: string;
-}
-export function buildAskUserTradeoffToolSchema(): unknown {
+export const MAX_DECISION_CALLS = MAX_TRADEOFF_CALLS;
+export const ALLOWED_DECISION_REASONS = ["material_tradeoff", "hard_constraint_conflict", "missing_preference"] as const;
+export type DecisionReason = (typeof ALLOWED_DECISION_REASONS)[number];
+export interface AskUserDecisionOption { option_id: string; label: string; tradeoff: string; }
+export interface AskUserDecisionRequest { reason: DecisionReason; prompt: string; options: AskUserDecisionOption[]; /** Injected by runtime from CandidateDesignInput.session_id, not part of model tool schema. */
+  session_id?: string; }
+export type AskUserDecisionResolver = (request: AskUserDecisionRequest) => Promise<string>;
+// legacy shape
+export interface LegacyAskUserTradeoffRequest { attraction_id_a: string; attraction_id_b: string; question: string; tradeoff_a: string; tradeoff_b: string; session_id?: string; }
+// backward compat aliases
+export type AskUserTradeoffRequest = AskUserDecisionRequest | LegacyAskUserTradeoffRequest;
+// ponytail: any keeps legacy tests (attraction_id_a/b) assignable while new code uses AskUserDecisionRequest
+export type AskUserTradeoffResolver = (request: any) => Promise<string>;
+export interface TradeoffHistoryEntry { reason: DecisionReason; prompt: string; options: AskUserDecisionOption[]; choice: string; question?: string; attraction_id_a?: string; attraction_id_b?: string; tradeoff_a?: string; tradeoff_b?: string; }
+export function buildAskUserDecisionToolSchema(): unknown {
   return {
     type: "function",
     function: {
-      name: "ask_user_tradeoff",
-      description:
-        "Ask the user to choose between two attractions when the tradeoff materially affects the plan. Vary framing naturally but include both attraction names and contrasting highlights. Use only when the decision changes the itinerary. Returns the user's choice: an attraction name/id, or 'neither'. Backend displays the question on the frontend and waits for the reply.",
+      name: "ask_user_decision",
+      description: "Pause planning and ask the traveler to resolve a material tradeoff, hard-constraint conflict, or missing preference. Use only when the decision materially changes the itinerary. Provide 2-3 options each with a stable option_id, traveler-safe label, and plain-language tradeoff. Backend pauses Agent 2, emits decision.request, and returns the traveler's selected option_id.",
       strict: true,
       parameters: {
         type: "object",
         additionalProperties: false,
         properties: {
-          attraction_id_a: { type: "string", description: "First attraction stable ID" },
-          attraction_id_b: { type: "string", description: "Second attraction stable ID" },
-          question: {
-            type: "string",
-            description:
-              "Natural tradeoff question including both attraction names and contrast, e.g. 'Amber Fort vs City Palace, one has ... but the other has ...'. Vary phrasing each time.",
-          },
-          tradeoff_a: { type: "string", description: "Tradeoff description for attraction A displayed as option tradeoff" },
-          tradeoff_b: { type: "string", description: "Tradeoff description for attraction B displayed as option tradeoff" },
+          reason: { type: "string", enum: [...ALLOWED_DECISION_REASONS], description: "Why the decision is needed" },
+          prompt: { type: "string", description: "Traveler-facing question, e.g. 'Would you rather keep the pace gentle or see more attractions?'" },
+          options: { type: "array", minItems: 2, maxItems: 3, items: { type: "object", additionalProperties: false, properties: { option_id: { type: "string" }, label: { type: "string" }, tradeoff: { type: "string" } }, required: ["option_id", "label", "tradeoff"] } },
         },
-        required: ["attraction_id_a", "attraction_id_b", "question", "tradeoff_a", "tradeoff_b"],
+        required: ["reason", "prompt", "options"],
       },
     },
   };
 }
+export function buildAskUserTradeoffToolSchema(): unknown { return buildAskUserDecisionToolSchema(); }
 export function isNeitherChoice(choice: string): boolean {
   const c = choice.trim().toLowerCase();
   return c === "neither" || c === "neither option" || c === "neither one" || c === "skip both" || c === "none";
 }
-async function executeAskUserTradeoffTool(
+function getDecisionResolver(state: { options: { askUserTradeoff?: AskUserDecisionResolver; askUserDecision?: AskUserDecisionResolver } }): AskUserDecisionResolver | undefined {
+  return (state.options as any).askUserDecision ?? (state.options as any).askUserTradeoff;
+}
+async function executeAskUserDecisionTool(
   state: {
     known_attractions: Map<string, { attraction_id: string; city_id: string; name: string }>;
     tradeoff_history: TradeoffHistoryEntry[];
     tradeoff_calls: number;
-    options: { askUserTradeoff?: AskUserTradeoffResolver };
+    options: { askUserTradeoff?: AskUserDecisionResolver; askUserDecision?: AskUserDecisionResolver };
     deadline: number;
+    input: CandidateDesignInput;
   },
   rawArguments: string,
 ): Promise<string> {
-  if (!state.options.askUserTradeoff) {
-    return JSON.stringify({ error: { code: "tradeoff_not_configured", message: "ask_user_tradeoff requires options.askUserTradeoff resolver." } });
-  }
-  if (state.tradeoff_calls >= MAX_TRADEOFF_CALLS) {
-    return JSON.stringify({ error: { code: "tradeoff_budget_exhausted", message: `At most ${MAX_TRADEOFF_CALLS} tradeoff questions allowed.` } });
-  }
+  const resolver = getDecisionResolver(state);
+  if (!resolver) return JSON.stringify({ error: { code: "tradeoff_not_configured", message: "ask_user_decision requires options.askUserDecision resolver." } });
+  if (state.tradeoff_calls >= MAX_TRADEOFF_CALLS) return JSON.stringify({ error: { code: "tradeoff_budget_exhausted", message: `At most ${MAX_TRADEOFF_CALLS} tradeoff questions allowed.` } });
   let args: Record<string, unknown>;
+  try { const parsed: unknown = JSON.parse(rawArguments); if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Error("arguments must be an object"); args = parsed as Record<string, unknown>; } catch { return JSON.stringify({ error: { code: "invalid_arguments", message: "Tool arguments must be valid JSON object arguments." } }); }
+  // legacy compat: attraction_id_a/b + question
+  const isLegacy = "attraction_id_a" in args || "attraction_id_b" in args || "question" in args;
+  if (isLegacy) {
+    const aId = typeof args.attraction_id_a === "string" && args.attraction_id_a.trim() ? args.attraction_id_a.trim() : "";
+    const bId = typeof args.attraction_id_b === "string" && args.attraction_id_b.trim() ? args.attraction_id_b.trim() : "";
+    const question = typeof args.question === "string" && args.question.trim() ? args.question.trim() : "";
+    const tradeoffA = typeof args.tradeoff_a === "string" && args.tradeoff_a.trim() ? args.tradeoff_a.trim() : "";
+    const tradeoffB = typeof args.tradeoff_b === "string" && args.tradeoff_b.trim() ? args.tradeoff_b.trim() : "";
+    if (!aId || !bId || !question || !tradeoffA || !tradeoffB) return JSON.stringify({ error: { code: "invalid_arguments", message: "attraction_id_a, attraction_id_b, question, tradeoff_a, tradeoff_b must be non-empty" } });
+    if (aId === bId) return JSON.stringify({ error: { code: "invalid_tradeoff_pair", message: "attraction IDs must be distinct" } });
+    const a = state.known_attractions.get(aId); const b = state.known_attractions.get(bId);
+    if (!a || !b) return JSON.stringify({ error: { code: "unknown_attraction", message: "Both attractions must be retrieved first via query_attractions/get_attractions_by_ids before asking." } });
+    const qLower = question.toLowerCase(); if (!(qLower.includes(a.name.toLowerCase()) || qLower.includes(aId.toLowerCase())) || !(qLower.includes(b.name.toLowerCase()) || qLower.includes(bId.toLowerCase()))) return JSON.stringify({ error: { code: "invalid_question", message: `Question must include both attraction names: ${a.name} and ${b.name}.` } });
+    try {
+      const remaining = state.deadline - Date.now(); if (remaining <= 0) throw new Error("ask_user_decision exceeded the run timeout");
+      let timer: ReturnType<typeof setTimeout> | undefined; const timeout = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("ask_user_decision exceeded the run timeout")), remaining); });
+      const sid = state.input.session_id;
+      const genericReq: AskUserDecisionRequest = { reason: "material_tradeoff", prompt: question, options: [{ option_id: aId, label: a.name, tradeoff: tradeoffA }, { option_id: bId, label: b.name, tradeoff: tradeoffB }], session_id: sid };
+      const legacyReq: any = { attraction_id_a: aId, attraction_id_b: bId, question, tradeoff_a: tradeoffA, tradeoff_b: tradeoffB, session_id: sid };
+      const choiceRaw = await Promise.race([resolver(legacyReq), timeout]).finally(() => { if (timer) clearTimeout(timer); });
+      const choice = typeof choiceRaw === "string" ? choiceRaw.trim() : String(choiceRaw ?? "").trim(); if (!choice) return JSON.stringify({ error: { code: "invalid_choice", message: "User reply was empty." } });
+      state.tradeoff_history.push({ reason: "material_tradeoff", prompt: question, options: genericReq.options, choice, question, attraction_id_a: aId, attraction_id_b: bId, tradeoff_a: tradeoffA, tradeoff_b: tradeoffB });
+      (state as { tradeoff_calls: number }).tradeoff_calls += 1;
+      return JSON.stringify({ choice, reason: "material_tradeoff", prompt: question, options: genericReq.options, question, attraction_id_a: aId, attraction_id_b: bId, tradeoff_a: tradeoffA, tradeoff_b: tradeoffB, tradeoff_calls_used: state.tradeoff_calls, tradeoff_calls_remaining: MAX_TRADEOFF_CALLS - state.tradeoff_calls });
+    } catch (error) { if (error instanceof Error && error.message.includes("exceeded the run timeout")) throw error; return JSON.stringify({ error: { code: "tradeoff_failed", message: "Tradeoff resolver failed without exposing details." } }); }
+  }
+  const expected = new Set(["reason", "prompt", "options"]);
+  for (const k of Object.keys(args)) if (!expected.has(k)) return JSON.stringify({ error: { code: "invalid_arguments", message: `ask_user_decision contains unsupported field ${k}` } });
+  const reason = typeof args.reason === "string" && args.reason.trim() ? args.reason.trim() : "";
+  if (!(ALLOWED_DECISION_REASONS as readonly string[]).includes(reason)) return JSON.stringify({ error: { code: "invalid_arguments", message: `reason must be one of ${ALLOWED_DECISION_REASONS.join(", ")}` } });
+  const prompt = typeof args.prompt === "string" && args.prompt.trim() ? args.prompt.trim() : ""; if (!prompt) return JSON.stringify({ error: { code: "invalid_arguments", message: "prompt must be a non-empty string" } });
+  const rawOptions = args.options; if (!Array.isArray(rawOptions) || rawOptions.length < 2 || rawOptions.length > 3) return JSON.stringify({ error: { code: "invalid_arguments", message: "options must be an array of 2-3 items" } });
+  const options: AskUserDecisionOption[] = []; const seen = new Set<string>();
+  for (let i = 0; i < rawOptions.length; i++) {
+    const o = rawOptions[i] as Record<string, unknown>; if (typeof o !== "object" || o === null || Array.isArray(o)) return JSON.stringify({ error: { code: "invalid_arguments", message: `options[${i}] must be an object` } });
+    const ok = new Set(["option_id", "label", "tradeoff"]); for (const kk of Object.keys(o)) if (!ok.has(kk)) return JSON.stringify({ error: { code: "invalid_arguments", message: `options[${i}] contains unsupported field ${kk}` } });
+    const option_id = typeof o.option_id === "string" && o.option_id.trim() ? o.option_id.trim() : ""; const label = typeof o.label === "string" && o.label.trim() ? o.label.trim() : ""; const tradeoff = typeof o.tradeoff === "string" && o.tradeoff.trim() ? o.tradeoff.trim() : "";
+    if (!option_id || !label || !tradeoff) return JSON.stringify({ error: { code: "invalid_arguments", message: `options[${i}] option_id, label, tradeoff must be non-empty` } });
+    if (seen.has(option_id)) return JSON.stringify({ error: { code: "invalid_arguments", message: `duplicate option_id: ${option_id}` } }); seen.add(option_id);
+    options.push({ option_id, label, tradeoff });
+  }
   try {
-    const parsed: unknown = JSON.parse(rawArguments);
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Error("arguments must be an object");
-    args = parsed as Record<string, unknown>;
-  } catch {
-    return JSON.stringify({ error: { code: "invalid_arguments", message: "Tool arguments must be valid JSON object arguments." } });
-  }
-  const expectedKeys = new Set(["attraction_id_a", "attraction_id_b", "question", "tradeoff_a", "tradeoff_b"]);
-  for (const key of Object.keys(args)) if (!expectedKeys.has(key)) return JSON.stringify({ error: { code: "invalid_arguments", message: `ask_user_tradeoff contains unsupported field ${key}` } });
-  const aId = typeof args.attraction_id_a === "string" && args.attraction_id_a.trim() ? args.attraction_id_a.trim() : "";
-  const bId = typeof args.attraction_id_b === "string" && args.attraction_id_b.trim() ? args.attraction_id_b.trim() : "";
-  const question = typeof args.question === "string" && args.question.trim() ? args.question.trim() : "";
-  const tradeoffA = typeof args.tradeoff_a === "string" && args.tradeoff_a.trim() ? args.tradeoff_a.trim() : "";
-  const tradeoffB = typeof args.tradeoff_b === "string" && args.tradeoff_b.trim() ? args.tradeoff_b.trim() : "";
-  if (!aId || !bId || !question || !tradeoffA || !tradeoffB) return JSON.stringify({ error: { code: "invalid_arguments", message: "attraction_id_a, attraction_id_b, question, tradeoff_a, tradeoff_b must be non-empty strings" } });
-  if (aId === bId) return JSON.stringify({ error: { code: "invalid_tradeoff_pair", message: "attraction IDs must be distinct" } });
-  const a = state.known_attractions.get(aId);
-  const b = state.known_attractions.get(bId);
-  if (!a || !b) {
-    return JSON.stringify({ error: { code: "unknown_attraction", message: "Both attractions must be retrieved first via query_attractions/get_attractions_by_ids before asking tradeoff." } });
-  }
-  const qLower = question.toLowerCase();
-  const includesA = qLower.includes(a.name.toLowerCase()) || qLower.includes(aId.toLowerCase());
-  const includesB = qLower.includes(b.name.toLowerCase()) || qLower.includes(bId.toLowerCase());
-  if (!includesA || !includesB) {
-    return JSON.stringify({ error: { code: "invalid_question", message: `Question must include both attraction names: ${a.name} and ${b.name}.` } });
-  }
-  try {
-    const remaining = state.deadline - Date.now();
-    if (remaining <= 0) throw new Error("ask_user_tradeoff exceeded the run timeout");
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const timeout = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new Error("ask_user_tradeoff exceeded the run timeout")), remaining);
-    });
-    const choiceRaw = await Promise.race([state.options.askUserTradeoff!({ attraction_id_a: aId, attraction_id_b: bId, question, tradeoff_a: tradeoffA, tradeoff_b: tradeoffB }), timeout]).finally(() => { if (timer) clearTimeout(timer); });
-    const choice = typeof choiceRaw === "string" ? choiceRaw.trim() : String(choiceRaw ?? "").trim();
-    if (!choice) return JSON.stringify({ error: { code: "invalid_choice", message: "User reply was empty." } });
-    state.tradeoff_history.push({ question, attraction_id_a: aId, attraction_id_b: bId, tradeoff_a: tradeoffA, tradeoff_b: tradeoffB, choice });
+    const remaining = state.deadline - Date.now(); if (remaining <= 0) throw new Error("ask_user_decision exceeded the run timeout");
+    let timer: ReturnType<typeof setTimeout> | undefined; const timeout = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("ask_user_decision exceeded the run timeout")), remaining); });
+    const sid = state.input.session_id;
+    const choiceRaw = await Promise.race([resolver({ reason: reason as DecisionReason, prompt, options, session_id: sid }), timeout]).finally(() => { if (timer) clearTimeout(timer); });
+    const choice = typeof choiceRaw === "string" ? choiceRaw.trim() : String(choiceRaw ?? "").trim(); if (!choice) return JSON.stringify({ error: { code: "invalid_choice", message: "User reply was empty." } });
+    state.tradeoff_history.push({ reason: reason as DecisionReason, prompt, options, choice });
     (state as { tradeoff_calls: number }).tradeoff_calls += 1;
-    return JSON.stringify({ choice, question, attraction_id_a: aId, attraction_id_b: bId, tradeoff_a: tradeoffA, tradeoff_b: tradeoffB, tradeoff_calls_used: state.tradeoff_calls, tradeoff_calls_remaining: MAX_TRADEOFF_CALLS - state.tradeoff_calls });
-  } catch (error) {
-    if (error instanceof Error && error.message.includes("exceeded the run timeout")) throw error;
-    return JSON.stringify({ error: { code: "tradeoff_failed", message: "Tradeoff resolver failed without exposing details." } });
-  }
+    return JSON.stringify({ choice, reason, prompt, options, tradeoff_calls_used: state.tradeoff_calls, tradeoff_calls_remaining: MAX_TRADEOFF_CALLS - state.tradeoff_calls });
+  } catch (error) { if (error instanceof Error && error.message.includes("exceeded the run timeout")) throw error; return JSON.stringify({ error: { code: "tradeoff_failed", message: "Tradeoff resolver failed without exposing details." } }); }
 }
+async function executeAskUserTradeoffTool(state: Parameters<typeof executeAskUserDecisionTool>[0], rawArguments: string): Promise<string> { return executeAskUserDecisionTool(state, rawArguments); }
 
 export type CandidateDesignMode = "trip_route" | "city_day_plan";
 export type DestinationScopeType = "city" | "region" | "country";
@@ -172,6 +174,8 @@ export interface CandidateDesignInput {
   route_context?: RouteCandidate;
   city_context?: CityContext;
   run_budget: RunBudget;
+  /** Session correlation — always present in WS flow, injected by controller. Required so tool can correlate decision. */
+  session_id: string;
 }
 
 export interface CityContext {
@@ -384,6 +388,8 @@ export interface CandidateDesignOptions {
   api_url?: string;
   timeout_ms?: number;
   fetcher?: Fetcher;
+  askUserDecision?: AskUserDecisionResolver;
+  /** @deprecated use askUserDecision */
   askUserTradeoff?: AskUserTradeoffResolver;
 }
 
@@ -635,10 +641,10 @@ city_day_plan mode:
 - Meal and rest slots must stay generic. A meal may describe flexible timing or dietary needs but must not name a venue or provider.
 - Return 1 final day plan. This is the final itinerary.
 
-Tradeoff tool (city_day_plan only, when available):
-- Use ask_user_tradeoff only when two retrieved attractions present a real tradeoff that changes the plan (e.g. crowd vs intimacy, heritage vs nature, duration vs coverage). Do not waste calls. Max 3 per run.
-- You must have queried both attractions first. Call with their stable attraction IDs and a natural question that includes both attraction names and contrasting highlights. Vary framing each time; never feel templated, but ensure the comparison is clear.
-- The backend shows the question on the frontend and returns the user's choice (an attraction name/id, or 'neither'). Treat the choice as context: favor the chosen attraction, and if 'neither' exclude both. Never ask city-vs-city, only attraction-vs-attraction even if attractions are in different cities.
+Decision tool (city_day_plan only, when available):
+- Use ask_user_decision only when a material tradeoff, hard-constraint conflict, or missing preference materially changes the plan (e.g. comfort vs coverage, crowd vs intimacy, heritage vs nature). Do not waste calls. Max 3 per run.
+- Provide reason (material_tradeoff | hard_constraint_conflict | missing_preference), a traveler-facing prompt, and 2-3 options each with option_id, label, and tradeoff. Option_ids must be stable and unique; for attraction choices use the attraction_id, otherwise use generic ids like comfort/coverage/neither.
+- The backend pauses Agent 2, emits decision.request, and returns the selected option_id. Favor the chosen option; if neither/skip, exclude discussed options.
 
 The final JSON contains the final itinerary bundle (candidates array holds the final choice).`;
 
@@ -741,6 +747,7 @@ function validateInput(input: CandidateDesignInput): void {
   if (input.destination_scope.type === "city" && !input.hard_constraint_guardrails.allowed_city_ids.includes(input.destination_scope.resolved_city_ids[0] as string)) {
     throw new CandidateDesignConfigurationError("the resolved city must be in allowed_city_ids");
   }
+  if (typeof input.session_id !== "string" || input.session_id.trim().length === 0) throw new CandidateDesignConfigurationError("session_id is required");
   if (!isRecord(input.run_budget)) throw new CandidateDesignConfigurationError("run_budget is required");
   if (!Number.isInteger(input.run_budget.max_candidates) || input.run_budget.max_candidates < 1 || input.run_budget.max_candidates > MAX_ROUTE_CANDIDATES) {
     throw new CandidateDesignConfigurationError(`run_budget.max_candidates must be between 1 and ${MAX_ROUTE_CANDIDATES}`);
@@ -866,9 +873,10 @@ function buildToolSchemas(input: CandidateDesignInput, options: CandidateDesignO
     },
   };
   const tools: unknown[] = [searchCities, getCity, queryAttractions, getAttractionsByIds];
-  // ponytail: tradeoff tool separate file, only when resolver wired and city_day_plan (attraction vs attraction only)
-  if (input.mode === "city_day_plan" && options.askUserTradeoff) {
-    tools.push(buildAskUserTradeoffToolSchema());
+  // ponytail: decision tool separate file, only when resolver wired and city_day_plan
+  const hasDecisionResolver = !!(options.askUserDecision ?? options.askUserTradeoff);
+  if (input.mode === "city_day_plan" && hasDecisionResolver) {
+    tools.push(buildAskUserDecisionToolSchema());
   }
   // ponytail: expose all retrieval tools to avoid Gemini 400 "tool not in request.tools" on hallucinated calls; runtime still enforces mode via executeTool
   return tools;
@@ -948,11 +956,12 @@ async function executeTool(state: RunState, name: string, rawArguments: string):
     return JSON.stringify({ error: { code: "invalid_arguments", message: "Tool arguments must be valid JSON object arguments." } });
   }
   const baseAllowed = input.mode === "trip_route" ? ["search_cities", "get_city"] : ["query_attractions", "get_attractions_by_ids"];
-  const allowed = [...baseAllowed, ...(input.mode === "city_day_plan" && state.options.askUserTradeoff ? ["ask_user_tradeoff"] : [])];
+  const hasResolver = !!((state.options as any).askUserDecision ?? (state.options as any).askUserTradeoff);
+  const allowed = [...baseAllowed, ...(input.mode === "city_day_plan" && hasResolver ? ["ask_user_decision", "ask_user_tradeoff"] : [])];
   if (!allowed.includes(name)) return JSON.stringify({ error: { code: "tool_not_allowed", message: `Tool ${name} is not available in ${input.mode}.` } });
-  if (name === "ask_user_tradeoff") {
-    // ponytail: full execution lives in separate file ai/src/tools/askUserTradeoff.ts
-    return executeAskUserTradeoffTool(state as unknown as Parameters<typeof executeAskUserTradeoffTool>[0], rawArguments);
+  if (name === "ask_user_decision" || name === "ask_user_tradeoff") {
+    // ponytail: full execution lives in separate file askUserTradeoff.ts
+    return executeAskUserDecisionTool(state as unknown as Parameters<typeof executeAskUserDecisionTool>[0], rawArguments);
   }
   try {
     if (name === "search_cities") {
@@ -1321,10 +1330,30 @@ function detectableSoftConflictTopics(profile: TravelerProfile, attraction: Attr
   return topics;
 }
 
-// ponytail: trust Gemini schema — result-type validation removed. Keep deterministic builder's soft-conflict helper above.
-// Hard guardrails still enforced via tool filters; add strict validateCandidate back when 1% failures need it.
-function validateCandidate(_candidate: CandidateBundle, _state: RunState, _index: number): void {
-  return;
+// ponytail: minimal validation to keep hard guardrails + generic-meal rule without full schema re-checks
+function validateCandidate(candidate: CandidateBundle, state: RunState, index: number): void {
+  const input = state.input;
+  // hard guardrail: excluded attractions
+  for (const day of candidate.days) {
+    for (const item of day.items) {
+      if (item.type === "experience" && item.attraction_id && input.hard_constraint_guardrails.excluded_attraction_ids.includes(item.attraction_id)) {
+        throw new CandidateDesignResponseError(`candidates[${index}] references an excluded attraction`, [`candidates[${index}].days: excluded attraction`]);
+      }
+      // generic meal must not name venue — old rule: title "at Blue Door" etc
+      if (item.type === "meal") {
+        const combined = `${item.title} ${item.description}`;
+        if (/\b(?:at|called|named)\s+[A-Z][\w'-]+/.test(combined) || /\b(?:cafe|café|restaurant|hotel)\s+[A-Z]/i.test(combined)) {
+          throw new CandidateDesignResponseError(`candidates[${index}] meal slot names a venue`, [`candidates[${index}].days: generic meal slot required`]);
+        }
+      }
+      // experience must have non-empty title/description and visit_approach — triggers repair test
+      if (item.type === "experience") {
+        if (!item.title || !item.title.trim() || !item.description || !item.description.trim() || !item.visit_approach) {
+          throw new CandidateDesignResponseError(`candidates[${index}] has incomplete experience item`, [`candidates[${index}].days: experience item incomplete`]);
+        }
+      }
+    }
+  }
 }
 
 function normalizeRouteContext(route: RouteCandidate): RouteCandidate {
@@ -1438,8 +1467,8 @@ export async function processCandidateDesign(input: CandidateDesignInput, option
       // fall through to LLM path if deterministic fails
     }
   }
-  // ponytail: deterministic grounded day plan — LLM-free, but skip when tradeoff resolver wired so AI can ask user
-  if (input.mode === "city_day_plan" && input.city_context && input.route_context && !options.askUserTradeoff) {
+  // ponytail: deterministic grounded day plan — LLM-free, but skip when decision resolver wired so AI can ask user
+  if (input.mode === "city_day_plan" && input.city_context && input.route_context && !(options.askUserDecision ?? options.askUserTradeoff)) {
     try {
       const cityId = input.city_context.city_id;
       const allocated = input.city_context.allocated_days;
