@@ -52,82 +52,74 @@ export async function profileConfirmService(
     // set workflow to planning
     setWorkflowState(data.session_id, WorkflowStates.PLANNING)
 
-    // after agent 2 is fixed
-    /////////////////////////////////////////////////////////////////////////////////////////////
-    // // start planning                                                                       //
-    // // agent 2 service                                                                      //
-    // const conf: AppConfig = loadConfig(process.env)                                         //
-    // const runBudget: RunBudget = {                                                          //
-    //     max_candidates: conf.agent_2_max_candidates,                                        //
-    //     max_tool_calls: conf.agent_2_max_tool_calls,                                        //
-    //     max_rows_per_tool_call: conf.agent_2_max_rows_per_tool_call,                        //
-    //     timeout_ms: conf.agent_timeout_ms,                                                  //
-    // }                                                                                       //
-    // const candidateDesignInput: CandidateDesignInput = {                                    //
-    //     mode: 'city_day_plan',                                                              //
-    //     profile: profile,                                                                   //
-    //     profile_revision: revision,                                                         //
-    //     destination_scope: null, /// WHAT TODO???????                                       //
-    //     city_dataset_revision: "huh", /////// hardcoded TODO,                               //
-    //     attraction_dataset_revision: "huuh",  /////// hardcoded TODO,                       //
-    //     hard_constraint_guardrails: profile.hard_constraints, /// WHAT TODO????????         //
-    //     run_budget: runBudget,                                                              //
-    //     session_id: data.session_id,                                                        //
-    // }                                                                                       //
-    //                                                                                         //
-    // const candidateDesignOpt: CandidateDesignOptions = createCandidateDesignOptions({       //
-    //     tools: createCandidateDesignTools({                                                 //
-    //         searchCities: searchCities,                                                     //
-    //         getCity: getCity,                                                               //
-    //         queryAttractions: queryAttractions,                                             //
-    //         getAttractionsByIds: getAttractionsByIds                                        //
-    //     }),                                                                                 //
-    //     api_key: conf.agent_api_key,                                                        //
-    //     model: conf.agent_model,                                                            //
-    //     reasoning_effort: conf.agent_reasoning_effort,                                      //
-    //     api_url: conf.agent_api_url,                                                        //
-    //     timeout_ms: conf.agent_timeout_ms,                                                  //
-    //     askUserDecision: askUserDecisionTool,                                               //
-    // })                                                                                      //
-    // const candidateDesignRes: CandidateDesignResult = await processCandidateDesign(         //
-    //     candidateDesignInput,                                                               //
-    //     candidateDesignOpt                                                                  //
-    // )                                                                                       //
-    //                                                                                         //
-    //                                                                                         //
-    // // agent 3 service                                                                      //
-    // const narrativeInput: NarrativeInput = {                                                //
-    //     profile: profile,                                                                   //
-    //     profile_revision: revision,                                                         //
-    //     candidate: candidateDesignRes.candidates[0],                                        //
-    //     dataset_revisions: { city: "HUH", attraction: "HUUH" }, ///// TOO DOO when whenever //
-    // }                                                                                       //
-    // const narrativeOpt: NarrativeOptions = createNarrativeOptions({                         //
-    //     api_key: conf.agent_api_key,                                                        //
-    //     model: conf.agent_model,                                                            //
-    //     timeout_ms: conf.agent_timeout_ms,                                                  //
-    // })                                                                                      //
-    // const narrativeRes: NarrativeResult = await processNarrative(                           //
-    //     narrativeInput,                                                                     //
-    //     narrativeOpt                                                                        //
-    // )                                                                                       //
-    //                                                                                         //
-    // // plan snapshot message                                                                //
-    // const planSnapMsg: PlanSnapshotMessage = createPlanSnapshotMessage({                    //
-    //     message_id: `msg_${generateUUID()}`,                                                //
-    //     session_id: data.session_id,                                                        //
-    //     run_id: data.run_id,                                                                //
-    //     command_id: data.command_id,                                                        //
-    //     occurred_at: new Date().toISOString(),                                              //
-    //     sequence: await nextSequence(data.run_id),                                          //
-    //     payload: {                                                                          //
-    //         revision: 1, // cos final is first rn??                                         //
-    //         state: PlanSnapshotStates.FINAL,                                                //
-    //         plan: narrativeRes.plan                                                         //
-    //     }                                                                                   //
-    // })                                                                                      //
-    // emit({ event: Events.PLAN_SNAPSHOT, data: planSnapMsg })                                //
-    /////////////////////////////////////////////////////////////////////////////////////////////
+    // start planning                                                                       
+    // agent 2 service                                                                      
+    const conf: AppConfig = loadConfig(process.env)                                         
+    const runBudget: RunBudget = {                                                          
+        max_candidates: conf.agent_2_max_candidates,                                        
+        max_tool_calls: conf.agent_2_max_tool_calls,                                        
+        max_rows_per_tool_call: conf.agent_2_max_rows_per_tool_call,                        
+        timeout_ms: conf.agent_timeout_ms,                                                  
+    }                                                                                       
+    const candidateDesignInput: CandidateDesignInput = {                                    
+        profile: profile,                                                                   
+        run_budget: runBudget,                                                              
+        session_id: data.session_id,                                                        
+    }                                                                                       
+                                                                                            
+    const candidateDesignOpt: CandidateDesignOptions = createCandidateDesignOptions({       
+        tools: createCandidateDesignTools({                                                 
+            searchCities: searchCities,                                                     
+            getCity: getCity,                                                               
+            queryAttractions: queryAttractions,                                             
+            getAttractionsByIds: getAttractionsByIds                                        
+        }),                                                                                 
+        api_key: conf.agent_api_key,                                                        
+        model: conf.agent_model,                                                            
+        reasoning_effort: conf.agent_reasoning_effort,                                      
+        api_url: conf.agent_api_url,                                                        
+        timeout_ms: conf.agent_timeout_ms,                                                  
+        askUserDecision: askUserDecisionTool,                                               
+    })                                                                                      
+    const candidateDesignRes: CandidateDesignResult = await processCandidateDesign(         
+        candidateDesignInput,                                                               
+        candidateDesignOpt                                                                  
+    )                                                                                       
+                                                                                            
+                                                                                            
+    // agent 3 service                                                                      
+    const narrativeInput: NarrativeInput = {                                                
+        profile: profile,                                                                   
+        profile_revision: revision,                                                         
+        candidate: candidateDesignRes.candidates[0],                                        
+        dataset_revisions: { city: "HUH", attraction: "HUUH" }, ///// TOO DOO when whenever 
+    }                                                                                       
+    const narrativeOpt: NarrativeOptions = createNarrativeOptions({                         
+        api_key: conf.agent_api_key,                                                        
+        model: conf.agent_model,                                                            
+        timeout_ms: conf.agent_timeout_ms,                                                  
+    })                                                                                      
+    const narrativeRes: NarrativeResult = await processNarrative(                           
+        narrativeInput,                                                                     
+        narrativeOpt                                                                        
+    )                                                                                       
+                                                                                            
+    // plan snapshot message                                                                
+    const planSnapMsg: PlanSnapshotMessage = createPlanSnapshotMessage({                    
+        message_id: `msg_${generateUUID()}`,                                                
+        session_id: data.session_id,                                                        
+        run_id: data.run_id,                                                                
+        command_id: data.command_id,                                                        
+        occurred_at: new Date().toISOString(),                                              
+        sequence: await nextSequence(data.run_id),                                          
+        payload: {                                                                          
+            revision: 1, // cos final is first rn??                                         
+            state: PlanSnapshotStates.FINAL,                                                
+            plan: narrativeRes.plan                                                         
+        }                                                                                   
+    })                                                                                      
+    emit({ event: Events.PLAN_SNAPSHOT, data: planSnapMsg })                                
+    
 
 
     return res
