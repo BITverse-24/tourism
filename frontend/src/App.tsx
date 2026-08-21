@@ -69,14 +69,19 @@ function DiscoveryRoute(){
     }
     if (isMockMode && !mockBusy) {
       // For testing: mock WS data displays with 5s delay to replicate server latency + busy sphere
+      // After 5 questions (mockQuestions.length) it goes to review screen
       setMockBusy(true)
       window.setTimeout(() => {
         setMockBusy(false)
-        if (mockIdx < mockQuestions.length - 1) {
-          setMockIdx(i => i + 1)
-        } else {
-          navigate('/profile-review')
-        }
+        setMockIdx(prev => {
+          if (prev < mockQuestions.length - 1) {
+            return prev + 1
+          }
+          // Last question answered — go to review (even in mock)
+          // Use setTimeout to ensure state update flushed before navigation
+          setTimeout(() => navigate('/profile-review'), 0)
+          return prev
+        })
       }, 5000)
       return
     }
@@ -125,6 +130,9 @@ function AppShell(){
     }
   }, [liveState, workflowState, loc.pathname, navigate])
 
+  // Workflow completed cancelled → show dedicated cancelled state (banner + return to start)
+  const isCancelled = workflowState === 'cancelled'
+
   const handleSelectItem = (_dayIdx:number, _itemIdx:number, item: ItineraryItem) => {
     setDetailItem(item)
     setDetailOpen(true)
@@ -144,8 +152,17 @@ function AppShell(){
 
   return (
     <>
-      {(sessionBanner.kind === 'expired' || sessionBanner.kind === 'superseded' || lastError) && (
+      {(sessionBanner.kind === 'expired' || sessionBanner.kind === 'superseded' || lastError || isCancelled) && (
         <div style={{ display:'flex', flexDirection:'column', gap:10, padding:'12px 5vw 0', background:'transparent' }}>
+          {isCancelled && (
+            <div role="status" data-testid="cancelled-banner" style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:12, padding:'14px 16px', borderRadius:12, border:'1px solid rgba(225,214,197,0.55)', background:'rgba(247,242,233,0.92)', color:'var(--voyager-ink-1)' }}>
+              <span style={{ fontSize:13, lineHeight:'18px' }}>Run cancelled — your previous answers are preserved. Start again from Arrival or continue where you left off.</span>
+              <div style={{ display:'flex', gap:8 }}>
+                <button onClick={() => { try { wsCtx?.startNewSession() } catch {} ; navigate('/') }} style={{ fontSize:12, padding:'6px 12px', borderRadius:8, border:'1px solid var(--voyager-stone)', background:'var(--voyager-ivory)', cursor:'pointer' }}>Start new session</button>
+                <button onClick={() => navigate('/discovery')} style={{ fontSize:12, padding:'6px 12px', borderRadius:8, border:'1px solid transparent', background:'transparent', color:'var(--voyager-ink-2)', cursor:'pointer' }}>Back to discovery</button>
+              </div>
+            </div>
+          )}
           {sessionBanner.kind === 'expired' && (
             <SessionBanner kind="expired" reason={sessionBanner.reason} canStartNewSession={sessionBanner.canStartNewSession} onStartNewSession={handleStartNewSession} onDismiss={clearSessionBanner} />
           )}

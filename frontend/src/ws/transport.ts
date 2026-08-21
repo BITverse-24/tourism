@@ -150,8 +150,8 @@ export function buildWsUrl(baseUrl?: string): string {
   }
 
   // Node / test fallback — no window
-  // Use localhost as sensible default for tests
-  return 'ws://localhost/ws';
+  // Use localhost:8000 as sensible default (backend WS port)
+  return 'ws://localhost:8000/ws';
 }
 
 // Aliases for test compatibility — all point to same implementation

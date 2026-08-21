@@ -724,6 +724,18 @@ export default function Consultation({
               Try again
             </button>
           )}
+          {!timedOut && isWorking && (
+            <button
+              type="button"
+              className="retry-link"
+              onClick={() => { try { getWsClient().sendRunCancel('Traveler cancelled planning') } catch {} }}
+              data-testid="cancel-planning"
+              aria-label="Cancel planning"
+              style={{ marginTop: 12, opacity: 0.72 }}
+            >
+              Cancel
+            </button>
+          )}
 
           <span className="sr-only" aria-live="polite">
             {timedOut ? "Consultation paused. You can try again." : `Consulting — ${Math.floor(elapsed / 1000)} seconds`}

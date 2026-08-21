@@ -12,7 +12,7 @@
  *  - wsFailedAtStart tracking: mock fallback only when WS fails at start
  */
 import React, { createContext, useContext, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { WsClient, genCommandId, genMessageId } from './client'
+import { WsClient, genCommandId } from './client'
 import { createWsClient } from './index'
 import { buildWsUrl } from './transport'
 
@@ -81,7 +81,7 @@ export function resolveWsUrl(): string {
   const env: Record<string, string | undefined> = (import.meta as unknown as { env?: Record<string, string> }).env ?? {}
   const explicit = env.VITE_WS_URL ?? env.WS_URL
   if (explicit) return buildWsUrl(explicit)
-  return buildWsUrl('ws://localhost/ws')
+  return buildWsUrl('ws://localhost:8000/ws')
 }
 
 // Single shared client owned by WsProvider — all consumers import via this module
@@ -188,38 +188,14 @@ export function WsProvider({ children }: { children: React.ReactNode }) {
   const sendSessionStart = useCallback(() => {
     const stored = getStoredSessionId()
     const command_id = genCommandId()
-    const message_id = genMessageId()
-    const occurred_at = new Date().toISOString()
 
     if (client.getConnectionState() !== 'open') {
       try { client.connect(wsUrl) } catch {}
     }
 
-    const payload: Record<string, unknown> = { session_id: stored ?? null }
-
-    const envelope = {
-      message_id,
-      kind: 'command' as const,
-      type: 'session.start',
-      command_id,
-      occurred_at,
-      payload,
-      ...(stored ? { session_id: stored } : {}),
-    }
-
     try {
-      client.getCommandRegistry().register(command_id, 'session.start', payload)
+      client.sendSessionStart(stored ?? null, command_id)
     } catch {}
-    try {
-      const anyClient = client as unknown as { ws: WebSocket | null; sendRaw?: (e: unknown)=>void }
-      if (anyClient.ws && anyClient.ws.readyState === 1) {
-        anyClient.ws.send(JSON.stringify(envelope))
-      } else {
-        client.sendSessionStart(stored ?? null, command_id)
-      }
-    } catch {
-      try { client.sendSessionStart(stored ?? null, command_id) } catch {}
-    }
   }, [client, wsUrl])
 
   const startNewSession = useCallback(() => {
@@ -234,31 +210,12 @@ export function WsProvider({ children }: { children: React.ReactNode }) {
     setWsFailedAtStart(false)
     hasEverConnectedRef.current = false
     const command_id = genCommandId()
-    const message_id = genMessageId()
-    const occurred_at = new Date().toISOString()
-    const payload: Record<string, unknown> = { session_id: null }
-    const envelope = {
-      message_id,
-      kind: 'command' as const,
-      type: 'session.start',
-      command_id,
-      occurred_at,
-      payload,
-    }
-    try { client.getCommandRegistry().register(command_id, 'session.start', payload) } catch {}
     if (client.getConnectionState() !== 'open') {
       try { client.connect(wsUrl) } catch {}
     }
     try {
-      const anyClient = client as unknown as { ws: WebSocket | null }
-      if (anyClient.ws && anyClient.ws.readyState === 1) {
-        anyClient.ws.send(JSON.stringify(envelope))
-      } else {
-        client.sendSessionStart(null, command_id)
-      }
-    } catch {
-      try { client.sendSessionStart(null, command_id) } catch {}
-    }
+      client.sendSessionStart(null, command_id)
+    } catch {}
   }, [client, wsUrl])
 
   const disconnect = useCallback(() => {

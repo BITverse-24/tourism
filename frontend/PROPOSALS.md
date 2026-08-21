@@ -620,3 +620,46 @@ The **dark environment never disappears**.
 Only the **central content state changes**.
 
 That is the aesthetic solution I'd use. It makes the trade-off feel like an actual moment in an intelligent consultation rather than an unrelated questionnaire being injected into the workflow.
+
+---
+
+# Proposals — Backend fixes discovered while fixing WS delivery (2026-08-21)
+
+## 1. Fix `io.on('disconnect')` should be `socket.on('disconnect')`
+
+**Target:** `backend/src/events/ConnectionEvents.ts` and `backend/src/handlers/ConnectionHandlers.ts`
+
+**Issue:** `ConnectionEvents.ts` registers `io.on('disconnect', (socket) => handlers.onDisconnect(socket))`. `Server` never emits `disconnect`; only each `Socket` does. As a result `unregisterSocketById` is never called, sockets leak in `models/data.ts`.
+
+**Evidence:** While tracing why frontend `session.start` never arrived, reading `backend/src/events/ConnectionEvents.ts:5-6` shows `io.on('connection',...)` correct but `io.on('disconnect',...)` incorrect. `handlers.onDisconnect` is therefore dead code. Frontend fix in `frontend/src/ws/WsProvider.tsx` (removing double `CommandRegistry.register` that caused deduplication drop) restores delivery, but backend leak remains.
+
+**Suggested change:**
+```ts
+// backend/src/events/ConnectionEvents.ts
+export function connectionEvents(io: Server) {
+  io.on('connection', (socket: Socket) => {
+    handlers.onConnect(socket);
+    socket.on('disconnect', () => handlers.onDisconnect(socket));
+  });
+}
+```
+Remove the `io.on('disconnect', ...)` line.
+
+**Reason:** Ensures `unregisterSocketById` runs on every disconnect, prevents stale socket entries, and matches socket.io idiom used for all other `socket.on(...)` handlers in `SessionEvents.ts`, `DiscoveryEvents.ts`, etc.
+
+**Impact:** Low-risk, backend-only. Owner of `backend/` should apply and verify with a socket.io-client integration test: connect, disconnect, assert `getSocket`-style lookup no longer returns the id.
+
+## 2. Consider single HTTP+WS server vs dual `createServer(app)` 
+
+**Target:** `backend/src/app/Server.ts` (lines 38-50) and `backend/src/app/socketio.ts`
+
+**Issue:** `Server.start()` does `app.listen(httpPort)` and separately `createServer(app).listen(wsPort)` where `createWebsocket` wraps the *same* Express app in a new `http.createServer`. This serves identical Express routes on two ports and is confusing when reasoning about CORS/port config (`HTTPPORT=5000`, `WSPORT=8000`).
+
+**Evidence:** `backend/.env` uses `HTTPPORT=5000`/`WSPORT=8000` and `frontend/.env` `WS_URL=ws://localhost:8000/ws`. Connection log `socket connected` appears, so current dual-server happens to work, but future middleware (rate-limit, helmet) runs twice.
+
+**Suggested change (optional):** Either document the dual-port intent explicitly, or attach socket.io to the single HTTP server: `const httpServer = createServer(app); const io = new Server(httpServer, {path:'/ws'}); httpServer.listen(httpPort)` and remove `wsPort` separation if only one port is desired. If two ports are intentional, pass `httpServer` explicitly instead of re-wrapping `app`.
+
+**Reason:** Clarity and prevents duplicate route handling.
+
+**Impact:** Requires coordinated config change (`WSPORT` vs single port) — do not change without updating `frontend/.env` and deployment docs.
+

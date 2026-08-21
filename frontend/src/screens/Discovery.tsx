@@ -653,6 +653,16 @@ export default function Discovery({
                     <span className="discovery__continueArrow" aria-hidden="true">→</span>
                   </button>
                   <span className="discovery__continueHint">Press Enter to continue</span>
+                  <button
+                    type="button"
+                    className="discovery__cancelGhost"
+                    onClick={() => { try { getWsClient().sendRunCancel('Traveler cancelled discovery') } catch {} }}
+                    aria-label="Cancel and return to start"
+                    disabled={busy}
+                    style={{ marginLeft: 12, fontSize: 12, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--voyager-ink-3)', background: 'transparent', border: '1px solid transparent', cursor: busy ? 'not-allowed' : 'pointer', opacity: busy ? 0.4 : 0.72, padding: '6px 10px', borderRadius: 8 }}
+                  >
+                    Cancel
+                  </button>
                 </div>
 
                 <div

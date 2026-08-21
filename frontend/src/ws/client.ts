@@ -507,6 +507,8 @@ export type ClientStateSnapshot = {
 
 export type ConnectionState = 'idle' | 'connecting' | 'open' | 'closed';
 
+import { SocketTransport } from './socketTransport'
+
 export class WsClient {
   // identity
   private sessionId: string | null = null;
@@ -524,11 +526,13 @@ export class WsClient {
 
   // connection
   private ws: WebSocket | null = null;
+  private sio: SocketTransport | null = null;
   private connState: ConnectionState = 'idle';
   private url: string;
   private retryPolicy: RetryPolicy;
   private createSocket?: (url: string) => WebSocket;
   private opts: WsClientOptions;
+  private useSocketIO = true
 
   // pending acks for at-least-once retries
   private pendingRetries = new Map<string, { envelope: Envelope; attempts: number; timer: ReturnType<typeof setTimeout> | null }>();
@@ -540,7 +544,7 @@ export class WsClient {
   private listeners = new Set<(env: Envelope) => void>();
 
   constructor(opts: WsClientOptions = {}) {
-    this.url = opts.url ?? 'ws://localhost:3000/ws';
+    this.url = opts.url ?? 'ws://localhost:8000/ws';
     this.retryPolicy = opts.retryPolicy ?? DEFAULT_RETRY_POLICY;
     this.createSocket = opts.createSocket;
     this.opts = opts;
@@ -730,6 +734,12 @@ export class WsClient {
   // -- raw send / retry ------------------------------------------------------
 
   private sendRaw(env: Envelope): void {
+    if (this.useSocketIO && this.sio) {
+      if (this.sio.isConnected()) {
+        try { this.sio.sendEnvelope(env) } catch { /* will retry */ }
+      }
+      return
+    }
     if (this.ws && this.ws.readyState === 1) { // OPEN
       try { this.ws.send(JSON.stringify(env)); } catch { /* will retry */ }
     } else {
@@ -769,6 +779,27 @@ export class WsClient {
     this.url = target;
     this.connState = 'connecting';
     this.emitState();
+    if (this.useSocketIO) {
+      try {
+        this.sio = new SocketTransport({
+          url: target,
+          onEnvelope: (env, raw) => this.handleRawMessage(raw),
+          onOpen: () => { this.connState = 'open'; this.emitState(); this.flushPending() },
+          onClose: () => { this.connState = 'closed'; for (const [, p] of this.pendingRetries) if (p.timer) clearTimeout(p.timer); this.emitState() },
+          onError: () => {
+            const err = sanitizeErrorPayload('invalid_envelope', 'websocket error', false);
+            this.opts.onError?.({ message_id: genMessageId(), kind: 'error', type: 'error', occurred_at: new Date().toISOString(), payload: err as unknown as Record<string, unknown> } as Envelope)
+          },
+        })
+        this.sio.connect()
+      } catch (e) {
+        const err = createInvalidEnvelopeError(sanitizeMessage(String(e)), false);
+        this.opts.onError?.(err);
+        this.connState = 'closed';
+        this.emitState();
+      }
+      return
+    }
     const factory = this.createSocket ?? ((u: string) => new WebSocket(u));
     try {
       this.ws = factory(target);
@@ -807,7 +838,9 @@ export class WsClient {
     for (const [, p] of this.pendingRetries) if (p.timer) clearTimeout(p.timer);
     this.pendingRetries.clear();
     try { this.ws?.close(); } catch {}
+    try { this.sio?.disconnect(); } catch {}
     this.ws = null;
+    this.sio = null;
     this.connState = 'closed';
     this.emitState();
   }

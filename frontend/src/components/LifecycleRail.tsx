@@ -1,13 +1,18 @@
 /**
  * LifecycleRail — standalone rail (outside Consultation)
- * Kept for non-consultation contexts; when rendered inside Consultation,
- * Consultation owns its rail. This component now matches the dark warm
- * palette and supports a decision interruption state via prop.
+ * When rendered outside Consultation it now subscribes to the live
+ * PlanningLifecycleStore via the shared WsClient, so it is not a dummy.
+ * When Consultation owns its rail that instance is authoritative, but this
+ * standalone instance still shows live progress for deep-linked plan views.
  */
+
+import { useEffect, useState, useRef } from 'react'
+import { getSharedWsClient } from '../ws/WsProvider'
+import { PlanningLifecycleStore } from '../ws/planning'
 
 type RailStatus = "queued" | "started" | "progressed" | "completed" | "failed" | "decision_required"
 
-const stages: { key: string; label: string; status: RailStatus; summary?: string }[] = [
+const FALLBACK_STAGES: { key: string; label: string; status: RailStatus; summary?: string }[] = [
   { key:'discovery', label:'Discovery', status:'completed', summary:'Understanding you' },
   { key:'constraint_preference', label:'Constraint & Preference', status:'decision_required', summary:'Your input is needed to continue.' },
   { key:'experience_designer', label:'Attraction & Experience Designer', status:'queued', summary:'' },
@@ -28,7 +33,37 @@ function Dot({status}:{status: RailStatus}){
   return <span style={{width:7,height:7,borderRadius:999,border:'1px solid rgba(201,187,165,0.55)', display:'inline-block'}}/>
 }
 
-export default function LifecycleRail({expanded, decisionStageKey}:{expanded:boolean; decisionStageKey?: string}){
+export default function LifecycleRail({expanded, decisionStageKey: _decisionStageKey}:{expanded:boolean; decisionStageKey?: string}){
+  const [liveStages, setLiveStages] = useState<{ key: string; label: string; status: RailStatus; summary?: string }[] | null>(null)
+  const storeRef = useRef<PlanningLifecycleStore | null>(null)
+  useEffect(() => {
+    if (!expanded) return
+    try {
+      const client = getSharedWsClient()
+      const store = new PlanningLifecycleStore({
+        onStagesChanged: (stages) => {
+          setLiveStages(stages.map(s => ({ key: s.key, label: s.label, status: s.status as RailStatus, summary: s.summary })))
+        },
+        onPlanningStatusChanged: () => {},
+        onDiagnostics: () => {},
+      })
+      storeRef.current = store
+      setLiveStages(store.getStages().map(s => ({ key: s.key, label: s.label, status: s.status as RailStatus, summary: s.summary })))
+      const unsub = client.subscribe((env) => {
+        const t = (env as unknown as { type: string }).type
+        const kind = (env as unknown as { kind: string }).kind
+        if (kind !== 'event') return
+        if (t === 'agent.lifecycle') store.handleAgentLifecycle(env.payload)
+        else if (t === 'planning.status') store.handlePlanningStatus(env.payload)
+      })
+      return () => { unsub(); storeRef.current = null }
+    } catch {
+      setLiveStages(null)
+    }
+  }, [expanded])
+
+  const stages = liveStages ?? FALLBACK_STAGES
+
   if(!expanded){
     return <div aria-hidden style={{position:'fixed', right:0, top:64, bottom:0, width:3, background:'rgba(179,138,85,0.32)'}}/>
   }
