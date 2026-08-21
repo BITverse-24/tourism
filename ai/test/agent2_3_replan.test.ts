@@ -15,7 +15,7 @@ const candinput: CandidateDesignInput = {
         max_candidates: 1,
         max_tool_calls: 30,
         max_rows_per_tool_call: 50,
-        timeout_ms: 120000,
+        timeout_ms: 1200000,
         }
 }
 const candtools: CandidateDesignTools = {

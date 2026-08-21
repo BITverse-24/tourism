@@ -4,13 +4,13 @@
         "test": "npm run build && node ./dist/test/*.test.js"
     },
     "dependencies": {
-        "openai": "^4.72.0",
         "better-sqlite3": "^13.0.3",
         "csv-parse": "^7.0.2",
         "dotenv": "^17.4.2",
+        "openai": "^4.72.0",
         "tsc": "^2.0.4",
         "typescript": "^7.0.2",
-        "zod": "^4.4.3"
+        "zod": "^3.25.76"
     },
     "devDependencies": {
         "@types/better-sqlite3": "^9.6.0"

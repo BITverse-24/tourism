@@ -183,7 +183,7 @@ export interface SearchCitiesInput { region: string | null; destination_types: s
 export interface SearchCitiesResult { cities: CityRecord[]; next_cursor: string | null; }
 export interface GetCityInput { city_id: string; }
 export interface GetCityResult { city: CityRecord; }
-export interface QueryAttractionsInput { city_id: string; query: string; best_for: string[]; attraction_types: string[]; }
+export interface QueryAttractionsInput { query: string }
 export interface QueryAttractionsResult { attractions: AttractionRecord[]; query_id: string; next_cursor: string | null; }
 export interface GetAttractionsByIdsInput { city_id: string; attraction_ids: string[]; }
 export interface GetAttractionsByIdsResult { attractions: AttractionRecord[]; }
@@ -246,7 +246,8 @@ const FIXED_MODEL = "muse-spark-1.2-contributor";
 const META_BASE_URL = "https://api.meta.ai/v1";
 const DEFAULT_TIMEOUT_MS = 30_000;
 
-const stringOrNullSchema = { type: ["string", "null"] } as const;
+// const stringOrNullSchema = {
+//     anyOf: [{ type: "string" }, { type: "null" }] } as const;
 
 const VISIT_APPROACH_SCHEMA = {
     type: "object", additionalProperties: false,
@@ -255,14 +256,17 @@ const VISIT_APPROACH_SCHEMA = {
 } as const;
 const SOFT_CONFLICT_SCHEMA = {
     type: "object", additionalProperties: false,
-    properties: { topic: { type: "string" }, explanation: { type: "string" }, alternative_attraction_id: stringOrNullSchema, evidence_refs: { type: "array", items: { type: "string" } } },
+    // properties: { topic: { type: "string" }, explanation: { type: "string" }, alternative_attraction_id: stringOrNullSchema, evidence_refs: { type: "array", items: { type: "string" } } },
+    properties: { topic: { type: "string" }, explanation: { type: "string" }, alternative_attraction_id: "string", evidence_refs: { type: "array", items: { type: "string" } } },
+    // required: ["topic", "explanation", "alternative_attraction_id", "evidence_refs"],
     required: ["topic", "explanation", "alternative_attraction_id", "evidence_refs"],
 } as const;
 const DAY_ITEM_SCHEMA = {
     type: "object", additionalProperties: false,
     properties: {
         type: { type: "string", enum: ["experience", "meal", "rest"] },
-        attraction_id: stringOrNullSchema, city_id: stringOrNullSchema, title: { type: "string" }, description: { type: "string" },
+        // attraction_id: stringOrNullSchema, city_id: stringOrNullSchema, title: { type: "string" }, description: { type: "string" },
+        attraction_id: "string", city_id: "string", title: { type: "string" }, description: { type: "string" },
         visit_approach: { type: ["object", "null"], additionalProperties: false, properties: VISIT_APPROACH_SCHEMA.properties, required: VISIT_APPROACH_SCHEMA.required },
         evidence_refs: { type: "array", items: { type: "string" } }, soft_conflicts: { type: "array", items: SOFT_CONFLICT_SCHEMA },
     },
@@ -283,7 +287,8 @@ export const CANDIDATE_DESIGN_RESPONSE_SCHEMA = {
                         type: "object", additionalProperties: false,
                         properties: {
                             route_id: { type: "string" },
-                            stops: { type: "array", items: { type: "object", additionalProperties: false, properties: { city_id: { type: "string" }, city_name: stringOrNullSchema, order: { type: "integer" }, days: { type: "integer" }, reason: { type: "string" }, evidence_refs: { type: "array", items: { type: "string" } } }, required: ["city_id", "city_name", "order", "days", "reason", "evidence_refs"] } },
+                            stops: { type: "array", items: { type: "object", additionalProperties: false, properties: { city_id: { type: "string" }, city_name: "string", order: { type: "integer" }, days: { type: "integer" }, reason: { type: "string" }, evidence_refs: { type: "array", items: { type: "string" } } }, required: ["city_id", "city_name", "order", "days", "reason", "evidence_refs"] } },
+                            // stops: { type: "array", items: { type: "object", additionalProperties: false, properties: { city_id: { type: "string" }, city_name: stringOrNullSchema, order: { type: "integer" }, days: { type: "integer" }, reason: { type: "string" }, evidence_refs: { type: "array", items: { type: "string" } } }, required: ["city_id", "city_name", "order", "days", "reason", "evidence_refs"] } },
                             assumptions: { type: "array", items: { type: "string" } }, tradeoffs: { type: "array", items: { type: "string" } }, unresolved_details: { type: "array", items: { type: "string" } },
                         }, required: ["route_id", "stops", "assumptions", "tradeoffs", "unresolved_details"],
                     },
@@ -728,6 +733,7 @@ region:
 - East India
 - West India
 - Northeast India
+- Central India
 
 climate_type:
 - Tropical
@@ -752,6 +758,7 @@ destination_type:
 - Nightlife
 - Food
 - Shopping
+- Music
 - Multiple values are allowed.
 
 tourism_popularity:
@@ -1049,26 +1056,35 @@ function validateInput(input: CandidateDesignInput): void {
     if (!Number.isInteger(input.run_budget.max_candidates) || input.run_budget.max_candidates < 1 || input.run_budget.max_candidates > 5) throw new CandidateDesignConfigurationError("run_budget.max_candidates must be between 1 and 5");
     if (!Number.isInteger(input.run_budget.max_tool_calls) || input.run_budget.max_tool_calls < 1 || input.run_budget.max_tool_calls > 100) throw new CandidateDesignConfigurationError("run_budget.max_tool_calls must be between 1 and 100");
     if (!Number.isInteger(input.run_budget.max_rows_per_tool_call) || input.run_budget.max_rows_per_tool_call < 1 || input.run_budget.max_rows_per_tool_call > 50) throw new CandidateDesignConfigurationError("run_budget.max_rows_per_tool_call must be between 1 and 50");
-    if (!Number.isInteger(input.run_budget.timeout_ms) || input.run_budget.timeout_ms < 1000 || input.run_budget.timeout_ms > 120000) throw new CandidateDesignConfigurationError("run_budget.timeout_ms must be between 1000 and 120000");
+    if (!Number.isInteger(input.run_budget.timeout_ms) || input.run_budget.timeout_ms < 1000 || input.run_budget.timeout_ms > 1200000) throw new CandidateDesignConfigurationError("run_budget.timeout_ms must be between 1000 and 120000");
 }
 
 function buildToolSchemas(options: CandidateDesignOptions): unknown[] {
     const searchCities = {
         type: "function", function: {
-            name: "search_cities", description: "Search known cities. Use to discover cities matching the traveler's destination request and preferences.", strict: true,
-            parameters: { type: "object", additionalProperties: false, properties: { region: stringOrNullSchema, destination_types: { type: "array", items: { type: "string" } }, climate_types: { type: "array", items: { type: "string" } }, tourism_popularity: stringOrNullSchema }, required: ["region", "destination_types", "climate_types", "tourism_popularity"] },
+            name: "search_cities", description: "Search known cities from csv file. Use to discover cities matching the traveler's destination request and preferences.", strict: true,
+                parameters: {
+                        type: "object", additionalProperties: false, properties: {
+                            region: { type: "string", description: "region of the city, possible values in system prompt" },
+                            // region: { type: stringOrNullSchema, description: "region of the city, possible values in system prompt" },
+                            destination_types: { type: "array", items: { type: "string" }, description: "venue category for destination, possible values in system prompt" },
+                            climate_types: { type: "array", items: { type: "string" }, description: "climate category for destination, possible values in system prompt" },
+                            // tourism_popularity: { type: stringOrNullSchema, description: "popularity level of destination, controlled values in system prompt" }
+                            tourism_popularity: { type: "string", description: "popularity level of destination, controlled values in system prompt" }
+                        }, required: ["region", "destination_types", "climate_types", "tourism_popularity"]
+                },
         },
     };
     const getCity = {
         type: "function", function: {
             name: "get_city", description: "Load one authoritative city record by stable city_id.", strict: true,
-            parameters: { type: "object", additionalProperties: false, properties: { city_id: { type: "string" } }, required: ["city_id"] },
+            parameters: { type: "object", additionalProperties: false, properties: { city_id: { type: "string", description: "stable city_id, string" } }, required: ["city_id"] },
         },
     };
     const queryAttractions = {
         type: "function", function: {
-            name: "query_attractions", description: "Query known attractions within an explicitly selected city.", strict: true,
-            parameters: { type: "object", additionalProperties: false, properties: { city_id: { type: "string" }, query: { type: "string" }, best_for: { type: "array", items: { type: "string" } }, attraction_types: { type: "array", items: { type: "string" } } }, required: ["city_id", "query", "best_for", "attraction_types"] },
+            name: "query_attractions", description: "Query known attractions using sql queries.", strict: true,
+            parameters: { type: "object", additionalProperties: false, properties: { query: { type: "string", description: "sql query for a sqlite table, schema in system prompt"} }, required: ["query"] },
         },
     };
     const getAttractionsByIds = {
@@ -1148,16 +1164,12 @@ async function executeTool(state: RunState, name: string, rawArguments: string):
             return JSON.stringify({ city: result.city });
         }
         if (name === "query_attractions") {
-            exactKeys(args, ["city_id", "query", "best_for", "attraction_types"], "query_attractions arguments");
-            const cityId = nonEmptyString(args.city_id, "query_attractions.city_id");
+            exactKeys(args, ["query"], "query_attractions arguments");
             const result = await withDeadline(state.options.tools!.queryAttractions({
-                city_id: cityId,
                 query: typeof args.query === "string" ? args.query.trim() : "",
-                best_for: stringArray(args.best_for, "query_attractions.best_for"),
-                attraction_types: stringArray(args.attraction_types, "query_attractions.attraction_types"),
             }), state.deadline, "query_attractions");
             if (result.attractions.length > state.input.run_budget.max_rows_per_tool_call) throw new CandidateDesignToolError("query_attractions exceeded the row limit", "row_budget_exhausted");
-            for (const attraction of result.attractions) { validateAttractionRecord(attraction, cityId); state.known_attractions.set(attraction.attraction_id, attraction); }
+            // for (const attraction of result.attractions) { validateAttractionRecord(attraction, cityId); state.known_attractions.set(attraction.attraction_id, attraction); }
             state.retrieved_rows += result.attractions.length;
             return JSON.stringify({ query_id: result.query_id, attractions: result.attractions, next_cursor: result.next_cursor });
         }

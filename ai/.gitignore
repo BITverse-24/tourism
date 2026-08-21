@@ -4,10 +4,3 @@
 dist
 node_modules
 
-*
-!.gitignore
-!discovery.ts
-!candidate-design.ts
-!askUserTradeoff.ts
-!narrative.ts
-!PROPOSALS.md
