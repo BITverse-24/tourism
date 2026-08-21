@@ -342,6 +342,429 @@ Decision tool (when available):
 
 The final JSON contains the final itinerary bundle (candidates array holds the final choice).
 
+return JSON schema:
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CandidateDesignResult",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "mode",
+    "profile_revision",
+    "dataset_revisions",
+    "candidates",
+    "operational"
+  ],
+  "properties": {
+    "mode": {
+      "const": "itinerary"
+    },
+    "profile_revision": {
+      "type": "integer"
+    },
+    "dataset_revisions": {
+      "$ref": "#/$defs/DatasetRevisions"
+    },
+    "candidates": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/CandidateBundle"
+      }
+    },
+    "operational": {
+      "$ref": "#/$defs/Operational"
+    }
+  },
+  "$defs": {
+    "DatasetRevisions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "city",
+        "attraction"
+      ],
+      "properties": {
+        "city": {
+          "type": "string"
+        },
+        "attraction": {
+          "type": "string"
+        }
+      }
+    },
+    "Operational": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tool_calls",
+        "retrieved_rows"
+      ],
+      "properties": {
+        "tool_calls": {
+          "type": "integer"
+        },
+        "retrieved_rows": {
+          "type": "integer"
+        }
+      }
+    },
+    "CandidateBundle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "candidate_id",
+        "profile_revision",
+        "dataset_revisions",
+        "route",
+        "days",
+        "assumptions",
+        "tradeoffs",
+        "unresolved_details"
+      ],
+      "properties": {
+        "candidate_id": {
+          "type": "string"
+        },
+        "profile_revision": {
+          "type": "integer"
+        },
+        "dataset_revisions": {
+          "$ref": "#/$defs/DatasetRevisions"
+        },
+        "route": {
+          "$ref": "#/$defs/RouteCandidate"
+        },
+        "days": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CandidateDay"
+          }
+        },
+        "assumptions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "tradeoffs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "unresolved_details": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "RouteCandidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "route_id",
+        "stops",
+        "assumptions",
+        "tradeoffs",
+        "unresolved_details"
+      ],
+      "properties": {
+        "route_id": {
+          "type": "string"
+        },
+        "stops": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RouteStop"
+          }
+        },
+        "assumptions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "tradeoffs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "unresolved_details": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "CandidateDay": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "city_id",
+        "day_number",
+        "items"
+      ],
+      "properties": {
+        "city_id": {
+          "type": "string"
+        },
+        "day_number": {
+          "type": "integer"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CandidateDayItem"
+          }
+        }
+      }
+    },
+    "CandidateDayItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "attraction_id",
+        "city_id",
+        "title",
+        "description",
+        "visit_approach",
+        "evidence_refs",
+        "soft_conflicts"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "experience",
+            "meal",
+            "rest"
+          ]
+        },
+        "attraction_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "city_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "visit_approach": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/VisitApproach"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "soft_conflicts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SoftConflict"
+          }
+        }
+      }
+    },
+    "VisitApproach": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "timing_preference",
+        "duration_minutes",
+        "pace",
+        "focus",
+        "rationale",
+        "tradeoffs"
+      ],
+      "properties": {
+        "mode": {
+          "type": "string"
+        },
+        "timing_preference": {
+          "type": "string"
+        },
+        "duration_minutes": {
+          "type": "integer"
+        },
+        "pace": {
+          "type": "string"
+        },
+        "focus": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "rationale": {
+          "type": "string"
+        },
+        "tradeoffs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "SoftConflict": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "topic",
+        "explanation",
+        "alternative_attraction_id",
+        "evidence_refs"
+      ],
+      "properties": {
+        "topic": {
+          "type": "string"
+        },
+        "explanation": {
+          "type": "string"
+        },
+        "alternative_attraction_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "RouteStop": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "city_id",
+        "order",
+        "days"
+      ],
+      "properties": {
+        "city_id": {
+          "type": "string"
+        },
+        "city_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "order": {
+          "type": "integer"
+        },
+        "days": {
+          "type": "integer"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}
+
+
+When reading or creating city records from the CSV, treat the following fields as controlled values. Search the CSV for the exact existing value before assigning a value. Do not create synonyms, variants, abbreviations, new categories, or city-specific values when a controlled value already exists.
+
+In the CSV, fields will have one of the following values:
+
+region:
+- North India
+- South India
+- East India
+- West India
+- Northeast India
+
+climate_type:
+- Tropical
+- Arid
+- Semi-Arid
+- Temperate
+- Mediterranean
+- Subtropical
+- Alpine
+
+destination_type:
+- Heritage
+- Beach
+- Mountain
+- Nature
+- Wildlife
+- Adventure
+- Religious
+- Cultural
+- Urban
+- Wellness
+- Nightlife
+- Food
+- Shopping
+- Multiple values are allowed.
+
+tourism_popularity:
+- Very High
+- High
+- Moderate
+- Low
+- Very Low
+
+For fields with controlled values, always search the CSV for the allowed value before deciding or inserting a value. Match the value exactly, including capitalization, spacing, hyphenation, and spelling.
+
+Do not introduce values such as:
+- "North" when the controlled value is "North India"
+- "Sub-tropical" when the controlled value is "Subtropical"
+- "Highly Popular" when the controlled value is "Very High"
+- "Beach Destination" when the controlled value is "Beach"
+
+Fields that are not controlled enumerations must still follow their field-specific constraints:
+- city_id: string in 'city_state' format, lowercase, spaces replaced with underscores.
+- city_name: recognized official English city name.
+- state: official Indian state or union territory name.
+- latitude: number in decimal degrees.
+- longitude: number in decimal degrees.
+- elevation_m: number representing elevation in metres.
+- primary_airport: official airport name.
+- primary_airport_iata: official three-letter IATA code.
+- primary_railway_station: official railway station name.
+- primary_railway_station_code: official railway station code when reliably available; otherwise empty/null where permitted.
+- recommended_days_min: integer.
+- recommended_days_max: integer and must be greater than or equal to 'recommended_days_min'.
+
+For 'destination_type', each individual array value must come from the controlled list above. Never add a value outside that list.
+
 attraction table schema for query_attraction tool call usage
 CREATE TABLE attraction (
     attraction_id TEXT PRIMARY KEY
@@ -1108,13 +1531,14 @@ export async function processCandidateDesign(input: CandidateDesignInput, option
             }
             candidates = normalized;
         } catch (error) {
-            if (!(error instanceof CandidateDesignResponseError) || repairAttempts >= 2) {
+            throw error;
+            // if (!(error instanceof CandidateDesignResponseError) || repairAttempts >= 2) {
 
-                if (error instanceof CandidateDesignResponseError) throw error;
-                throw new CandidateDesignResponseError("candidate response validation failed");
-            }
-            repairAttempts += 1;
-            messages.push({ role: "user", content: buildRepairMessage(error.validation_errors.length ? error.validation_errors : [error.message]) });
+            //     if (error instanceof CandidateDesignResponseError) throw error;
+            //     throw new CandidateDesignResponseError("candidate response validation failed");
+            // }
+            // repairAttempts += 1;
+            // messages.push({ role: "user", content: buildRepairMessage(error.validation_errors.length ? error.validation_errors : [error.message]) });
         }
     }
     return {
