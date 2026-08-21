@@ -1,6 +1,7 @@
-import { useState, useRef, useEffect, useMemo } from 'react'
+import { useState, useRef, useEffect, useMemo, useContext } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useWs } from '../ws/useWs'
+import { WsContext } from '../ws/WsProvider'
 import type { TravelerProfile } from '../types'
 
 type Profile = TravelerProfile & { profile_revision?: number }
@@ -33,8 +34,11 @@ export default function ProfileReview() {
   const [topics, setTopics] = useState<string[]>([])
   const [note, setNote] = useState('')
   const [busy, setBusy] = useState(false)
+  const [confirming, setConfirming] = useState(false)
   const [notice, setNotice] = useState('')
   const navigate = useNavigate()
+  const wsContext = useContext(WsContext)
+  const workflowState = wsContext?.workflowState ?? null
 
   // --- Live snapshot consumption (WEBSOCKET_CONTRACT.md) ---
   // profile.snapshot: { revision, state draft|ready|confirmed, profile }
@@ -69,7 +73,7 @@ export default function ProfileReview() {
     return liveSnapshot.revision === liveReady.profile_revision
   }, [liveSnapshot, liveReady])
   const hasNoBlockingUnknowns = (liveReady?.blocking_unknowns.length ?? 0) === 0
-  const canConfirm = isReadyState && isLatestRevision && hasNoBlockingUnknowns && !!displayProfile && !busy && ws.canConfirm
+  const canConfirm = isReadyState && isLatestRevision && hasNoBlockingUnknowns && !!displayProfile && !busy && !confirming && ws.canConfirm
   // ws.canConfirm already encodes the same checks; we combine for belt-and-braces and to match task wording explicitly.
 
   const requestChangesBtnRef = useRef<HTMLButtonElement>(null)
@@ -97,7 +101,7 @@ export default function ProfileReview() {
   }, [displayProfile])
 
   const doConfirm = () => {
-    if (busy) return
+    if (busy || confirming) return
     if (!liveSnapshot || !liveReady) {
       setNotice('Profile snapshot not yet available — please wait for the live profile to load.')
       return
@@ -115,24 +119,47 @@ export default function ProfileReview() {
       }
       return
     }
+    setConfirming(true)
     setBusy(true)
-    setNotice('')
+    setNotice('Confirming profile...')
     const revision = liveSnapshot.revision
     const result = ws.sendProfileConfirm(revision)
     if (!result.ok) {
+      setConfirming(false)
       setBusy(false)
       setNotice(result.error ?? 'Could not confirm the profile. Please try again.')
       return
     }
-    // Server will ack and start Planning Controller; navigate to consultation.
-    // In real flow server emits planning.status / agent.lifecycle after ack.
-    setTimeout(() => {
-      setBusy(false)
-      navigate('/consultation')
-    }, 300)
+    // Navigation will be handled by workflow state change in App.tsx
+    // Backend will emit workflow.state event with 'planning' state
   }
 
+  // Handle confirmation timeout - if backend doesn't respond within reasonable time, show error
+  useEffect(() => {
+    let timeoutId: ReturnType<typeof setTimeout> | null = null
+    if (confirming) {
+      timeoutId = setTimeout(() => {
+        setConfirming(false)
+        setBusy(false)
+        setNotice('Profile confirmation timed out. The backend may be experiencing issues. Please try again.')
+      }, 30000) // 30 second timeout
+    }
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId)
+    }
+  }, [confirming])
+
+  // Handle backend errors during confirmation
+  useEffect(() => {
+    if (confirming && !ws.connected) {
+      setConfirming(false)
+      setBusy(false)
+      setNotice('Connection lost during confirmation. Please check your connection and try again.')
+    }
+  }, [confirming, ws.connected])
+
   const doRequestChanges = () => {
+    if (busy || confirming) return
     const topicsTrimmed = topics.map((t) => t.trim()).filter(Boolean)
     const freeTextTrimmed = note.trim()
     if (topicsTrimmed.length === 0 && !freeTextTrimmed) {
@@ -470,16 +497,16 @@ export default function ProfileReview() {
                       : 'Confirm profile and start planning'
           }
         >
-          Confirm &amp; continue
+          {confirming ? 'Confirming...' : 'Confirm &amp; continue'}
         </button>
         <button
           ref={requestChangesBtnRef}
           className="pr-btn pr-btn--ghost"
           onClick={() => setEditorOpen((o) => !o)}
-          disabled={busy}
+          disabled={busy || confirming}
           aria-expanded={editorOpen}
           aria-controls="pr-editor"
-          style={{ opacity: busy ? 0.45 : 1 }}
+          style={{ opacity: (busy || confirming) ? 0.45 : 1 }}
         >
           Request changes
         </button>
@@ -533,10 +560,10 @@ export default function ProfileReview() {
             className="pr-textarea"
           />
           <div className="pr-editor-actions">
-            <button onClick={doRequestChanges} className="pr-btn pr-btn--primary pr-btn--sm" disabled={busy}>
+            <button onClick={doRequestChanges} className="pr-btn pr-btn--primary pr-btn--sm" disabled={busy || confirming}>
               Send changes →
             </button>
-            <button onClick={() => setEditorOpen(false)} className="pr-btn pr-btn--ghost pr-btn--sm" disabled={busy}>
+            <button onClick={() => setEditorOpen(false)} className="pr-btn pr-btn--ghost pr-btn--sm" disabled={busy || confirming}>
               Cancel
             </button>
           </div>

@@ -73,15 +73,18 @@ function AppShell(){
   }, [workflowState, loc.pathname, isArrival, navigate])
 
   // Auto-navigation on plan snapshot final (draft stays on consultation)
+  // Disabled: Let consultation screen handle the flow and stay on screen to show the planning progress
   useEffect(() => {
     const isFinal = liveState === 'final'
     const isPlanReady = workflowState === 'plan_ready'
     if (!isFinal && !isPlanReady) return
     if (liveState === 'draft') return
     if (loc.pathname === '/trip-overview' || loc.pathname === '/day-canvas') return
-    if (loc.pathname === '/consultation' || loc.pathname === '/decision') {
-      navigate('/trip-overview')
-    }
+    // Removed auto-navigation from consultation to allow users to see the planning flow
+    // Users can manually navigate to trip-overview when ready
+    // if (loc.pathname === '/consultation' || loc.pathname === '/decision') {
+    //   navigate('/trip-overview')
+    // }
   }, [liveState, workflowState, loc.pathname, navigate])
 
   // Workflow completed cancelled → show dedicated cancelled state (banner + return to start)
