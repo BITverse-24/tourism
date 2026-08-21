@@ -106,11 +106,12 @@ export async function profileConfirmService(
                                                                                             
                                                                                             
     // agent 3 service                                                                      
+    const candidate = candidateDesignRes.candidates[0];                                        
     const narrativeInput: NarrativeInput = {                                                
-        profile: profile,
-        profile_revision: candidateDesignRes.profile_revision,
-        candidate: candidateDesignRes.candidates[0],                                        
-        dataset_revisions: { city: candidateDesignRes.dataset_revisions.city, attraction: candidateDesignRes.dataset_revisions.attraction }, ///// TOO DOO when whenever 
+        profile: prof,
+        profile_revision: candidate.profile_revision,
+        candidate: candidate,
+        dataset_revisions: { city: candidate.dataset_revisions.city, attraction: candidate.dataset_revisions.attraction }, ///// TOO DOO when whenever 
     }                                                                                       
     const narrativeOpt: NarrativeOptions = createNarrativeOptions({                         
         api_key: conf.agent_api_key,                                                        
