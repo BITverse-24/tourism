@@ -176,9 +176,9 @@ export interface SearchCitiesInput { region: string | null; destination_types: s
 export interface SearchCitiesResult { cities: CityRecord[]; next_cursor: string | null; }
 export interface GetCityInput { city_id: string; }
 export interface GetCityResult { city: CityRecord; }
-export interface QueryAttractionsInput { city_id: string; query: string; best_for: string[]; attraction_types: string[]; }
+export interface QueryAttractionsInput { query: string; }
 export interface QueryAttractionsResult { attractions: AttractionRecord[]; query_id: string; next_cursor: string | null; }
-export interface GetAttractionsByIdsInput { city_id: string; attraction_ids: string[]; }
+export interface GetAttractionsByIdsInput { attraction_ids: string[]; }
 export interface GetAttractionsByIdsResult { attractions: AttractionRecord[]; }
 
 export interface CandidateDesignTools {
@@ -318,8 +318,8 @@ Rules:
 Tools:
 - search_cities: find known cities (filter by region/destination_types/climate_types/tourism_popularity)
 - get_city: load one authoritative city record by city_id
-- query_attractions: query attractions within an explicitly selected city_id
-- get_attractions_by_ids: hydrate exact attraction IDs within a city
+- query_attractions: query attractions via free-text query
+- get_attractions_by_ids: hydrate exact attraction IDs
 
 Decision tool (when available):
 - Use ask_user_decision only when a material tradeoff, hard-constraint conflict, or missing preference materially changes the plan (e.g. comfort vs coverage, crowd vs intimacy). Max 3 per run.
@@ -378,14 +378,14 @@ function buildToolSchemas(options: CandidateDesignOptions): unknown[] {
   };
   const queryAttractions = {
     type: "function", function: {
-      name: "query_attractions", description: "Query known attractions within an explicitly selected city.", strict: true,
-      parameters: { type: "object", additionalProperties: false, properties: { city_id: { type: "string" }, query: { type: "string" }, best_for: { type: "array", items: { type: "string" } }, attraction_types: { type: "array", items: { type: "string" } } }, required: ["city_id", "query", "best_for", "attraction_types"] },
+      name: "query_attractions", description: "Query known attractions via free-text query.", strict: true,
+      parameters: { type: "object", additionalProperties: false, properties: { query: { type: "string" } }, required: ["query"] },
     },
   };
   const getAttractionsByIds = {
     type: "function", function: {
-      name: "get_attractions_by_ids", description: "Hydrate exact known attraction IDs within the selected city.", strict: true,
-      parameters: { type: "object", additionalProperties: false, properties: { city_id: { type: "string" }, attraction_ids: { type: "array", items: { type: "string" } } }, required: ["city_id", "attraction_ids"] },
+      name: "get_attractions_by_ids", description: "Hydrate exact known attraction IDs.", strict: true,
+      parameters: { type: "object", additionalProperties: false, properties: { attraction_ids: { type: "array", items: { type: "string" } } }, required: ["attraction_ids"] },
     },
   };
   const tools: unknown[] = [searchCities, getCity, queryAttractions, getAttractionsByIds];
@@ -419,9 +419,9 @@ function ensureToolBudget(state: RunState): void {
 function validateCityRecord(city: CityRecord): void {
   if (!isRecord(city) || typeof city.city_id !== "string" || typeof city.city_name !== "string") throw new CandidateDesignToolError("retrieval returned an invalid city record", "invalid_city_record");
 }
-function validateAttractionRecord(attraction: AttractionRecord, cityId: string): void {
+function validateAttractionRecord(attraction: AttractionRecord, cityId?: string): void {
   if (!isRecord(attraction) || typeof attraction.attraction_id !== "string" || typeof attraction.city_id !== "string" || typeof attraction.name !== "string") throw new CandidateDesignToolError("retrieval returned an invalid attraction record", "invalid_attraction_record");
-  if (attraction.city_id !== cityId) throw new CandidateDesignToolError("retrieval returned an attraction outside the selected city", "out_of_scope_attraction");
+  if (cityId !== undefined && attraction.city_id !== cityId) throw new CandidateDesignToolError("retrieval returned an attraction outside the selected city", "out_of_scope_attraction");
 }
 
 async function executeTool(state: RunState, name: string, rawArguments: string): Promise<string> {
@@ -457,27 +457,22 @@ async function executeTool(state: RunState, name: string, rawArguments: string):
       return JSON.stringify({ city: result.city });
     }
     if (name === "query_attractions") {
-      exactKeys(args, ["city_id", "query", "best_for", "attraction_types"], "query_attractions arguments");
-      const cityId = nonEmptyString(args.city_id, "query_attractions.city_id");
+      exactKeys(args, ["query"], "query_attractions arguments");
       const result = await withDeadline(state.options.tools!.queryAttractions({
-        city_id: cityId,
         query: typeof args.query === "string" ? args.query.trim() : "",
-        best_for: stringArray(args.best_for, "query_attractions.best_for"),
-        attraction_types: stringArray(args.attraction_types, "query_attractions.attraction_types"),
       }), state.deadline, "query_attractions");
       if (result.attractions.length > state.input.run_budget.max_rows_per_tool_call) throw new CandidateDesignToolError("query_attractions exceeded the row limit", "row_budget_exhausted");
-      for (const attraction of result.attractions) { validateAttractionRecord(attraction, cityId); state.known_attractions.set(attraction.attraction_id, attraction); }
+      for (const attraction of result.attractions) { validateAttractionRecord(attraction); state.known_attractions.set(attraction.attraction_id, attraction); }
       state.retrieved_rows += result.attractions.length;
       return JSON.stringify({ query_id: result.query_id, attractions: result.attractions, next_cursor: result.next_cursor });
     }
     // get_attractions_by_ids
-    exactKeys(args, ["city_id", "attraction_ids"], "get_attractions_by_ids arguments");
-    const cityId2 = nonEmptyString(args.city_id, "get_attractions_by_ids.city_id");
+    exactKeys(args, ["attraction_ids"], "get_attractions_by_ids arguments");
     const attractionIds = stringArray(args.attraction_ids, "get_attractions_by_ids.attraction_ids");
     if (attractionIds.length === 0 || attractionIds.length > state.input.run_budget.max_rows_per_tool_call) throw new CandidateDesignToolError("attraction_ids exceed the row limit", "row_budget_exhausted");
-    const result = await withDeadline(state.options.tools!.getAttractionsByIds({ city_id: cityId2, attraction_ids: attractionIds }), state.deadline, "get_attractions_by_ids");
+    const result = await withDeadline(state.options.tools!.getAttractionsByIds({ attraction_ids: attractionIds }), state.deadline, "get_attractions_by_ids");
     if (result.attractions.length > state.input.run_budget.max_rows_per_tool_call) throw new CandidateDesignToolError("get_attractions_by_ids exceeded the row limit", "row_budget_exhausted");
-    for (const attraction of result.attractions) { validateAttractionRecord(attraction, cityId2); state.known_attractions.set(attraction.attraction_id, attraction); }
+    for (const attraction of result.attractions) { validateAttractionRecord(attraction); state.known_attractions.set(attraction.attraction_id, attraction); }
     state.retrieved_rows += result.attractions.length;
     return JSON.stringify({ attractions: result.attractions });
   } catch (error) {
