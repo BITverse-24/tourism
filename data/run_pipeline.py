@@ -24,14 +24,16 @@ from attraction_generator import (
     generate_prompt_for_city_batch,
     extract_json_from_response,
     validate_attraction_record,
-    mock_generate_attractions
+    mock_generate_attractions,
+    load_system_prompt,
+    ATTRACTION_RESPONSE_SCHEMA
 )
 from writer import DatasetWriter
 
 
-def call_gemini_api(model_name: str, prompt: str, api_key: str) -> Tuple[str, int, int]:
+def call_gemini_api(model_name: str, prompt: str, api_key: str, system_instruction: str = "") -> Tuple[str, int, int]:
     """
-    Invoke Gemini REST API with specified model_name and prompt.
+    Invoke Gemini REST API with specified model_name, prompt, system instruction, and responseSchema.
     Returns (response_text, prompt_tokens, candidate_tokens, status_code).
     Raises urllib.error.HTTPError on HTTP errors (e.g. 429).
     """
@@ -41,9 +43,15 @@ def call_gemini_api(model_name: str, prompt: str, api_key: str) -> Tuple[str, in
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {
             "temperature": 0.2,
-            "responseMimeType": "application/json"
+            "responseMimeType": "application/json",
+            "responseSchema": ATTRACTION_RESPONSE_SCHEMA
         }
     }
+
+    if system_instruction:
+        payload["systemInstruction"] = {
+            "parts": [{"text": system_instruction}]
+        }
 
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(url, data=data, headers=headers, method="POST")
@@ -113,11 +121,13 @@ def run_pipeline(
     checkpoint = writer.load_checkpoint() if resume else {"completed_city_ids": [], "city_progress": {}}
     completed_cities = set(checkpoint.get("completed_city_ids", []))
 
-    api_key = os.getenv("GEMINI_API_KEY", "")
+    api_key = os.getenv("GEMINI_API_KEY", "").strip()
     if not api_key and not dry_run:
         print("[Pipeline] WARNING: GEMINI_API_KEY environment variable not set. Forcing --dry-run mode.")
         dry_run = True
 
+    system_instruction = load_system_prompt()
+    print(f"[Pipeline] System prompt loaded from data/SYSTEM_PROMPT.md ({len(system_instruction)} chars)")
     print(f"[Pipeline] Mode: {'DRY RUN (Simulation)' if dry_run else 'LIVE GEMINI API'}")
     print(f"[Pipeline] Initial active model: {model_manager.get_active_model()}")
 
@@ -173,7 +183,12 @@ def run_pipeline(
 
                     try:
                         print(f"  Batch {batch_idx+1}/{needed_batches}: Querying {active_model} for {attractions_in_batch} POIs...", flush=True)
-                        response_text, tokens_used, status_code = call_gemini_api(active_model, prompt, api_key)
+                        response_text, tokens_used, status_code = call_gemini_api(
+                            model_name=active_model,
+                            prompt=prompt,
+                            api_key=api_key,
+                            system_instruction=system_instruction
+                        )
 
                         rate_limiter.record_request(tokens_used)
                         model_manager.record_success(active_model)
