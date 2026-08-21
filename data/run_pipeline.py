@@ -1,6 +1,8 @@
 """
 Main execution pipeline for Dataset 2 (Attraction Knowledgebase) generation.
-Integrates city_loader, rate_limiter, model_manager, attraction_generator, and writer.
+Integrates official google-genai Python SDK via Chat.send_message pattern with thinking_budget=0 for instant generation,
+city_loader, rate_limiter, model_manager (single API key with 4-tier model hierarchy step-down & timer recovery),
+attraction_generator (with SYSTEM_PROMPT.md & responseSchema), and writer.
 """
 
 import argparse
@@ -8,9 +10,11 @@ import json
 import os
 import sys
 import time
-import urllib.request
 import urllib.error
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Tuple, Optional
+
+from google import genai
+from google.genai import types
 
 # Ensure local data directory is in sys.path
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -33,44 +37,43 @@ from writer import DatasetWriter
 
 def call_gemini_api(model_name: str, prompt: str, api_key: str, system_instruction: str = "") -> Tuple[str, int, int]:
     """
-    Invoke Gemini REST API with specified model_name, prompt, system instruction, and responseSchema.
-    Returns (response_text, prompt_tokens, candidate_tokens, status_code).
-    Raises urllib.error.HTTPError on HTTP errors (e.g. 429).
+    Invoke official Google GenAI Python SDK using Chat.send_message pattern.
+    Configures thinking_budget=0 to disable reasoning overhead for instant JSON generation.
+    Returns (response_text, total_tokens, status_code).
+    Raises urllib.error.HTTPError on 429 rate limit / quota errors.
     """
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
-    headers = {"Content-Type": "application/json"}
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {
-            "temperature": 0.2,
-            "responseMimeType": "application/json",
-            "responseSchema": ATTRACTION_RESPONSE_SCHEMA
-        }
-    }
+    client = genai.Client(api_key=api_key)
 
+    config = types.GenerateContentConfig(
+        temperature=0.2,
+        response_mime_type="application/json",
+        response_schema=ATTRACTION_RESPONSE_SCHEMA,
+        thinking_config=types.ThinkingConfig(thinking_budget=1024),  # Allows ~5-10s reasoning budget
+    )
     if system_instruction:
-        payload["systemInstruction"] = {
-            "parts": [{"text": system_instruction}]
-        }
+        config.system_instruction = system_instruction
 
-    data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+    try:
+        chat = client.chats.create(
+            model=model_name,
+            config=config
+        )
+        response = chat.send_message(prompt)
 
-    with urllib.request.urlopen(req, timeout=60) as resp:
-        body = resp.read().decode("utf-8")
-        res_json = json.loads(body)
+        text = response.text or ""
+        total_tokens = 0
+        if response.usage_metadata and response.usage_metadata.total_token_count:
+            total_tokens = response.usage_metadata.total_token_count
+        else:
+            total_tokens = (len(prompt) + len(text)) // 4
 
-        text = ""
-        candidates = res_json.get("candidates", [])
-        if candidates and "content" in candidates[0]:
-            parts = candidates[0]["content"].get("parts", [])
-            if parts:
-                text = parts[0].get("text", "")
+        return text, total_tokens, 200
 
-        usage = res_json.get("usageMetadata", {})
-        total_tokens = usage.get("totalTokenCount", len(prompt) // 4 + len(text) // 4)
-
-        return text, total_tokens, resp.status
+    except Exception as e:
+        err_msg = str(e)
+        if "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg or "quota" in err_msg.lower():
+            raise urllib.error.HTTPError(url="", code=429, msg=err_msg, hdrs={}, fp=None)
+        raise e
 
 
 def run_pipeline(
@@ -89,6 +92,21 @@ def run_pipeline(
     with open(config_path, "r", encoding="utf-8") as f:
         config = json.load(f)
 
+    api_key = os.getenv("GEMINI_API_KEY", "").strip()
+    if not api_key and not dry_run:
+        print("[Pipeline] WARNING: GEMINI_API_KEY environment variable not set. Forcing --dry-run mode.")
+        dry_run = True
+
+    # Separate dry-run files from main production files
+    if dry_run:
+        output_dir = "data/output"
+        checkpoint_file = "data/checkpoint_dryrun.json"
+        main_json = "attractions_dryrun.json"
+    else:
+        output_dir = config.get("output_dir", "data/output")
+        checkpoint_file = config.get("checkpoint_file", "data/checkpoint.json")
+        main_json = "attractions.json"
+
     rate_cfg = config.get("rate_limits", {})
     rate_limiter = RateLimiter(
         max_rpm=rate_cfg.get("max_rpm", 5),
@@ -103,9 +121,11 @@ def run_pipeline(
     )
 
     writer = DatasetWriter(
-        output_dir=config.get("output_dir", "data/output"),
-        checkpoint_file=config.get("checkpoint_file", "data/checkpoint.json")
+        output_dir=output_dir,
+        checkpoint_file=checkpoint_file
     )
+    # Target custom filename for dry run if applicable
+    writer.json_path = os.path.join(writer.output_dir, main_json)
 
     # 2. Load cities from city.csv
     cities = load_cities(config.get("city_csv_path", "data/city.csv"))
@@ -121,14 +141,11 @@ def run_pipeline(
     checkpoint = writer.load_checkpoint() if resume else {"completed_city_ids": [], "city_progress": {}}
     completed_cities = set(checkpoint.get("completed_city_ids", []))
 
-    api_key = os.getenv("GEMINI_API_KEY", "").strip()
-    if not api_key and not dry_run:
-        print("[Pipeline] WARNING: GEMINI_API_KEY environment variable not set. Forcing --dry-run mode.")
-        dry_run = True
-
     system_instruction = load_system_prompt()
     print(f"[Pipeline] System prompt loaded from data/SYSTEM_PROMPT.md ({len(system_instruction)} chars)")
-    print(f"[Pipeline] Mode: {'DRY RUN (Simulation)' if dry_run else 'LIVE GEMINI API'}")
+    print(f"[Pipeline] Mode: {'DRY RUN (Isolated simulation)' if dry_run else 'LIVE GEMINI API (Production)'}")
+    print(f"[Pipeline] Output Target: {writer.json_path}")
+    print(f"[Pipeline] Checkpoint Target: {writer.checkpoint_file}")
     print(f"[Pipeline] Initial active model: {model_manager.get_active_model()}")
 
     total_attractions = checkpoint.get("total_attractions", 0)
@@ -142,12 +159,12 @@ def run_pipeline(
             continue
 
         target_attractions = city["target_attractions"]
-        batch_size = config.get("batch_size_attractions", 15)
+        batch_size = config.get("batch_size_attractions", 25)
         needed_batches = (target_attractions + batch_size - 1) // batch_size
 
         print("-" * 60)
         print(f"[{idx}/{len(cities)}] Processing City: {city['city_name']} ({city_id})")
-        print(f"  State: {city['state']} | Target POIs: {target_attractions} ({needed_batches} batches)")
+        print(f"  State: {city['state']} | Target POIs: {target_attractions} ({needed_batches} batches of ~{batch_size} POIs)")
 
         city_attractions = []
 
@@ -157,12 +174,11 @@ def run_pipeline(
                 break
 
             prompt = generate_prompt_for_city_batch(city, attractions_in_batch, batch_idx)
-            estimated_tokens = 2000 + (attractions_in_batch * 200)
+            estimated_tokens = 2500 + (attractions_in_batch * 200)
 
             # Proactive rate limit delay check
             rate_limiter.wait_if_needed(estimated_tokens=estimated_tokens, verbose=True)
 
-            # Active model resolution (handles cooldown timer resets and upgrades)
             active_model = model_manager.get_active_model()
 
             if dry_run:
@@ -172,7 +188,7 @@ def run_pipeline(
                 city_attractions.extend(records)
                 print(f"  Batch {batch_idx+1}/{needed_batches}: Generated {len(records)} mock POIs using {active_model} ({tokens_used} tokens)", flush=True)
             else:
-                # Live Gemini Call with retry/fallback logic
+                # Live Gemini Call using recommended Chat.send_message pattern
                 success = False
                 attempts = 0
                 max_attempts = len(model_manager.hierarchy) * 2
@@ -210,14 +226,19 @@ def run_pipeline(
                     except urllib.error.HTTPError as e:
                         if e.code == 429:
                             is_daily = "daily" in str(e).lower() or "quota" in str(e).lower()
-                            new_model = model_manager.handle_rate_limit(active_model, is_daily_quota=is_daily)
-                            print(f"    HTTP 429 Rate Limit on {active_model}. Switched to fallback: {new_model}", flush=True)
+                            next_m = model_manager.handle_rate_limit(active_model, is_daily_quota=is_daily)
+                            print(f"    HTTP 429 Rate Limit on {active_model}. Stepping down to: {next_m}", flush=True)
                             time.sleep(2)
                         else:
                             print(f"    HTTP Error {e.code} on {active_model}: {e.reason}", flush=True)
                             time.sleep(5)
                     except Exception as ex:
-                        print(f"    Unexpected error querying {active_model}: {ex}", flush=True)
+                        err_str = str(ex)
+                        if "timeout" in err_str.lower() or "timed out" in err_str.lower():
+                            next_m = model_manager.handle_rate_limit(active_model, is_daily_quota=False)
+                            print(f"    Timeout on {active_model}. Stepping down to: {next_m}", flush=True)
+                        else:
+                            print(f"    SDK error querying {active_model}: {ex}", flush=True)
                         time.sleep(3)
 
         # 5. Incremental citywise write & checkpointing
@@ -247,7 +268,7 @@ def print_status(config_path: str = "data/pipeline_config.json"):
     cp = writer.load_checkpoint()
     attractions = writer.load_existing_attractions()
     print("=" * 60)
-    print("PIPELINE STATUS REPORT")
+    print("PRODUCTION PIPELINE STATUS REPORT")
     print("=" * 60)
     print(f"Completed Cities: {len(cp.get('completed_city_ids', []))}/100")
     print(f"Total Stored Attractions (attractions.json): {len(attractions)}")
@@ -258,7 +279,7 @@ def print_status(config_path: str = "data/pipeline_config.json"):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Attraction Data Generation Pipeline")
-    parser.add_argument("--dry-run", action="store_true", help="Run simulation without live API calls")
+    parser.add_argument("--dry-run", action="store_true", help="Run simulation without live API calls using dry-run files")
     parser.add_argument("--no-resume", action="store_true", help="Start from scratch ignoring checkpoint")
     parser.add_argument("--city", type=str, default=None, help="Run pipeline for specific city_id")
     parser.add_argument("--status", action="store_true", help="Print pipeline status and exit")

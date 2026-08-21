@@ -1,7 +1,7 @@
 """
-Model Manager module handling 4-tier Gemini model fallback hierarchy and timer-based recovery:
+Model Manager module handling 4-tier Gemini model hierarchy fallback and timer-based recovery:
 Hierarchy:
-  1. gemini-3.7-flash
+  1. gemini-3.7-flash (Primary)
   2. gemini-3.6
   3. gemini-3.5
   4. gemini-3.5-flash-lite
@@ -12,7 +12,12 @@ from typing import List, Dict, Any, Optional
 
 
 class ModelManager:
-    def __init__(self, model_hierarchy: Optional[List[str]] = None, rpm_tpm_cooldown: int = 60, rpd_cooldown: int = 86400):
+    def __init__(
+        self,
+        model_hierarchy: Optional[List[str]] = None,
+        rpm_tpm_cooldown: int = 60,
+        rpd_cooldown: int = 86400
+    ):
         if model_hierarchy is None:
             model_hierarchy = [
                 "gemini-3.7-flash",
@@ -27,7 +32,8 @@ class ModelManager:
 
         # Lockout timestamps: model_name -> float (epoch time until locked)
         self.lockouts: Dict[str, float] = {m: 0.0 for m in self.hierarchy}
-        # Usage stats: model_name -> count of successful calls
+
+        # Usage counts: model_name -> count
         self.usage_counts: Dict[str, int] = {m: 0 for m in self.hierarchy}
 
         self.current_model: str = self.hierarchy[0]
@@ -37,31 +43,31 @@ class ModelManager:
         now = time.time()
         for model in self.hierarchy:
             if self.lockouts[model] > 0 and self.lockouts[model] <= now:
-                print(f"[ModelManager] Cooldown period expired for {model}. Unlocking model.")
+                print(f"[ModelManager] Cooldown period expired for {model}. Unlocking model for use.")
                 self.lockouts[model] = 0.0
         return now
 
     def get_active_model(self) -> str:
         """
-        Return the highest available model in hierarchy whose lock timer has expired.
-        Auto-upgrades back to higher models when timers expire.
+        Return the highest available model in the hierarchy whose lock timer has expired.
+        Auto-upgrades back to higher model tiers as soon as cooldown timers expire.
         """
         now = self._update_locks()
 
         for model in self.hierarchy:
             if self.lockouts[model] <= now:
                 if model != self.current_model:
-                    print(f"[ModelManager] Switching active model: {self.current_model} -> {model} (Highest available in hierarchy)")
+                    print(f"[ModelManager] Switching model: {self.current_model} -> {model} (Highest un-locked tier)")
                     self.current_model = model
                 return model
 
         # If all models are locked, return lowest tier and wait
-        print("[ModelManager] WARNING: All models in hierarchy are locked! Using lowest model tier and waiting.")
+        print("[ModelManager] WARNING: All models in hierarchy are locked! Defaulting to lowest model tier.")
         return self.hierarchy[-1]
 
     def handle_rate_limit(self, model_name: str, is_daily_quota: bool = False) -> str:
         """
-        Record rate limit lockout for model_name, trigger fallback to lower model,
+        Record rate limit lockout for model_name, trigger step-down fallback to next model tier,
         and return the new active model.
         """
         now = time.time()
@@ -81,10 +87,13 @@ class ModelManager:
 
     def get_status_report(self) -> Dict[str, Any]:
         """Return snapshot of model hierarchy states."""
-        now = time.time()
+        now = self._update_locks()
         return {
             "active_model": self.get_active_model(),
-            "lockouts": {m: max(0.0, round(self.lockouts[m] - now, 1)) for m in self.hierarchy},
+            "lockouts": {
+                m: max(0.0, round(self.lockouts[m] - now, 1))
+                for m in self.hierarchy
+            },
             "usage_counts": self.usage_counts
         }
 
@@ -94,6 +103,8 @@ if __name__ == "__main__":
     print("Initial active model:", mm.get_active_model())
 
     # Simulate rate limit on top model
-    next_model = mm.handle_rate_limit("gemini-3.7-flash", is_daily_quota=False)
-    print("Model after fallback:", next_model)
-    print("Status report:", mm.get_status_report())
+    next_m = mm.handle_rate_limit("gemini-3.7-flash", is_daily_quota=False)
+    print("After rate limit on top tier:", next_m)
+
+    next_m2 = mm.handle_rate_limit("gemini-3.6", is_daily_quota=False)
+    print("After rate limit on tier 2:", next_m2)
