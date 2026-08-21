@@ -108,7 +108,7 @@ export async function profileConfirmService(
     // agent 3 service                                                                      
     const candidate = candidateDesignRes.candidates[0];                                        
     const narrativeInput: NarrativeInput = {                                                
-        profile: prof,
+        profile: profile,
         profile_revision: candidate.profile_revision,
         candidate: candidate,
         dataset_revisions: { city: candidate.dataset_revisions.city, attraction: candidate.dataset_revisions.attraction }, ///// TOO DOO when whenever 
