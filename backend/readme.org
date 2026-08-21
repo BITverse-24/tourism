@@ -10,6 +10,24 @@
 - WSPORT                           - port for ws server [default: 3001]
 and some more stuff internally defined with defaults that arent stuff to be set
 
+* run
+make sure to have .env file with required fields in the backend directory
+then do
+#+begin_src sh
+  npm i
+  npm run build
+  npm run start
+#+end_src
+* tests
+make sure to have .env file with required fields in the backend directory
+then do
+#+begin_src sh
+  npm i
+  npm run test
+#+end_src
+some tests may require the server to be running (with some specific ports too hardcoded in the test files)
+
+
 * Todo [7/8] [87%]
 1. [X] add agent 1 calls
 2. [X] add agent 2 calls
