@@ -88,25 +88,29 @@ An attraction must still meet the quality threshold even if it is obscure.
 
 # TARGET INVENTORY SIZE
 
-Use approximately 40 attractions as the default target for each city.
+Use approximately 40 attractions as the **MAXIMUM CEILING** for each city, not a quota to fill.
 
 Use the following guidance:
 
-- Major metropolitan / exceptionally dense tourism destination: 50-70+
+- Major metropolitan / exceptionally dense tourism destination: ceiling 70, expected 50-70 if quality supports it
 
-- Major tourism destination: 40-60
+- Major tourism destination: ceiling 60, expected 40-60
 
-- Smaller destination within the top-100 list: 30-45
+- Smaller destination within the top-100 list (e.g. Shirdi): ceiling 45, expected 30-40 — do not pad to 50+
 
-The target is NOT a hard quota.
+**CRITICAL: COUNT IS A MAXIMUM.** Per-batch `count` (e.g. 25) is an upper bound. If a batch has fewer than `count` remaining high-quality distinct POIs, return fewer or `[]` — see `COUNT IS A MAXIMUM, NOT A QUOTA` in task prompt. `target_attractions` from `city_loader` (50-80) is a ceiling; pipeline will accept short batches and mark city complete early when LLM signals no more high-quality POIs (2 consecutive short batches or empty array).
 
-If only 38 attractions meet the quality threshold, return 38.
-
-If 57 genuinely meaningful attractions exist, return 57.
-
+If only 38 attractions meet the quality threshold, return 38 and stop — do not hallucinate to 50.
+If 57 genuinely meaningful attractions exist (dense city), return 57.
 Never invent, exaggerate, duplicate, or include low-value places merely to reach a target.
+For major cities, do not prematurely stop at 20-25 simply because famous attractions are found — continue until quality gate fails.
 
-For major cities, do not prematurely stop at 20-25 attractions simply because the most famous attractions have been found.
+# THINKING ALLOCATION — 80% QUALITY FOCUS (1024 BUDGET)
+
+You have ~1024 thinking tokens. Allocate ~80% to quality reasoning:
+1. City exhaustion check: have we covered Iconic + Secondary layers? Compare requested `count` vs. exclusion list — are remaining high-quality POIs < `count`? If yes, plan to return short/`[]`.
+2. If not exhausted, deep-search hidden gems/local favorites/offbeat (Layer 3/4) — genuine hidden gems per HIDDEN GEM RULE, not generic filler.
+3. Spend ~20% on formatting, coords, enums, IDs. Prefer quality over speed — hallucinated bad data is worse than slower good data.
 
 # DISCOVERY DISTRIBUTION
 
@@ -943,6 +947,16 @@ Before returning the final dataset, verify:
 16. All factual information is supported by research.
 
 17. No attraction is included solely to reach a numerical target.
+
+18. `attraction_id` matches `^[a-z0-9]+(_[a-z0-9]+)*_[a-z]+(_[a-z]+)*$` and contains ONLY ASCII a-z0-9_ (no Devanagari/non-Latin) — transliterate `अंबेडकर`→`ambedkar` via `sanitize_attraction_id`.
+
+19. `name`, `alternate_names`, `location_area`, `description` are English-only ASCII — no raw Devanagari/Unicode — transliterate local names to Latin.
+
+# LANGUAGE & ENCODING (STRICT — API-LEVEL ENFORCEMENT)
+
+- Output MUST be English-only ASCII for `name`, `attraction_id`, `location_area`, `alternate_names`. Never emit raw Devanagari / Indic script (e.g. `अंबेडकर`). Transliterate to Latin: `Dr. Babasaheb Ambedkar Memorial`.
+- `attraction_id` MUST be `attraction_name_{city_id}` lowercased with `[^a-z0-9]→_` — example VALID: `dr_babasaheb_ambedkar_memorial_mhow_indore_madhya_pradesh`; INVALID: `dr_babasaheb_ambेडकर_memorial_mhow_indore_madhya_pradesh`.
+- If source contains non-Latin script, transliterate first then sanitize — do not copy-paste original script into any ID or name field.
 
 # FINAL QUALITY AUDIT
 

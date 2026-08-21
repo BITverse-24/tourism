@@ -2,6 +2,19 @@
 
 ## 1. [APPLIED 2026-08-21] Make RPD exhaustion trigger model hierarchy step-down instead of 24h sleep — FIXED
 
+## 2. [APPLIED 2026-08-21] Per-model rate limits: lite RPD=500, gemma RPM=30 RPD=14000 TPM=16000 — FIXED
+
+**Target:** `data/pipeline_config.json`, `data/rate_limiter.py`, `data/run_pipeline.py`
+
+**Issue:** All 8 models shared global limits `RPM=5 RPD=20 TPM=250k`. With `RPD=20` a standard flash exhausted after 20 reqs and blocked; lite models (should allow 500) and gemma (14k) were incorrectly throttled at 20, forcing premature hierarchy descent.
+
+**Fix applied:**
+- `pipeline_config.json` now has `per_model_rate_limits` (lite 500, gemma 30/14000/16000) keeping `rate_limits` as default.
+- `rate_limiter.py` adds `PerModelRateLimiter` with per-model deques; `wait_if_needed(model, tokens)` and `is_rpd_exhausted(model)` scope to active model only.
+- `run_pipeline.py` uses `PerModelRateLimiter` and checks `is_rpd_exhausted(active_model)` + `get_limiter(active_model).max_rpd` before stepping, and `record_request(model, tokens)` per model. RPM/TPM also per-model (gemma 30/16k).
+
+**Verified:** flash 20 → exhausted, lite 20 → not exhausted, lite 500 → exhausted, gemma 30 → not exhausted (needs 14k), isolation confirmed.
+
 **Target:** `data/run_pipeline.py` (lines 192-197, proactive throttling before each batch) and `data/rate_limiter.py` ( `get_required_delay` / `wait_if_needed` )
 
 **Issue:** Pipeline prints `[RateLimiter] Throttling for 85469.51s to respect RPM=5, TPM=250000, RPD=20` and blocks for ~23.7h. This is the daily `RPD=20` sliding window: `delay = (oldest_rpd_ts + 86400) - now` (≈ `86400 - elapsed`). The intended contract per `rate_limiter.py` docstring is clear: `RPD tracked for metrics (daily quota limits trigger model tier step-down in ModelManager, NOT 24-hour sleeps)` and minute limits (`RPM=5`, `TPM=250k`) are 60s sleeps. The git history at `2c75350` shows the previous `rate_limiter.py` included the RPD branch in `get_required_delay()`; the file on disk at `2026-08-21 12:44` removed it, but stale `data/__pycache__/rate_limiter.cpython-314.pyc` (`2026-08-21 10:54`) still contains the old `Throttling for {delay} ... RPD={self.max_rpd}` string, which is what the user executed.
