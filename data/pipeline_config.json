@@ -1,0 +1,21 @@
+{
+  "rate_limits": {
+    "max_rpm": 5,
+    "max_rpd": 20,
+    "max_tpm": 250000
+  },
+  "model_hierarchy": [
+    "gemini-3.7-flash",
+    "gemini-3.6",
+    "gemini-3.5",
+    "gemini-3.5-flash-lite"
+  ],
+  "cooldown_seconds": {
+    "rpm_tpm": 60,
+    "rpd": 86400
+  },
+  "batch_size_attractions": 15,
+  "city_csv_path": "data/city.csv",
+  "output_dir": "data/output",
+  "checkpoint_file": "data/checkpoint.json"
+}
