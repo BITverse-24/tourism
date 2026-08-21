@@ -4,6 +4,8 @@
 - AGENT_API_KEY                    - api key for google studio https://aistudio.google.com/api-keys (REQUIRED)
 - CITY_KNOWLEDGEBASE_CSV           - path to city knowledgebase csv (REQUIRED)
 - ATTRACTIONS_KNOWLEDGEBASE_SQLITE - path to sqlite db for attractions (REQUIRED)
+- AGENT_MODEL                      - model of llm [default: gemini-3.6-flash]
+- AGENT_REASONING_EFFORT           - reasoning effort of llm [default: medium]
 - HTTPPORT                         - port for http server [default: 3000]
 - WSPORT                           - port for ws server [default: 3001]
 and some more stuff internally defined with defaults that arent stuff to be set

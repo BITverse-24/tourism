@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { z } from 'zod';
 
 const envSchema = z.object({
@@ -5,15 +6,15 @@ const envSchema = z.object({
     HTTPPORT: z.coerce.number().int().min(1).max(65535).default(3000),
     WSPORT: z.coerce.number().int().min(1).max(65535).default(3001),
     AGENT_API_KEY: z.string(),
-    AGENT_MODEL: z.string(),
-    AGENT_REASONING_EFFORT: z.enum(['low', 'medium', 'high']),
+    AGENT_MODEL: z.string().default('gemini-3.6-flash'),
+    AGENT_REASONING_EFFORT: z.enum(['low', 'medium', 'high']).default('medium'),
     AGENT_API_URL: z.string().default(''),
-    AGENT_TIMEOUT_MS: z.number().default(20_000),
+    AGENT_TIMEOUT_MS: z.coerce.number().default(20_000),
     CITY_KNOWLEDGEBASE_CSV: z.string(),
     ATTRACTIONS_KNOWLEDGEBASE_SQLITE: z.string(),
-    AGENT_2_MAX_CANDIDATES: z.number().default(1),
-    AGENT_2_MAX_TOOL_CALLS: z.number().default(3),
-    AGENT_2_MAX_ROWS_PER_TOOL_CALL: z.number().default(50),
+    AGENT_2_MAX_CANDIDATES: z.coerce.number().default(1),
+    AGENT_2_MAX_TOOL_CALLS: z.coerce.number().default(3),
+    AGENT_2_MAX_ROWS_PER_TOOL_CALL: z.coerce.number().default(50),
     // MONGO_URI: z.string().trim().min(1, 'MONGO_URI is required'),
     // DB_NAME: z.string().trim().min(1).default('api'),
     // ADMIN_API_TOKEN: z.string().trim().min(16, 'ADMIN_API_TOKEN must be at least 16 characters'),
