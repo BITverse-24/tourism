@@ -52,9 +52,9 @@ function DiscoveryRoute(){
   const [mockIdx, setMockIdx] = useState(0)
   const [mockBusy, setMockBusy] = useState(false)
   useEffect(() => { if (question) { setMockIdx(0); setMockBusy(false) } }, [question?.question_id])
-  // Live WS is default; mock appears only when WS is not connected and no live question.
-  // While waiting for live (1.5s window) we still show mock for quick testing, but live question replaces it immediately when it arrives.
-  const shouldShowMock = !question && !connected && (allowMock || wsFailedAtStart || isWaitingForLive)
+  // Live WS is default; mock appears only when WS has failed at start and no live question.
+  // While waiting for live (1.5s window) show the same busy sphere as between questions.
+  const shouldShowMock = !question && !connected && (allowMock || wsFailedAtStart)
   const isMockMode = shouldShowMock
   const mockQuestion = isMockMode ? (mockQuestions[mockIdx] as unknown as ReturnType<typeof useDiscovery>['question']) : null
   const effectiveQuestion = question ?? mockQuestion

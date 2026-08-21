@@ -36,7 +36,17 @@ export async function discoveryAnswerService(
         timeout_ms: config.agent_timeout_ms,
     }
     // give agent answer
-    logger.debug('calling agent 1', {input: discoveryInput})
+    const maskedApiKey = config.agent_api_key ? (config.agent_api_key.length >= 4 ? `${config.agent_api_key.slice(0, 4)}****` : '****') : 'MISSING';
+    logger.debug('calling agent 1', {
+        input: discoveryInput,
+        config: {
+            api_key: maskedApiKey,
+            model: config.agent_model,
+            timeout_ms: config.agent_timeout_ms,
+            api_url: config.agent_api_url || 'default',
+            reasoning_effort: config.agent_reasoning_effort
+        }
+    })
     const discoveryRes: DiscoveryResult = await processDiscovery(
         discoveryInput,
         opt
@@ -145,7 +155,17 @@ export async function newDiscoveryQuestionService(
         api_url: config.agent_api_url,
         timeout_ms: config.agent_timeout_ms,
     }
-    logger.debug('calling agent 1', {input: discoveryInput})
+    const maskedApiKey = config.agent_api_key ? (config.agent_api_key.length >= 4 ? `${config.agent_api_key.slice(0, 4)}****` : '****') : 'MISSING';
+    logger.debug('calling agent 1', {
+        input: discoveryInput,
+        config: {
+            api_key: maskedApiKey,
+            model: config.agent_model,
+            timeout_ms: config.agent_timeout_ms,
+            api_url: config.agent_api_url || 'default',
+            reasoning_effort: config.agent_reasoning_effort
+        }
+    })
     const discoveryRes: DiscoveryResult = await processDiscovery(
         discoveryInput,
         opt

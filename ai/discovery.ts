@@ -1386,12 +1386,21 @@ export async function processDiscovery(
   input: DiscoveryInput,
   options: ProcessDiscoveryOptions & { genAiClient?: any } = {},
 ): Promise<DiscoveryResult> {
+  console.log('[processDiscovery] Starting processDiscovery with input:', {
+    hasProfile: !!input.profile,
+    hasAnswer: !!input.answer,
+    profileId: input.profile?.profile_id
+  });
+
   const apiKey =
     options.api_key ??
     process.env.GEMINI_API_KEY ??
     process.env.GOOGLE_API_KEY ??
     process.env.GOOGLE_GENAI_API_KEY ??
     process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+  
+  console.log('[processDiscovery] API key found:', !!apiKey);
+  
   if (!apiKey) {
     throw new DiscoveryConfigurationError(
       "Missing GEMINI_API_KEY. Set it in the environment or pass api_key for this request.",
@@ -1401,9 +1410,20 @@ export async function processDiscovery(
   const requestedModel = options.model ?? process.env.GEMINI_MODEL ?? process.env.GOOGLE_MODEL ?? DEFAULT_MODEL;
   const timeoutMs = options.timeout_ms ?? DEFAULT_TIMEOUT_MS;
   const logResponses = options.log_raw_responses ?? true;
+  
+  console.log('[processDiscovery] Configuration:', {
+    requestedModel,
+    timeoutMs,
+    logResponses,
+    hasFetcher: !!options.fetcher,
+    hasInjectedClient: !!options.genAiClient
+  });
+  
   // Build hierarchy starting from requested model, fallback through list
   const startIdx = MODEL_HIERARCHY.indexOf(requestedModel as any);
   const modelsToTry = startIdx >= 0 ? MODEL_HIERARCHY.slice(startIdx) : [requestedModel, ...MODEL_HIERARCHY.filter(m => m !== requestedModel)];
+  
+  console.log('[processDiscovery] Models to try (in order):', modelsToTry);
 
   // Build combined prompt: system instruction + user context.
   // Do not modify DISCOVERY_SYSTEM_PROMPT per requirements.
@@ -1483,14 +1503,18 @@ export async function processDiscovery(
   let lastRateLimitError: any = null;
 
   for (const model of modelsToTry) {
+    console.log(`[processDiscovery] Trying model: ${model}`);
   for (let attempt = 0; attempt <= MAX_RATE_LIMIT_RETRIES; attempt += 1) {
+    console.log(`[processDiscovery] Attempt ${attempt + 1}/${MAX_RATE_LIMIT_RETRIES + 1} for model ${model}`);
     try {
       let interaction: any;
 
       if (injectedClient) {
+        console.log(`[processDiscovery] Using injected client for model ${model}`);
         const ctrl = new AbortController();
         interaction = await withTimeout(createInteraction(injectedClient, model, ctrl.signal), timeoutMs, ctrl);
       } else if (fetcher) {
+        console.log(`[processDiscovery] Using fetcher for model ${model}`);
         // Legacy fetch-style mock: allow tests to provide fetcher that returns Gemini-like envelope.
         // We synthesize a Gemini interaction from fetcher response to keep migration testable without real API.
         const mockUrl = "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent";
@@ -1553,37 +1577,48 @@ export async function processDiscovery(
           interaction = envelope;
         }
       } else {
+        console.log(`[processDiscovery] Creating GoogleGenAI client for model ${model}`);
         const client = new GoogleGenAI({ apiKey } as any);
         const ctrl = new AbortController();
         interaction = await withTimeout(createInteraction(client, model, ctrl.signal), timeoutMs, ctrl);
       }
 
+      console.log(`[processDiscovery] API call completed successfully for model ${model}`);
+
       lastOutputText = getOutputText(interaction);
+      console.log(`[processDiscovery] Got output text, length: ${lastOutputText.length}`);
+      
       if (logResponses && !fetcher) {
         void logRawResponse(lastOutputText, 200, attempt + 1).catch(()=>{}); // ponytail: fire-and-forget
       }
 
       if (!lastOutputText || lastOutputText.trim().length === 0) {
+        console.log('[processDiscovery] Error: Empty response from API');
         throw new DiscoveryResponseError("Gemini returned an empty discovery response.");
       }
 
       let result: unknown;
       try {
         result = JSON.parse(lastOutputText);
-      } catch {
+        console.log('[processDiscovery] Successfully parsed JSON response');
+      } catch (parseError) {
+        console.log('[processDiscovery] Error: Failed to parse JSON from API response');
         throw new DiscoveryResponseError("Gemini returned discovery content that is not valid JSON.");
       }
 
       // Validate with zod (ensures schema compliance) then with manual validator for error messages
       try {
         discoveryPatchZodSchema.parse(result);
+        console.log('[processDiscovery] Zod validation passed');
       } catch (zErr: any) {
+        console.log('[processDiscovery] Error: Zod validation failed', zErr?.message);
         throw new DiscoveryResponseError(
           `Gemini returned invalid patch shape: ${zErr?.message ?? String(zErr)}`,
         );
       }
 
       validatePatchResult(result);
+      console.log('[processDiscovery] Manual validation passed');
       const patchResult = result as DiscoveryPatchResult;
       const merged = applyProfilePatch(input.profile, patchResult.profile_patch);
       if (input.profile?.profile_id) {
@@ -1591,6 +1626,13 @@ export async function processDiscovery(
       }
       const normalized = normalizeProfile(merged as unknown as Record<string, unknown>);
       normalized.profile_id = merged.profile_id;
+      
+      console.log('[processDiscovery] Successfully completed discovery, returning result:', {
+        finished: patchResult.finished,
+        hasNextQuestion: !!patchResult.next_question,
+        completionReason: patchResult.completion_reason
+      });
+      
       return {
         finished: patchResult.finished,
         next_question: patchResult.next_question,
@@ -1598,6 +1640,13 @@ export async function processDiscovery(
         profile: normalized,
       };
     } catch (error: any) {
+      console.log('[processDiscovery] Error occurred:', {
+        errorType: error?.constructor?.name,
+        errorMessage: error?.message,
+        errorStatus: error?.status,
+        errorCode: error?.code
+      });
+      
       const isRateLimited =
         error?.status === 429 ||
         error?.code === 429 ||
@@ -1606,6 +1655,7 @@ export async function processDiscovery(
         (typeof error?.message === "string" && /quota exceeded/i.test(error.message));
 
       if (isRateLimited && attempt < MAX_RATE_LIMIT_RETRIES) {
+        console.log(`[processDiscovery] Rate limited, retrying after delay. Attempt ${attempt + 1}/${MAX_RATE_LIMIT_RETRIES + 1}`);
         const delayMs = rateLimitDelayMs(error?.message ?? "");
         await wait(delayMs);
         continue;
@@ -1614,6 +1664,7 @@ export async function processDiscovery(
       // ponytail: TPD/RPD fallback to next model in hierarchy (for testing)
       const hasNextModel = modelsToTry.indexOf(model as any) < modelsToTry.length - 1;
       if (isRateLimited && hasNextModel) {
+        console.log(`[processDiscovery] Rate limited on all retries, trying next model in hierarchy`);
         lastRateLimitError = error;
         const delayMs = rateLimitDelayMs(error?.message ?? "");
         await wait(Math.min(delayMs, 2000));
@@ -1635,6 +1686,7 @@ export async function processDiscovery(
   }
   } // end model loop
 
+  console.log('[processDiscovery] All models failed to return a response');
   if (lastRateLimitError) throw lastRateLimitError;
   throw new DiscoveryApiError("Gemini did not return a response.", 0);
 }

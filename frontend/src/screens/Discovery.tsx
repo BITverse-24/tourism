@@ -494,8 +494,8 @@ export default function Discovery({
   const paddedTotal = sequenceTotal != null ? String(sequenceTotal).padStart(2, "0") : "--";
 
   // Busy overlay — same aesthetic as after answering, also for initial wait for first question
-  // After Arrival, Discovery mounts with !question while connected — show sphere instead of blank empty.
-  const isInitialWaiting = !question && isLiveMode && live.connected && live.question == null
+  // After Arrival, Discovery mounts with !question — show same sphere as between questions until first discovery.question arrives.
+  const isInitialWaiting = !question && isLiveMode && live.question == null
   const showBusy = busy || isInitialWaiting
   const [busyOverlayMounted, setBusyOverlayMounted] = useState(false)
   const [busyExiting, setBusyExiting] = useState(false)

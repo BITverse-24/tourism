@@ -364,6 +364,32 @@ export class SequenceManager {
    * Whether we have buffered gaps — indicates out-of-order arrival.
    */
   hasPending(): boolean { return this.buffer.size > 0; }
+
+  getBufferedSequences(): number[] {
+    return [...this.buffer.keys()].sort((a, b) => a - b);
+  }
+
+  getBufferSize(): number { return this.buffer.size; }
+
+  /**
+   * Flush buffered envelopes in sequence order when a cold-start gap
+   * is deemed unrecoverable (e.g., server started at seq > 1 or
+   * seq 1 was lost before subscription). Advances expected to
+   * one past the highest flushed sequence.
+   */
+  flushWithGap(): Envelope[] {
+    if (this.buffer.size === 0) return [];
+    const seqs = [...this.buffer.keys()].sort((a, b) => a - b);
+    const out: Envelope[] = [];
+    for (const s of seqs) {
+      const env = this.buffer.get(s)!;
+      this.buffer.delete(s);
+      out.push(env);
+    }
+    const max = seqs[seqs.length - 1];
+    this.expected = max + 1;
+    return out;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -543,6 +569,12 @@ export class WsClient {
   // listeners
   private listeners = new Set<(env: Envelope) => void>();
 
+  // cold-start sequence gap handling — backend may start at seq > 1 (e.g., 4/5) for a new run;
+  // strict buffering would deadlock discovery. Fast-forward after a short grace.
+  private seqGapTimer: ReturnType<typeof setTimeout> | null = null;
+  private seqGapGraceMs = 500;
+  private runStartAt: number | null = null;
+
   constructor(opts: WsClientOptions = {}) {
     this.url = opts.url ?? 'ws://localhost:8000/ws';
     this.retryPolicy = opts.retryPolicy ?? DEFAULT_RETRY_POLICY;
@@ -599,7 +631,51 @@ export class WsClient {
     }
     this.pendingRetries.clear();
     if (recovery !== undefined) this.recoveryState = recovery;
+    // reset cold-start gap tracking for this run
+    if (this.seqGapTimer) { clearTimeout(this.seqGapTimer); this.seqGapTimer = null; }
+    this.runStartAt = Date.now();
     this.emitState();
+  }
+
+  private scheduleSequenceGapFlush(): void {
+    if (this.seqGapTimer) return;
+    if (!this.seq.hasPending()) return;
+    if (this.seq.getExpected() !== 1) return;
+    // only fast-forward cold-start gaps (first message seq > 1)
+    const buffered = this.seq.getBufferedSequences();
+    if (buffered.length === 0) return;
+    const smallest = buffered[0];
+    if (smallest <= 1) return;
+    this.seqGapTimer = setTimeout(() => {
+      this.seqGapTimer = null;
+      this.flushSequenceGap();
+    }, this.seqGapGraceMs);
+  }
+
+  private flushSequenceGap(): void {
+    if (!this.seq.hasPending()) return;
+    if (this.seq.getExpected() !== 1) return;
+    const flushed = this.seq.flushWithGap();
+    if (flushed.length === 0) return;
+    // diagnostic so backend contract drift is visible
+    try {
+      // wsLogger not imported here to avoid cycle; use console.debug and store diagnostic
+      const label = flushed.map(e => `${e.type}#${e.sequence}`).join(', ');
+      // record for getDiagnostics()
+      this.diagnostics.unknownFields.push(`sequence gap fast-forward 1 -> ${this.seq.getExpected()}, flushed: ${label}`);
+      if (typeof console !== 'undefined' && typeof console.debug === 'function') {
+        console.debug(`[WsClient] sequence gap fast-forward expected 1 -> ${this.seq.getExpected()}, flushed ${flushed.length}: ${label}`);
+      }
+    } catch { /* ignore */ }
+    for (const env of flushed) {
+      if (env.kind === 'ack') this.handleAck(env);
+      else if (env.kind === 'error') this.handleError(env);
+      else if (env.kind === 'event') this.handleEvent(env);
+      else {
+        // forward unknown kinds still via listeners
+        for (const l of this.listeners) l(env);
+      }
+    }
   }
 
   /** Called when server sends session.ready — authoritative */
@@ -616,7 +692,14 @@ export class WsClient {
       else {
         this.runId = rid;
         this.seq.reset(rid); // ensure sequence starts at 1 even if session.ready is first message
+        if (this.seqGapTimer) { clearTimeout(this.seqGapTimer); this.seqGapTimer = null; }
+        this.runStartAt = Date.now();
       }
+    }
+    // also cancel any pending gap flush — session.ready indicates server is authoritative for sequence start
+    if (this.seqGapTimer && this.seq.getExpected() !== 1) {
+      clearTimeout(this.seqGapTimer);
+      this.seqGapTimer = null;
     }
     if (wf) this.workflowState = wf;
     if (payload.hasOwnProperty('has_recovery_state') || payload.hasOwnProperty('confirmed_profile_revision')) {
@@ -785,7 +868,7 @@ export class WsClient {
           url: target,
           onEnvelope: (env, raw) => this.handleRawMessage(raw),
           onOpen: () => { this.connState = 'open'; this.emitState(); this.flushPending() },
-          onClose: () => { this.connState = 'closed'; for (const [, p] of this.pendingRetries) if (p.timer) clearTimeout(p.timer); this.emitState() },
+          onClose: () => { this.connState = 'closed'; for (const [, p] of this.pendingRetries) if (p.timer) clearTimeout(p.timer); if (this.seqGapTimer) { clearTimeout(this.seqGapTimer); this.seqGapTimer = null; } this.emitState() },
           onError: () => {
             const err = sanitizeErrorPayload('invalid_envelope', 'websocket error', false);
             this.opts.onError?.({ message_id: genMessageId(), kind: 'error', type: 'error', occurred_at: new Date().toISOString(), payload: err as unknown as Record<string, unknown> } as Envelope)
@@ -825,6 +908,7 @@ export class WsClient {
       // do NOT replay missed events — clear sequence buffer, keep recovery state
       // sequence will reset on next startRun
       for (const [, p] of this.pendingRetries) if (p.timer) clearTimeout(p.timer);
+      if (this.seqGapTimer) { clearTimeout(this.seqGapTimer); this.seqGapTimer = null; }
       this.emitState();
     };
     this.ws.onerror = () => {
@@ -837,6 +921,7 @@ export class WsClient {
   disconnect(): void {
     for (const [, p] of this.pendingRetries) if (p.timer) clearTimeout(p.timer);
     this.pendingRetries.clear();
+    if (this.seqGapTimer) { clearTimeout(this.seqGapTimer); this.seqGapTimer = null; }
     try { this.ws?.close(); } catch {}
     try { this.sio?.disconnect(); } catch {}
     this.ws = null;
@@ -903,17 +988,31 @@ export class WsClient {
       // ack messages are ordered per run as well — apply sequence ordering
       const ordered = this.seq.offer(env);
       for (const o of ordered) this.handleAck(o);
-      // out-of-order acks are buffered in seq manager and will be delivered when gap fills
+      if (ordered.length > 0) {
+        if (this.seqGapTimer) { clearTimeout(this.seqGapTimer); this.seqGapTimer = null; }
+      } else if (this.seq.hasPending()) {
+        this.scheduleSequenceGapFlush();
+      }
       return;
     }
     if (env.kind === 'error') {
       const ordered = this.seq.offer(env);
       for (const o of ordered) this.handleError(o);
+      if (ordered.length > 0) {
+        if (this.seqGapTimer) { clearTimeout(this.seqGapTimer); this.seqGapTimer = null; }
+      } else if (this.seq.hasPending()) {
+        this.scheduleSequenceGapFlush();
+      }
       return;
     }
     if (env.kind === 'event') {
       const ordered = this.seq.offer(env);
       for (const o of ordered) this.handleEvent(o);
+      if (ordered.length > 0) {
+        if (this.seqGapTimer) { clearTimeout(this.seqGapTimer); this.seqGapTimer = null; }
+      } else if (this.seq.hasPending()) {
+        this.scheduleSequenceGapFlush();
+      }
       return;
     }
     if (env.kind === 'command') {

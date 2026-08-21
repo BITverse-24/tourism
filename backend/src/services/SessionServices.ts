@@ -75,23 +75,12 @@ export async function sessionStartService(
             } as unknown as import("../../../ai/discovery").TravelerProfile)
           : null
         if (initialIntent) logger.debug('seeding discovery with initial_intent', { initialIntent })
-        try {
-          await newDiscoveryQuestionService(
-              emit,
-              newSessionId,
-              newRunId,
-              data.command_id,
-              initialProfile,
-              null,
-          )
-        } catch (e: unknown) {
-          const msg = e instanceof Error ? e.message : String(e)
-          const isQuota = /429|quota|rate limit/i.test(msg)
-          logger.warn('newDiscoveryQuestionService failed, sending fallback', { error: msg, isQuota })
-          // Emit a fallback so frontend interlude doesn't hang forever and server doesn't crash
+        // Emit provisional snapshot/question immediately so frontend sphere resolves in ms
+        // even while agent runs. Agent result (if/when it returns) will emit updated snapshot/question.
+        {
           const { createDiscoveryQuestionMessage, createProfileSnapshotMessage } = await import("../factory/Event")
           const { Events, ProfileSnapshotStates } = await import("../structures/enums")
-          const fallbackProfile = initialProfile ?? {
+          const provisionalProfile = initialProfile ?? {
             profile_id: "mock-profile",
             trip_context: { destination_request: initialIntent ?? null, resolved_destination: null, start_date: null, end_date: null, duration_days: null, date_flexibility: "unknown", party_size: null, party_notes: null, budget: null },
             purpose_and_priorities: { primary_purpose: null, secondary_purposes: [], priorities: [], success_definition: null },
@@ -99,7 +88,7 @@ export async function sessionStartService(
             hard_constraints: { must_visit: [], avoid: [], dietary_requirements: [], accessibility_requirements: [], accommodation_requirements: [], maximum_daily_travel: null, maximum_hotel_changes: null, budget_ceiling: null },
             unknowns: [], assumptions: [],
           } as unknown as import("../../../ai/discovery").TravelerProfile
-          const snap = { revision: 1, state: ProfileSnapshotStates.DRAFT, profile: fallbackProfile }
+          const snap = { revision: 1, state: ProfileSnapshotStates.DRAFT, profile: provisionalProfile }
           const profSnapMsg = createProfileSnapshotMessage({
             message_id: `msg_${generateUUID()}`,
             session_id: newSessionId,
@@ -110,7 +99,17 @@ export async function sessionStartService(
             payload: snap as unknown as import("../structures/EventMessage").ProfileSnapshotMessage["payload"],
           })
           emit({ event: Events.PROFILE_SNAPSHOT, data: profSnapMsg })
-          const fallbackQ = {
+          // persist provisional checkpoint so later agent result increments revision correctly
+          const provisionalCheckpoint = {
+            session_id: newSessionId,
+            profile_snapshots: [snap],
+            latest_confirmed: null,
+            workflow_state: WorkflowStates.DISCOVERY,
+          } as unknown as import("../structures/types").CheckpointType
+          const { setSessionCheckpoint, setSessionProfile } = await import("../models/data")
+          await setSessionCheckpoint(newSessionId, provisionalCheckpoint)
+          await setSessionProfile(newSessionId, provisionalProfile)
+          const provisionalQ = {
             question_id: "destination",
             prompt: initialIntent ? `Tell us more about your trip to ${initialIntent} — what kind of experience are you looking for?` : "Where are you planning to travel for your next trip?",
             selection_mode: "single" as const,
@@ -126,10 +125,32 @@ export async function sessionStartService(
             command_id: data.command_id,
             occurred_at: new Date().toISOString(),
             sequence: await nextSequence(newRunId),
-            payload: fallbackQ as unknown as import("../structures/EventMessage").DiscoveryQuestionMessage["payload"],
+            payload: provisionalQ as unknown as import("../structures/EventMessage").DiscoveryQuestionMessage["payload"],
           })
           emit({ event: Events.DISCOVERY_QUESTION, data: qMsg })
+          const { addDiscoveryQuestion } = await import("../models/data")
+          addDiscoveryQuestion(newRunId, provisionalQ as unknown as import("../../../ai/discovery").DiscoveryQuestion)
         }
+        // Run agent in background; do not block already-emitted provisional. If agent succeeds, it will emit revision 2.
+        // Provisional already sent, so background failure only needs logging.
+        void newDiscoveryQuestionService(
+            emit,
+            newSessionId,
+            newRunId,
+            data.command_id,
+            initialProfile,
+            null,
+        ).catch((e: unknown) => {
+          const msg = e instanceof Error ? e.message : String(e)
+          const stack = e instanceof Error ? e.stack : undefined
+          logger.warn('background newDiscoveryQuestionService failed (provisional already sent)', { 
+            error: msg,
+            stack,
+            session_id: newSessionId,
+            run_id: newRunId,
+            errorType: e?.constructor?.name
+          })
+        })
 
     }
 
@@ -185,7 +206,14 @@ export async function sessionStartService(
                     )
                 } catch (e: unknown) {
                     const msg = e instanceof Error ? e.message : String(e)
-                    logger.warn('newDiscoveryQuestionService (checkpoint) failed, sending fallback', { error: msg })
+                    const stack = e instanceof Error ? e.stack : undefined
+                    logger.warn('newDiscoveryQuestionService (checkpoint) failed, sending fallback', { 
+                        error: msg,
+                        stack,
+                        session_id: data.session_id,
+                        run_id: newRunId,
+                        errorType: e?.constructor?.name
+                    })
                     const { createDiscoveryQuestionMessage, createProfileSnapshotMessage } = await import("../factory/Event")
                     const { Events, ProfileSnapshotStates } = await import("../structures/enums")
                     const fallbackProfile = checkpoint.profile_snapshots[checkpoint.profile_snapshots.length - 1].profile
@@ -248,7 +276,14 @@ export async function sessionStartService(
                 )
             } catch (e: unknown) {
                 const msg = e instanceof Error ? e.message : String(e)
-                logger.warn('newDiscoveryQuestionService (no checkpoint) failed, sending fallback', { error: msg })
+                const stack = e instanceof Error ? e.stack : undefined
+                logger.warn('newDiscoveryQuestionService (no checkpoint) failed, sending fallback', { 
+                    error: msg,
+                    stack,
+                    session_id: data.session_id,
+                    run_id: newRunId,
+                    errorType: e?.constructor?.name
+                })
                 const { createDiscoveryQuestionMessage, createProfileSnapshotMessage } = await import("../factory/Event")
                 const { Events, ProfileSnapshotStates } = await import("../structures/enums")
                 const fallbackProfile = { profile_id: "mock-profile", trip_context: { destination_request: null, resolved_destination: null, start_date: null, end_date: null, duration_days: null, date_flexibility: "unknown", party_size: null, party_notes: null, budget: null }, purpose_and_priorities: { primary_purpose: null, secondary_purposes: [], priorities: [], success_definition: null }, preferences: [], travel_style: { pace: "unknown", energy_pattern: "unknown", walking_tolerance: "unknown", crowd_tolerance: "unknown", comfort_preference: "unknown", spontaneity: "unknown" }, hard_constraints: { must_visit: [], avoid: [], dietary_requirements: [], accessibility_requirements: [], accommodation_requirements: [], maximum_daily_travel: null, maximum_hotel_changes: null, budget_ceiling: null }, unknowns: [], assumptions: [] } as unknown as import("../../../ai/discovery").TravelerProfile
