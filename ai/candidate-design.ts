@@ -301,6 +301,47 @@ interface RunState {
   tradeoff_calls: number;
 }
 
+/** SQLite attraction table contract for query_attractions (mirrors data/sqlite_attractions_table.sql). */
+const ATTRACTION_SQL_SCHEMA = `Table: attraction
+Columns:
+- attraction_id TEXT PRIMARY KEY
+- city_id TEXT NOT NULL  -- join key to selected cities; always filter on this when scoped
+- name TEXT NOT NULL
+- alternate_names TEXT NULL  -- JSON array string
+- attraction_type TEXT NOT NULL
+- subtypes TEXT NULL  -- JSON array string
+- description TEXT NOT NULL
+- significance TEXT NOT NULL  -- JSON array string
+- location_area TEXT NOT NULL
+- latitude REAL NOT NULL
+- longitude REAL NOT NULL
+- visit_duration_min INTEGER NOT NULL
+- visit_duration_typical INTEGER NOT NULL
+- visit_duration_max INTEGER NULL
+- best_time_of_day TEXT NULL  -- JSON array string
+- best_months TEXT NULL  -- JSON array string
+- avoid_months TEXT NULL  -- JSON array string
+- crowd_level TEXT NOT NULL
+- tourism_level TEXT NOT NULL
+- hidden_gem INTEGER NOT NULL  -- 0 or 1
+- discovery_category TEXT NOT NULL
+- local_authenticity TEXT NOT NULL
+- photography_value TEXT NOT NULL
+- indoor_outdoor TEXT NOT NULL  -- Indoor | Outdoor | Mixed
+- adventure_level TEXT NOT NULL
+- accessibility_level TEXT NOT NULL
+- family_suitability TEXT NOT NULL
+- elderly_suitability TEXT NOT NULL
+- child_suitability TEXT NOT NULL
+- romantic_suitability TEXT NOT NULL
+- booking_required INTEGER NULL  -- 0 or 1
+- entry_type TEXT NOT NULL
+- best_for TEXT NOT NULL  -- JSON array string
+- source TEXT NOT NULL  -- JSON array string
+- last_updated TEXT NOT NULL  -- YYYY-MM-DD
+
+JSON-array columns are stored as TEXT. Match them with LIKE '%value%' or json_each when needed.`;
+
 const SYSTEM_PROMPT = `You are Agent 2, the Itinerary Design Agent for Voyager.
 
 You receive only the Traveler Profile. You must discover cities and attractions via retrieval tools — never invent places, restaurants, prices, or opening hours. Stable city_id and attraction_id are the only valid identifiers.
@@ -318,7 +359,7 @@ Rules:
 Tools:
 - search_cities: find known cities (filter by region/destination_types/climate_types/tourism_popularity)
 - get_city: load one authoritative city record by city_id
-- query_attractions: query attractions via free-text query
+- query_attractions: run one read-only SQLite SELECT against table attraction (schema is on the tool). Always scope with city_id IN (...selected cities...). Keep results bounded with LIMIT.
 - get_attractions_by_ids: hydrate exact attraction IDs
 
 Decision tool (when available):
@@ -378,8 +419,27 @@ function buildToolSchemas(options: CandidateDesignOptions): unknown[] {
   };
   const queryAttractions = {
     type: "function", function: {
-      name: "query_attractions", description: "Query known attractions via free-text query.", strict: true,
-      parameters: { type: "object", additionalProperties: false, properties: { query: { type: "string" } }, required: ["query"] },
+      name: "query_attractions",
+      description: [
+        "Run one read-only SQLite query against the attractions knowledgebase.",
+        "query must be a single SELECT (WITH...SELECT allowed). No multiple statements, no writes.",
+        "Always filter by city_id for cities already selected via search_cities/get_city.",
+        "Prefer SELECT a.* FROM attraction AS a ... LIMIT N so returned rows match AttractionRecord.",
+        "Use only columns from this schema:",
+        ATTRACTION_SQL_SCHEMA,
+      ].join("\n"),
+      strict: true,
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          query: {
+            type: "string",
+            description: "Single SQLite SELECT against table attraction. Example: SELECT a.* FROM attraction AS a WHERE a.city_id = 'jaipur_rajasthan' AND a.crowd_level IN ('Low','Moderate') LIMIT 20",
+          },
+        },
+        required: ["query"],
+      },
     },
   };
   const getAttractionsByIds = {
