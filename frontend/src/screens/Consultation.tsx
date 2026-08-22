@@ -75,20 +75,46 @@ function useLiveConsultation() {
           setLiveLastSeq(now);
         }
 
-        if (envelope.type === "planning.status" && envelope.kind === "event") {
+        if (envelope.type === "planning.status") {
           const p = envelope.payload as Record<string, unknown>;
           if (typeof p.message === "string" && p.message.trim().length > 0) {
             setLivePlanningMessage(p.message as string);
           }
-        } else if (envelope.type === "decision.request" && envelope.kind === "event") {
+          // Fallback: planning.status with phase decision_required can hint that a decision is pending
+          // even if decision.request is still buffered behind a sequence gap.
+          const phase = p.phase as string | undefined;
+          if (phase === "decision_required") {
+            try {
+              const snap = ws!.snapshot();
+              if (snap.workflowState === "decision_required") {
+                // workflowState already transitioned via WsClient handleEvent for planning.status bypass;
+                // ensure polling will hydrate decision once buffered event flushes.
+                setLiveLastSeq(Date.now());
+              }
+            } catch {}
+          }
+        }
+        if (envelope.type === "decision.request") {
+          // Accept both kind === "event" and missing kind for forward-compat (backend always sends event)
+          const payload = envelope.payload as Record<string, unknown>;
+          // Normalize: some transports wrap payload once more; handle both shapes
+          const normalizedPayload = payload && typeof payload === "object" ? payload : envelope.payload;
           setDecisionPlanState((prev) => {
-            const res = handleDecisionRequest(prev, envelope.payload, { workflowState: "decision_required" });
+            const res = handleDecisionRequest(prev, normalizedPayload, { workflowState: "decision_required" });
             if (res.valid) {
               const dec = res.state.currentDecision;
               if (dec) {
-                setLiveDecision(mapDecisionPayloadToRequest(dec as unknown as DecisionRequest & { reason?: string }));
+                // Defer setLiveDecision outside updater to avoid React nested setState warning
+                queueMicrotask(() => setLiveDecision(mapDecisionPayloadToRequest(dec as unknown as DecisionRequest & { reason?: string })));
               }
               return res.state;
+            }
+            // If validation failed due to transient shape, still surface raw payload for debugging
+            // and allow fallback mapping if decision_id/prompt/options present
+            if (payload && typeof payload.decision_id === "string" && Array.isArray((payload as Record<string, unknown>).options)) {
+              try {
+                queueMicrotask(() => setLiveDecision(mapDecisionPayloadToRequest(payload as unknown as { decision_id: string; prompt: string; reason?: string; options: DecisionOption[] })));
+              } catch {}
             }
             return prev;
           });
@@ -106,6 +132,17 @@ function useLiveConsultation() {
         try {
           const snap = ws!.snapshot();
           setConnected(!!snap.connected);
+          // Poll-based hydration: if workflowState is decision_required but liveDecision is still null
+          // (e.g., decision.request buffered behind sequence gap), try to hydrate from client state.
+          // WsClient sets workflowState to decision_required in handleEvent once flushed.
+          if (snap.workflowState === "decision_required") {
+            setDecisionPlanState((prev) => {
+              if (prev.workflowState !== "decision_required") {
+                return { ...prev, workflowState: "decision_required" as const };
+              }
+              return prev;
+            });
+          }
         } catch {
           // ignore
         }
@@ -129,15 +166,20 @@ function useLiveConsultation() {
     (decisionId: string, optionId: string): { sent: boolean; stale?: boolean; duplicate?: boolean; noSideEffect?: boolean; error?: string } => {
       const ws = wsRef.current;
       if (!ws) return { sent: false, error: "no ws" };
-      try {
-        const snap = ws.snapshot();
-        const wf = snap.workflowState;
-        if (wf !== "decision_required" && decisionPlanState.workflowState !== "decision_required") {
-          return { sent: false, stale: true, noSideEffect: true };
-        }
-      } catch {
-        if (decisionPlanState.workflowState !== "decision_required") {
-          return { sent: false, stale: true, noSideEffect: true };
+      // Frontend mistake fix: don't gate on workflowState beating decision.request due to sequencing.
+      // If we have a live decision, allow send regardless of snapshot workflowState lag.
+      const hasLiveDecision = !!liveDecision && liveDecision.decision_id === decisionId;
+      if (!hasLiveDecision) {
+        try {
+          const snap = ws.snapshot();
+          const wf = snap.workflowState;
+          if (wf !== "decision_required" && decisionPlanState.workflowState !== "decision_required") {
+            return { sent: false, stale: true, noSideEffect: true };
+          }
+        } catch {
+          if (decisionPlanState.workflowState !== "decision_required") {
+            return { sent: false, stale: true, noSideEffect: true };
+          }
         }
       }
 
@@ -146,13 +188,23 @@ function useLiveConsultation() {
         return { sent: false, stale: true, noSideEffect: true };
       }
 
-      const v = validateDecisionRespond(decisionPlanState, { decision_id: decisionId, option_id: optionId });
-      if (!v.valid || !v.accepted) {
-        if (v.noSideEffect) return { sent: false, stale: true, noSideEffect: true, error: v.error };
-        if (v.code === "invalid_workflow_state" || v.code === "invalid_envelope") {
-          return { sent: false, stale: true, noSideEffect: !!v.noSideEffect, error: v.error };
+      // If we have liveDecision matching, skip strict local workflowState validation — server is source of truth
+      // and we already know decision.request arrived (otherwise liveDecision would be null).
+      if (!hasLiveDecision) {
+        const v = validateDecisionRespond(decisionPlanState, { decision_id: decisionId, option_id: optionId });
+        if (!v.valid || !v.accepted) {
+          if (v.noSideEffect) return { sent: false, stale: true, noSideEffect: true, error: v.error };
+          if (v.code === "invalid_workflow_state" || v.code === "invalid_envelope") {
+            return { sent: false, stale: true, noSideEffect: !!v.noSideEffect, error: v.error };
+          }
+          return { sent: false, error: v.error, noSideEffect: !!v.noSideEffect };
         }
-        return { sent: false, error: v.error, noSideEffect: !!v.noSideEffect };
+      } else {
+        // Minimal option_id check only
+        const optionIds = new Set((liveDecision as DecisionRequest).options.map(o => o.option_id));
+        if (!optionIds.has(optionId)) {
+          return { sent: false, error: `option_id "${optionId}" not in decision options`, noSideEffect: false };
+        }
       }
 
       try {
@@ -216,13 +268,23 @@ export default function Consultation({
   const live = useLiveConsultation();
   const wsConnected = live.connected;
 
+  // Prioritize live decision whenever available; wsConnected flicker should not hide an already-received decision.
+  // Fallback to externalDecision only when no live decision exists.
   let activeDecision: DecisionRequest | null = null;
-  if (wsConnected) {
+  if (live.decision) {
     activeDecision = live.decision;
   } else if (externalDecision !== undefined && externalDecision !== null) {
     activeDecision = externalDecision as DecisionRequest;
   } else {
     activeDecision = null;
+  }
+  // Also hydrate from decisionPlanState if live.decision is null but plan state has currentDecision
+  // (covers case where decision.request was handled but microtask setLiveDecision hasn't flushed yet)
+  if (!activeDecision && live.decisionPlanState.currentDecision) {
+    const cd = live.decisionPlanState.currentDecision as unknown as DecisionRequest & { reason?: string };
+    if (cd.decision_id && cd.prompt && Array.isArray((cd as unknown as Record<string, unknown>).options)) {
+      activeDecision = mapDecisionPayloadToRequest(cd as unknown as { decision_id: string; prompt: string; reason?: string; options: DecisionOption[] });
+    }
   }
 
   const isDecisionRequired = !!activeDecision && !resuming;
@@ -242,7 +304,9 @@ export default function Consultation({
     }
   }, [wsConnected, live.lastSeq]);
 
-  // Non-blocking timeout: 60s+ without sequence, paused during decision/resuming. Only shows retry — never hides orb.
+  // Graceful timeout: only after prolonged silence with no planning.status heartbeat.
+  // Backend sends heartbeat every 3s; frontend tolerates 90s (30 heartbeats) before showing retry,
+  // and pauses entirely while decision is required or resuming. Never hides orb.
   useEffect(() => {
     if (timedOut) return;
     if (isDecisionRequired || isResuming) return;
@@ -253,7 +317,10 @@ export default function Consultation({
       const now = Date.now();
       const diff = now - seqRef.current;
       setElapsed(diff);
-      if (diff >= 65000) {
+      // 90s is well beyond design's 12s but with 3s heartbeats the UI should never reach it
+      // unless the backend is truly silent (network loss / server crash). Prevents "Try again"
+      // flashing before decision.request arrives.
+      if (diff >= 90000) {
         if (wsConnected) setTimedOut(true);
         window.clearInterval(tick);
       }

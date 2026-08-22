@@ -91,8 +91,8 @@ export async function profileConfirmService(
         logger.warn('failed to send initial planning.status', serializeError(e))
     }
 
-    // Heartbeat every 5s with same simple message and monotonic progress 10->25->40->60
-    // Backend does not need to know frontend stages — just generic messages frontend can display.
+    // Heartbeat every 3s — keeps Consultation orb alive well before its graceful timeout.
+    // Progress 10->25->40->60 then stays at 60 with same message; frontend treats any planning.status as liveness.
     let lastProgress = 10
     const heartbeatSteps = [25, 40, 60]
     let heartbeatIdx = 0
@@ -101,7 +101,7 @@ export async function profileConfirmService(
         if (heartbeat) clearInterval(heartbeat)
         heartbeat = setInterval(async () => {
             try {
-                // advance monotonically through 25->40->60, never regress
+                // advance monotonically through 25->40->60, never regress; after 60 keep emitting 60
                 const next = heartbeatSteps[heartbeatIdx]
                 if (next !== undefined && next > lastProgress) {
                     lastProgress = next
@@ -121,12 +121,12 @@ export async function profileConfirmService(
                         progress: lastProgress,
                     }
                 })
-                logger.debug('sending planning.status heartbeat', { data: hbMsg })
+                // heartbeat is liveness only — intentionally not logged at debug to avoid flooding tool-call and decision logs
                 emit({ event: Events.PLANNING_STATUS, data: hbMsg })
             } catch (e) {
                 logger.warn('failed to send planning.status heartbeat', serializeError(e))
             }
-        }, 5000)
+        }, 3000)
     }
     startHeartbeat()
 

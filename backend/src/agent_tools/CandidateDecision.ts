@@ -26,18 +26,21 @@ export async function askUserDecisionTool(
     logger.debug('agent 2 is requesting user decision', {req: request})
     const session_id = request.session_id!
     const run_id = await getCurrentRunIdForSession(session_id);
-    const seq = await nextSequence(run_id);
     await setWorkflowState(session_id, WorkflowStates.DECISION_REQUIRED)
 
     const profileRev = request.profile_revision !== undefined && Number.isInteger(request.profile_revision) && request.profile_revision > 0 ? request.profile_revision : 1
     const decision_id = `dec_${generateUUID()}`
+    // Allocate sequences in emit order so seq ordering matches wire order.
+    // planning.status (rail) must have lower seq than decision.request (blocking).
+    const psSeq = await nextSequence(run_id);
+    const reqSeq = await nextSequence(run_id);
     const req: DecisionRequestMessage = createDecisionRequestMessage({
         message_id: `msg_${generateUUID()}`,
         session_id,
         run_id,
         command_id: '',
         occurred_at: new Date().toISOString(),
-        sequence: seq,
+        sequence: reqSeq,
         payload: {
             decision_id,
             profile_revision: profileRev,
@@ -54,7 +57,7 @@ export async function askUserDecisionTool(
             run_id,
             command_id: '',
             occurred_at: new Date().toISOString(),
-            sequence: await nextSequence(run_id),
+            sequence: psSeq,
             payload: {
                 phase: PlanningPhases.DECISION_REQUIRED,
                 status: PlanningStatus.RUNNING,

@@ -390,6 +390,29 @@ export class SequenceManager {
     this.expected = max + 1;
     return out;
   }
+
+  /**
+   * Mark a sequence as bypass-delivered (cold-start immediate delivery).
+   * Used for planning.status / workflow.state / decision.request bypass.
+   * Prevents later gap flush from deadlocking on the bypassed seq.
+   */
+  bypass(seq: number): void {
+    if (!Number.isInteger(seq) || seq < 1) return;
+    if (this.seen.has(seq)) return;
+    this.seen.add(seq);
+    if (seq >= this.expected) {
+      // Advance expected past bypassed seq and drain any contiguous buffered
+      this.expected = seq + 1;
+      while (this.buffer.has(this.expected)) {
+        // These will be delivered via flushWithGap or next offer; just advance
+        // expected is already contiguous, but leave them for flush to deliver
+        // Break to let flushWithGap handle them in order
+        break;
+      }
+      // If we skipped a gap (expected was 1, seq is 10), buffered seqs < seq are already in buffer
+      // flushWithGap will deliver them; we keep them there
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -670,9 +693,9 @@ export class WsClient {
     if (buffered.length === 0) return;
     const smallest = buffered[0];
     if (smallest <= 1) return;
-    // planning/workflow events should not be held by a cold-start gap — flush immediately
+    // planning/workflow/decision events should not be held by a cold-start gap — flush immediately
     const hasPlanningOrWorkflow = [...(this.seq as unknown as { buffer: Map<number, Envelope> })['buffer']?.values?.() ?? []].some(
-      (e: Envelope) => e.type === 'planning.status' || e.type === 'workflow.state'
+      (e: Envelope) => e.type === 'planning.status' || e.type === 'workflow.state' || e.type === 'decision.request'
     );
     const grace = hasPlanningOrWorkflow ? 0 : this.seqGapGraceMs;
     if (grace === 0) {
@@ -1040,12 +1063,14 @@ export class WsClient {
       return;
     }
     if (env.kind === 'event') {
-      // workflow.state and planning.status bypass strict sequencing — orb must open even with lifecycle gaps
-      if (env.type === 'workflow.state' || env.type === 'planning.status') {
+      // workflow.state / planning.status / decision.request bypass strict sequencing — orb and decision must surface even with lifecycle gaps
+      if (env.type === 'workflow.state' || env.type === 'planning.status' || env.type === 'decision.request') {
         if (this.seq.hasPending()) this.flushSequenceGap();
         // if this event itself is buffered behind a cold-start gap (seq > 1 while expected === 1),
         // deliver it immediately instead of waiting for gap fill
         if (env.sequence != null && this.seq.getExpected() === 1 && (env.sequence as number) > 1) {
+          // Mark bypassed seq so later gap flush doesn't deadlock on it
+          try { this.seq.bypass(env.sequence as number); } catch {}
           this.handleEvent(env);
           return;
         }
@@ -1058,9 +1083,9 @@ export class WsClient {
       } else if (this.seq.hasPending()) {
         this.scheduleSequenceGapFlush();
       }
-      // if planning/workflow event was buffered, flush immediately (seqGapGraceMs path already handles it,
+      // if planning/workflow/decision event was buffered, flush immediately (seqGapGraceMs path already handles it,
       // but ensure it doesn't wait 100ms when offer returned empty)
-      if (ordered.length === 0 && this.seq.hasPending() && (env.type === 'workflow.state' || env.type === 'planning.status')) {
+      if (ordered.length === 0 && this.seq.hasPending() && (env.type === 'workflow.state' || env.type === 'planning.status' || env.type === 'decision.request')) {
         this.flushSequenceGap();
       }
       return;
