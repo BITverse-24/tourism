@@ -36,9 +36,12 @@ export default function ProfileReview() {
   const [busy, setBusy] = useState(false)
   const [confirming, setConfirming] = useState(false)
   const [notice, setNotice] = useState('')
+  const [pendingConfirmId, setPendingConfirmId] = useState<string | null>(null)
   const navigate = useNavigate()
   const wsContext = useContext(WsContext)
   const workflowState = wsContext?.workflowState ?? null
+  const wsContextRef = useRef(wsContext)
+  wsContextRef.current = wsContext
 
   // --- Live snapshot consumption (WEBSOCKET_CONTRACT.md) ---
   // profile.snapshot: { revision, state draft|ready|confirmed, profile }
@@ -127,12 +130,76 @@ export default function ProfileReview() {
     if (!result.ok) {
       setConfirming(false)
       setBusy(false)
+      setPendingConfirmId(null)
       setNotice(result.error ?? 'Could not confirm the profile. Please try again.')
       return
     }
-    // Navigation will be handled by workflow state change in App.tsx
-    // Backend will emit workflow.state event with 'planning' state
+    // Track command_id to correlate server ack; navigation is driven by workflow.state
+    // but we also handle ack directly so the button doesn't spin for 30s on rejection.
+    const env = result.envelope as { command_id?: string } | undefined
+    const cid = env?.command_id ?? null
+    if (cid) setPendingConfirmId(cid)
+    // Keep Confirming... until workflow.state -> planning or ack arrives.
+    // App.tsx also navigates on workflowState change; ProfileReview handles the local
+    // confirming reset and immediate navigation as fallback.
   }
+
+  // Navigate to consultation as soon as workflow transitions to planning (eager; AppShell also does this).
+  // This fixes the "confirming for many seconds then back to original" — ProfileReview was
+  // waiting only on AppShell's workflowState effect while the 30s fallback cleared confirming.
+  useEffect(() => {
+    if (confirming && (workflowState === 'planning' || workflowState === 'decision_required')) {
+      setPendingConfirmId(null)
+      // Let the UI show a brief confirming success before navigating so the transition feels deliberate,
+      // but don't wait longer than needed — backend now emits workflow.state + planning.status heartbeat.
+      const t = setTimeout(() => {
+        setConfirming(false)
+        setBusy(false)
+        navigate('/consultation')
+      }, 250)
+      return () => clearTimeout(t)
+    }
+  }, [confirming, workflowState, navigate])
+
+  // Correlate server ack for this confirm so rejections don't spin for 30s.
+  // WsProvider/client emits acks as envelopes with kind==='ack' and type==='command.rejected'|'command.accepted'.
+  useEffect(() => {
+    if (!confirming || !pendingConfirmId) return
+    const client = ws.client
+    const unsub = client.subscribe((env: unknown) => {
+      const e = env as { kind?: string; type?: string; command_id?: string; payload?: Record<string, unknown> }
+      if (e.kind !== 'ack' || !e.command_id || e.command_id !== pendingConfirmId) return
+      if (e.type === 'command.rejected') {
+        const p = e.payload ?? {}
+        const code = typeof p.code === 'string' ? p.code : ''
+        const msg = typeof p.message === 'string' && p.message.trim().length > 0 ? p.message : null
+        let userMsg: string
+        if (code === 'profile_revision_conflict') userMsg = msg ?? `Profile was updated (latest revision ${liveReady?.profile_revision ?? '—'}). Please review the latest before confirming.`
+        else if (code === 'profile_not_ready') userMsg = msg ?? 'The profile is not ready to confirm — please resolve the open questions first.'
+        else if (code === 'invalid_workflow_state') userMsg = msg ?? 'You can confirm the profile only while it is under review.'
+        else userMsg = msg ?? 'Could not confirm the profile. Please try again.'
+        setConfirming(false)
+        setBusy(false)
+        setPendingConfirmId(null)
+        setNotice(userMsg)
+      } else if (e.type === 'command.accepted') {
+        // Accepted — navigate eagerly to consultation to avoid 30s spin if workflow.state is delayed by sequencing.
+        // Keep pending id until workflow transition; navigate optimistically.
+        const wsState = (e.payload as Record<string, unknown>)?.workflow_state as string | undefined;
+        // If server says planning already, or just accepted, move to consultation quickly
+        const t = setTimeout(() => {
+          setConfirming(false);
+          setBusy(false);
+          setPendingConfirmId(null);
+          // Only navigate if still on this screen and not already planning
+          try { navigate('/consultation'); } catch {}
+        }, 400);
+        // Also let workflowState effect handle it if it arrives sooner — clear on unmount
+        return () => clearTimeout(t);
+      }
+    })
+    return () => { unsub() }
+  }, [confirming, pendingConfirmId, ws.client, liveReady, navigate])
 
   // Handle confirmation timeout - if backend doesn't respond within reasonable time, show error
   useEffect(() => {
@@ -141,8 +208,9 @@ export default function ProfileReview() {
       timeoutId = setTimeout(() => {
         setConfirming(false)
         setBusy(false)
+        setPendingConfirmId(null)
         setNotice('Profile confirmation timed out. The backend may be experiencing issues. Please try again.')
-      }, 30000) // 30 second timeout
+      }, 30000) // 30 second timeout — real navigation should happen via workflowState well before this
     }
     return () => {
       if (timeoutId) clearTimeout(timeoutId)
@@ -154,6 +222,7 @@ export default function ProfileReview() {
     if (confirming && !ws.connected) {
       setConfirming(false)
       setBusy(false)
+      setPendingConfirmId(null)
       setNotice('Connection lost during confirmation. Please check your connection and try again.')
     }
   }, [confirming, ws.connected])

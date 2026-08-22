@@ -1803,7 +1803,8 @@ export async function processDiscovery(
   }
 
   const requestedModel = FIXED_MODEL;
-  const timeoutMs = options.timeout_ms ?? DEFAULT_TIMEOUT_MS;
+  // 0 means no timeout (infinite) for long processes; undefined falls back to default for backward compat
+  const timeoutMs: number | null = options.timeout_ms === 0 ? null : (options.timeout_ms ?? DEFAULT_TIMEOUT_MS);
   const logResponses = options.log_raw_responses ?? true;
   
   console.log('[processDiscovery] Configuration:', {
@@ -1902,7 +1903,8 @@ export async function processDiscovery(
     throw new DiscoveryApiError("Unsupported client shape.", 0);
   };
 
-  const withTimeout = async <T>(promise: Promise<T>, ms: number, controller?: AbortController): Promise<T> => {
+  const withTimeout = async <T>(promise: Promise<T>, ms: number | null, controller?: AbortController): Promise<T> => {
+    if (ms === null) return promise;
     let timeoutId: ReturnType<typeof setTimeout>;
     const timeoutPromise = new Promise<never>((_, reject) => {
       timeoutId = setTimeout(() => {

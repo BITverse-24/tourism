@@ -35,7 +35,7 @@ export const MAX_DECISION_CALLS = MAX_TRADEOFF_CALLS;
 export const ALLOWED_DECISION_REASONS = ["material_tradeoff", "hard_constraint_conflict", "missing_preference"] as const;
 export type DecisionReason = (typeof ALLOWED_DECISION_REASONS)[number];
 export interface AskUserDecisionOption { option_id: string; label: string; tradeoff: string; }
-export interface AskUserDecisionRequest { reason: DecisionReason; prompt: string; options: AskUserDecisionOption[]; session_id?: string; }
+export interface AskUserDecisionRequest { reason: DecisionReason; prompt: string; options: AskUserDecisionOption[]; session_id?: string; profile_revision?: number; }
 export type AskUserDecisionResolver = (request: AskUserDecisionRequest) => Promise<string>;
 export interface LegacyAskUserTradeoffRequest { attraction_id_a: string; attraction_id_b: string; question: string; tradeoff_a: string; tradeoff_b: string; session_id?: string; }
 export type AskUserTradeoffRequest = AskUserDecisionRequest | LegacyAskUserTradeoffRequest;
@@ -70,7 +70,7 @@ function getDecisionResolver(state: { options: { askUserTradeoff?: AskUserDecisi
     return (state.options as any).askUserDecision ?? (state.options as any).askUserTradeoff;
 }
 async function executeAskUserDecisionTool(
-    state: { known_attractions: Map<string, { attraction_id: string; city_id: string; name: string }>; tradeoff_history: TradeoffHistoryEntry[]; tradeoff_calls: number; options: { askUserTradeoff?: AskUserDecisionResolver; askUserDecision?: AskUserDecisionResolver }; deadline: number; input: CandidateDesignInput; },
+    state: { known_attractions: Map<string, { attraction_id: string; city_id: string; name: string }>; tradeoff_history: TradeoffHistoryEntry[]; tradeoff_calls: number; options: { askUserTradeoff?: AskUserDecisionResolver; askUserDecision?: AskUserDecisionResolver }; deadline: number | null; input: CandidateDesignInput; },
     rawArguments: string,
 ): Promise<string> {
     const resolver = getDecisionResolver(state);
@@ -91,12 +91,18 @@ async function executeAskUserDecisionTool(
         if (!a || !b) return JSON.stringify({ error: { code: "unknown_attraction", message: "Both attractions must be retrieved first via query_attractions/get_attractions_by_ids before asking." } });
         const qLower = question.toLowerCase(); if (!(qLower.includes(a.name.toLowerCase()) || qLower.includes(aId.toLowerCase())) || !(qLower.includes(b.name.toLowerCase()) || qLower.includes(bId.toLowerCase()))) return JSON.stringify({ error: { code: "invalid_question", message: `Question must include both attraction names: ${a.name} and ${b.name}.` } });
         try {
-            const remaining = state.deadline - Date.now(); if (remaining <= 0) throw new Error("ask_user_decision exceeded the run timeout");
-            let timer: ReturnType<typeof setTimeout> | undefined; const timeout = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("ask_user_decision exceeded the run timeout")), remaining); });
             const sid = state.input.session_id;
-            const genericReq: AskUserDecisionRequest = { reason: "material_tradeoff", prompt: question, options: [{ option_id: aId, label: a.name, tradeoff: tradeoffA }, { option_id: bId, label: b.name, tradeoff: tradeoffB }], session_id: sid };
-            const legacyReq: any = { attraction_id_a: aId, attraction_id_b: bId, question, tradeoff_a: tradeoffA, tradeoff_b: tradeoffB, session_id: sid };
-            const choiceRaw = await Promise.race([resolver(legacyReq), timeout]).finally(() => { if (timer) clearTimeout(timer); });
+            const profRev = state.input.profile_revision;
+            const genericReq: AskUserDecisionRequest = { reason: "material_tradeoff", prompt: question, options: [{ option_id: aId, label: a.name, tradeoff: tradeoffA }, { option_id: bId, label: b.name, tradeoff: tradeoffB }], session_id: sid, ...(profRev !== undefined ? { profile_revision: profRev } : {}) };
+            const legacyReq: any = { attraction_id_a: aId, attraction_id_b: bId, question, tradeoff_a: tradeoffA, tradeoff_b: tradeoffB, session_id: sid, ...(profRev !== undefined ? { profile_revision: profRev } : {}) };
+            let choiceRaw: string;
+            if (state.deadline === null) {
+                choiceRaw = await resolver(legacyReq);
+            } else {
+                const remaining = state.deadline - Date.now(); if (remaining <= 0) throw new Error("ask_user_decision exceeded the run timeout");
+                let timer: ReturnType<typeof setTimeout> | undefined; const timeout = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("ask_user_decision exceeded the run timeout")), remaining); });
+                choiceRaw = await Promise.race([resolver(legacyReq), timeout]).finally(() => { if (timer) clearTimeout(timer); });
+            }
             const choice = typeof choiceRaw === "string" ? choiceRaw.trim() : String(choiceRaw ?? "").trim(); if (!choice) return JSON.stringify({ error: { code: "invalid_choice", message: "User reply was empty." } });
             state.tradeoff_history.push({ reason: "material_tradeoff", prompt: question, options: genericReq.options, choice, question, attraction_id_a: aId, attraction_id_b: bId, tradeoff_a: tradeoffA, tradeoff_b: tradeoffB });
             (state as { tradeoff_calls: number }).tradeoff_calls += 1;
@@ -119,10 +125,16 @@ async function executeAskUserDecisionTool(
         options.push({ option_id, label, tradeoff });
     }
     try {
-        const remaining = state.deadline - Date.now(); if (remaining <= 0) throw new Error("ask_user_decision exceeded the run timeout");
-        let timer: ReturnType<typeof setTimeout> | undefined; const timeout = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("ask_user_decision exceeded the run timeout")), remaining); });
         const sid = state.input.session_id;
-        const choiceRaw = await Promise.race([resolver({ reason: reason as DecisionReason, prompt, options, session_id: sid }), timeout]).finally(() => { if (timer) clearTimeout(timer); });
+        const profRev2 = state.input.profile_revision;
+        let choiceRaw: string;
+        if (state.deadline === null) {
+            choiceRaw = await resolver({ reason: reason as DecisionReason, prompt, options, session_id: sid, ...(profRev2 !== undefined ? { profile_revision: profRev2 } : {}) });
+        } else {
+            const remaining = state.deadline - Date.now(); if (remaining <= 0) throw new Error("ask_user_decision exceeded the run timeout");
+            let timer: ReturnType<typeof setTimeout> | undefined; const timeout = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("ask_user_decision exceeded the run timeout")), remaining); });
+            choiceRaw = await Promise.race([resolver({ reason: reason as DecisionReason, prompt, options, session_id: sid, ...(profRev2 !== undefined ? { profile_revision: profRev2 } : {}) }), timeout]).finally(() => { if (timer) clearTimeout(timer); });
+        }
         const choice = typeof choiceRaw === "string" ? choiceRaw.trim() : String(choiceRaw ?? "").trim(); if (!choice) return JSON.stringify({ error: { code: "invalid_choice", message: "User reply was empty." } });
         state.tradeoff_history.push({ reason: reason as DecisionReason, prompt, options, choice });
         (state as { tradeoff_calls: number }).tradeoff_calls += 1;
@@ -144,6 +156,7 @@ export interface CandidateDesignInput {
     session_id: string;
     run_budget: RunBudget;
     replan?: Replan
+    profile_revision?: number;
 }
 
 export interface CityRecord {
@@ -234,6 +247,7 @@ export interface CandidateDesignOptions {
     askUserDecision?: AskUserDecisionResolver;
     /** @deprecated use askUserDecision */
     askUserTradeoff?: AskUserTradeoffResolver;
+    onProgress?: (payload: { phase: string; status: string; progress: number; message: string }) => Promise<void>;
 }
 
 export class CandidateDesignConfigurationError extends Error { constructor(message: string) { super(message); this.name = "CandidateDesignConfigurationError"; } }
@@ -246,6 +260,7 @@ const DEFAULT_MODEL = "muse-spark-1.2-contributor";
 const FIXED_MODEL = "muse-spark-1.2-contributor";
 const META_BASE_URL = "https://api.meta.ai/v1";
 const DEFAULT_TIMEOUT_MS = 30_000;
+const PER_MODEL_CALL_TIMEOUT_MS = 60_000;
 
 // const stringOrNullSchema = {
 //     anyOf: [{ type: "string" }, { type: "null" }] } as const;
@@ -310,13 +325,22 @@ interface ModelMessage {
 interface RunState {
     input: CandidateDesignInput;
     options: CandidateDesignOptions;
-    deadline: number;
+    deadline: number | null;
     tool_calls: number;
     retrieved_rows: number;
     known_cities: Map<string, CityRecord>;
     known_attractions: Map<string, AttractionRecord>;
     tradeoff_history: TradeoffHistoryEntry[];
     tradeoff_calls: number;
+    progressEmitted: Set<string>;
+}
+
+async function callProgress(state: RunState, payload: { phase: string; status: string; progress: number; message: string }): Promise<void> {
+    if (!state.options.onProgress) return;
+    const dedupKey = `${payload.phase}:${payload.progress}`;
+    if (state.progressEmitted.has(dedupKey)) return;
+    state.progressEmitted.add(dedupKey);
+    try { await state.options.onProgress(payload); } catch { /* ignore */ }
 }
 
 const PROMPT_PLUG_FIRST_RUN = `
@@ -1059,7 +1083,8 @@ function validateInput(input: CandidateDesignInput): void {
     if (!Number.isInteger(input.run_budget.max_candidates) || input.run_budget.max_candidates < 1 || input.run_budget.max_candidates > 5) throw new CandidateDesignConfigurationError("run_budget.max_candidates must be between 1 and 5");
     if (!Number.isInteger(input.run_budget.max_tool_calls) || input.run_budget.max_tool_calls < 1 || input.run_budget.max_tool_calls > 100) throw new CandidateDesignConfigurationError("run_budget.max_tool_calls must be between 1 and 100");
     if (!Number.isInteger(input.run_budget.max_rows_per_tool_call) || input.run_budget.max_rows_per_tool_call < 1 || input.run_budget.max_rows_per_tool_call > 50) throw new CandidateDesignConfigurationError("run_budget.max_rows_per_tool_call must be between 1 and 50");
-    if (!Number.isInteger(input.run_budget.timeout_ms) || input.run_budget.timeout_ms < 1000 || input.run_budget.timeout_ms > 1200000) throw new CandidateDesignConfigurationError("run_budget.timeout_ms must be between 1000 and 120000");
+    if (!Number.isInteger(input.run_budget.timeout_ms) || input.run_budget.timeout_ms < 0 || input.run_budget.timeout_ms > 1200000) throw new CandidateDesignConfigurationError("run_budget.timeout_ms must be between 0 and 1200000 (0 = no timeout)");
+    if (input.run_budget.timeout_ms !== 0 && input.run_budget.timeout_ms !== undefined && input.run_budget.timeout_ms < 0) throw new CandidateDesignConfigurationError("run_budget.timeout_ms must be 0 or positive");
 }
 
 function buildToolSchemas(options: CandidateDesignOptions): unknown[] {
@@ -1116,7 +1141,8 @@ function buildUserMessage(input: CandidateDesignInput): string {
 
 function defaultFetcher(input: string, init?: FetchRequestInit): Promise<FetchResponse> { return fetch(input, init as RequestInit); }
 
-async function withDeadline<T>(promise: Promise<T>, deadline: number, label: string): Promise<T> {
+async function withDeadline<T>(promise: Promise<T>, deadline: number | null, label: string): Promise<T> {
+    if (deadline === null || deadline === undefined) return promise;
     const remaining = deadline - Date.now();
     if (remaining <= 0) throw new CandidateDesignTimeoutError(`${label} exceeded the run timeout`);
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -1129,7 +1155,7 @@ function toolFailureMessage(error: unknown): string {
 }
 function ensureToolBudget(state: RunState): void {
     if (state.tool_calls >= state.input.run_budget.max_tool_calls) throw new CandidateDesignToolError("The run tool-call budget was exhausted", "tool_budget_exhausted");
-    if (Date.now() >= state.deadline) throw new CandidateDesignTimeoutError("The run timeout was exceeded");
+    if (state.deadline !== null && Date.now() >= state.deadline) throw new CandidateDesignTimeoutError("The run timeout was exceeded");
     state.tool_calls += 1;
 }
 function validateCityRecord(city: CityRecord): void {
@@ -1160,6 +1186,7 @@ async function executeTool(state: RunState, name: string, rawArguments: string):
             if (result.cities.length > state.input.run_budget.max_rows_per_tool_call) throw new CandidateDesignToolError("search_cities exceeded the row limit", "row_budget_exhausted");
             for (const city of result.cities) { validateCityRecord(city); state.known_cities.set(city.city_id, city); }
             state.retrieved_rows += result.cities.length;
+            await callProgress(state, { phase: "destination_design", status: "running", progress: 22, message: "Searching cities..." });
             return JSON.stringify({ cities: result.cities, next_cursor: result.next_cursor });
         }
         if (name === "get_city") {
@@ -1178,8 +1205,8 @@ async function executeTool(state: RunState, name: string, rawArguments: string):
                 query: typeof args.query === "string" ? args.query.trim() : "",
             }), state.deadline, "query_attractions");
             if (result.attractions.length > state.input.run_budget.max_rows_per_tool_call) throw new CandidateDesignToolError("query_attractions exceeded the row limit", "row_budget_exhausted");
-            // for (const attraction of result.attractions) { validateAttractionRecord(attraction, cityId); state.known_attractions.set(attraction.attraction_id, attraction); }
             state.retrieved_rows += result.attractions.length;
+            await callProgress(state, { phase: "destination_design", status: "running", progress: 45, message: "Curating experiences..." });
             return JSON.stringify({ query_id: result.query_id, attractions: result.attractions, next_cursor: result.next_cursor });
         }
         // get_attractions_by_ids
@@ -1239,18 +1266,23 @@ async function requestModel(state: RunState, messages: ChatMessage[], tools: unk
     const fetcher = state.options.fetcher;
     if (fetcher) {
         for (let attempt = 0; attempt < 5; attempt += 1) {
-            const controller = new AbortController(); const remaining = Math.max(1, state.deadline - Date.now()); const abortTimer = setTimeout(() => controller.abort(), remaining);
+            const controller = new AbortController();
+            const hasDeadline = state.deadline !== null;
+            // Keep run infinite (deadline null) but bound each model call to PER_MODEL_CALL_TIMEOUT_MS
+            const callDeadline = hasDeadline ? state.deadline : Date.now() + PER_MODEL_CALL_TIMEOUT_MS;
+            const remaining = Math.max(1, callDeadline - Date.now());
+            const abortTimer = setTimeout(() => controller.abort(), remaining);
             try {
                 const response = await withDeadline(fetcher(`${META_BASE_URL}/chat/completions`, {
                     method: "POST", headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" }, signal: controller.signal,
                     body: JSON.stringify({ model, messages, ...(tools.length > 0 ? { tools, tool_choice: "auto" } : { response_format: { type: "json_schema", json_schema: { name: "candidate_design_result", strict: true, schema: CANDIDATE_DESIGN_RESPONSE_SCHEMA } } }), temperature: 0.2, max_tokens: 8192, reasoning_effort: REASONING_EFFORT }),
-                } as any), state.deadline, "model request");
-                const rawText = await withDeadline(response.text(), state.deadline, "model response read");
+                } as any), callDeadline, "model request");
+                const rawText = await withDeadline(response.text(), callDeadline, "model response read");
                 if (response.status === 429 && attempt < 4) {
                     const m = rawText.match(/try again in ([\d.]+)s/i); const delayMs = m?.[1] ? Math.ceil(parseFloat(m[1]) * 1000) + 500 : 4000 * (attempt + 1);
-                    const waitMs = Math.min(delayMs, Math.max(0, state.deadline - Date.now() - 1000)); clearTimeout(abortTimer);
+                    const waitMs = hasDeadline ? Math.min(delayMs, Math.max(0, state.deadline! - Date.now() - 1000)) : Math.min(delayMs, 5000); if (abortTimer) clearTimeout(abortTimer);
                     if (waitMs > 0) await new Promise((r) => setTimeout(r, waitMs));
-                    if (Date.now() >= state.deadline) throw new CandidateDesignTimeoutError("The run timeout was exceeded during rate-limit backoff");
+                    if (hasDeadline && Date.now() >= state.deadline!) throw new CandidateDesignTimeoutError("The run timeout was exceeded during rate-limit backoff");
                     continue;
                 }
                 if (!response.ok) throw new CandidateDesignApiError(`Candidate Design model request failed with status ${response.status}: ${rawText}`, response.status);
@@ -1261,13 +1293,16 @@ async function requestModel(state: RunState, messages: ChatMessage[], tools: unk
         throw new CandidateDesignApiError("Candidate Design model request failed after retries", 429);
     }
     const client = new OpenAI({ apiKey, baseURL: META_BASE_URL } as any);
-    const withTimeout = async <T>(promise: Promise<T>, ms: number): Promise<T> => {
+    const withTimeout = async <T>(promise: Promise<T>, ms: number | null): Promise<T> => {
+        if (ms === null) return promise;
         let tid: ReturnType<typeof setTimeout>; const tp = new Promise<never>((_, rej) => { tid = setTimeout(() => rej(new DOMException("Timeout", "AbortError")), ms); });
         try { const r = await Promise.race([promise, tp]); clearTimeout(tid!); return r as T; } catch (e) { clearTimeout(tid!); throw e; }
     };
     for (let attempt = 0; attempt < 5; attempt += 1) {
         try {
-            const remaining = Math.max(1, state.deadline - Date.now());
+            const hasDeadline2 = state.deadline !== null;
+            const callDeadline2 = hasDeadline2 ? state.deadline : Date.now() + PER_MODEL_CALL_TIMEOUT_MS;
+            const remaining = Math.max(1, callDeadline2 - Date.now());
             const payload: any = {
                 model,
                 messages: messages as any,
@@ -1294,11 +1329,14 @@ async function requestModel(state: RunState, messages: ChatMessage[], tools: unk
             const msg = String(e?.message ?? ""); const isRate = e?.status === 429 || msg.includes("429") || /rate limit/i.test(msg);
             if (isRate && attempt < 4) {
                 const m = msg.match(/try again in ([\d.]+)s/i); const delayMs = m?.[1] ? Math.ceil(parseFloat(m[1]) * 1000) + 500 : 4000 * (attempt + 1);
-                const waitMs = Math.min(delayMs, Math.max(0, state.deadline - Date.now() - 1000));
+                const waitMs = state.deadline !== null ? Math.min(delayMs, Math.max(0, state.deadline! - Date.now() - 1000)) : Math.min(delayMs, 5000);
                 if (waitMs > 0) await new Promise((r) => setTimeout(r, waitMs)); continue;
             }
             if (e instanceof CandidateDesignApiError || e instanceof CandidateDesignResponseError) throw e;
-            if (e instanceof DOMException && e.name === "AbortError") throw new CandidateDesignTimeoutError("The run timeout was exceeded");
+            if (e instanceof DOMException && e.name === "AbortError") {
+                if (state.deadline !== null) throw new CandidateDesignTimeoutError("The run timeout was exceeded");
+                throw e;
+            }
             throw e;
         }
     }
@@ -1328,8 +1366,8 @@ async function modelToolLoop(state: RunState, messages: ChatMessage[], tools: un
                 const output = await executeTool(state, call.function.name, call.function.arguments);
                 messages.push({ role: "tool", tool_call_id: call.id, name: call.function.name, content: output });
             }
-            const gap = 400;
-            if (Date.now() + gap < state.deadline) await new Promise((r) => setTimeout(r, gap));
+            // No artificial gap when run is infinite — saves ~400ms per tool turn (10 turns = 4s)
+            if (state.deadline !== null && Date.now() + gap < state.deadline) await new Promise((r) => setTimeout(r, gap));
             continue;
         }
         if (!message.content) throw new CandidateDesignResponseError("model returned neither tool calls nor final JSON", ["message.content: final JSON required"]);
@@ -1377,12 +1415,21 @@ export async function processCandidateDesign(input: CandidateDesignInput, option
 
     validateInput(input);
     if (!options || !options.tools) throw new CandidateDesignConfigurationError("CandidateDesignOptions.tools is required");
+    // Long processes: 0 or undefined means no timeout (deadline = null = infinite). Otherwise use min of both.
+    const budgetMs = input.run_budget.timeout_ms;
+    const optMs = options.timeout_ms;
+    let deadline: number | null = null;
+    if (budgetMs > 0 || (optMs !== undefined && optMs > 0)) {
+        const effectiveMs = budgetMs > 0 && optMs !== undefined && optMs > 0 ? Math.min(budgetMs, optMs) : (budgetMs > 0 ? budgetMs : optMs!);
+        deadline = Date.now() + effectiveMs;
+    }
     const state: RunState = {
         input, options,
-        deadline: Date.now() + Math.min(input.run_budget.timeout_ms, options.timeout_ms ?? input.run_budget.timeout_ms),
+        deadline,
         tool_calls: 0, retrieved_rows: 0,
         known_cities: new Map(), known_attractions: new Map(),
         tradeoff_history: [], tradeoff_calls: 0,
+        progressEmitted: new Set<string>(),
     };
     const final_sys_prompt = (input.replan) ? PROMPT_PLUG_REPLAN + SYSTEM_PROMPT : PROMPT_PLUG_FIRST_RUN + SYSTEM_PROMPT;
     const messages: ChatMessage[] = [
@@ -1404,6 +1451,7 @@ export async function processCandidateDesign(input: CandidateDesignInput, option
                 validateCandidate(candidate, state, index);
             }
             candidates = normalized;
+            await callProgress(state, { phase: "destination_design", status: "running", progress: 62, message: "Shaping itinerary..." });
         } catch (error) {
             throw error;
             // if (!(error instanceof CandidateDesignResponseError) || repairAttempts >= 2) {

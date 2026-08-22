@@ -137,9 +137,13 @@ export function WsProvider({ children }: { children: React.ReactNode }) {
         setConnected(client.getConnectionState() === 'open')
         hasEverConnectedRef.current = true
         setWsFailedAtStart(false)
-      } else if (type === 'workflow.state') {
+      } else if (type === 'workflow.state' || type === 'workflow_state') {
         const wf = (payload as Record<string, unknown>).workflow_state as string | undefined
         if (wf) setWorkflowState(wf as WorkflowState)
+      } else if (type === 'command.accepted' || type === 'command.rejected') {
+        const wf = (payload as Record<string, unknown>).workflow_state as string | undefined
+        // Optimistic: if server ack already says planning, move immediately — don't wait for workflow.state sequencing
+        if (wf === 'planning' || wf === 'decision_required') setWorkflowState(wf as WorkflowState)
       } else if (type === 'session.expired') {
         setIsExpired(true)
         setWorkflowState('expired')

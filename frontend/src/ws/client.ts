@@ -308,6 +308,9 @@ export function isKnownCommandType(t: string): boolean {
 
 // ---------------------------------------------------------------------------
 // Sequence ordering per run — starts at 1, buffer out-of-order
+// Bounded gap recovery: a missing sequence cannot block lifecycle-critical
+// events forever. See PROPOSALS.md §A. Grace interval: 250ms (critical event
+// accelerates flush; stale duplicates remain rejected).
 // ---------------------------------------------------------------------------
 
 export class SequenceManager {
@@ -315,34 +318,97 @@ export class SequenceManager {
   private seen = new Set<number>();
   private buffer = new Map<number, Envelope>();
   private runId: string | null = null;
+  // diagnostics
+  private gapStartExpected: number | null = null;
+  private gapStartAt: number | null = null;
+  private gapBufferedAtStart: number[] = [];
+  private flushCount = 0;
+  private lastFlushInfo: { missingRange: string; runId: string | null; flushedTypes: string[]; expectedBefore: number; expectedAfter: number } | null = null;
+  private processedMessageIds = new Set<string>();
 
   reset(runId: string | null): void {
     this.runId = runId;
     this.expected = 1;
     this.seen.clear();
     this.buffer.clear();
+    this.gapStartExpected = null;
+    this.gapStartAt = null;
+    this.gapBufferedAtStart = [];
+    // keep flushCount / lastFlushInfo for cross-run diagnostics? reset flushCount per run
+    this.flushCount = 0;
+    this.lastFlushInfo = null;
+    this.processedMessageIds.clear();
   }
 
   getRunId(): string | null { return this.runId; }
   getExpected(): number { return this.expected; }
 
+  getGapStart(): number | null { return this.gapStartExpected; }
+  getGapStartedAt(): number | null { return this.gapStartAt; }
+  getFlushCount(): number { return this.flushCount; }
+  getLastFlushInfo(): { missingRange: string; runId: string | null; flushedTypes: string[]; expectedBefore: number; expectedAfter: number } | null {
+    return this.lastFlushInfo ? { ...this.lastFlushInfo, flushedTypes: [...this.lastFlushInfo.flushedTypes] } : null;
+  }
+
+  /** True if envelope with this message_id already processed (dedup). */
+  isDuplicateMessageId(messageId: string): boolean {
+    return this.processedMessageIds.has(messageId);
+  }
+  markMessageId(messageId: string): void {
+    if (messageId) this.processedMessageIds.add(messageId);
+  }
+
+  /** Diagnostic snapshot for tests/debugging */
+  getDiagnostics(): {
+    expected: number;
+    bufferedSequences: number[];
+    gapStart: number | null;
+    gapStartedAt: number | null;
+    flushCount: number;
+    lastFlushInfo: { missingRange: string; runId: string | null; flushedTypes: string[]; expectedBefore: number; expectedAfter: number } | null;
+  } {
+    return {
+      expected: this.expected,
+      bufferedSequences: this.getBufferedSequences(),
+      gapStart: this.gapStartExpected,
+      gapStartedAt: this.gapStartAt,
+      flushCount: this.flushCount,
+      lastFlushInfo: this.getLastFlushInfo(),
+    };
+  }
+
   /**
    * Offer an envelope with sequence. Returns list of envelopes ready to process in order.
    * - Duplicate sequence => ignored
+   * - Duplicate message_id => ignored
    * - Stale (< expected) => ignored
-   * - Gap => buffered until gap fills
+   * - Gap => buffered until gap fills or bounded flush recovers
    * - No sequence => returned immediately (e.g., pre-run messages)
+   * Strict ordering for ordinary snapshots; critical events are not delayed
+   * beyond the bounded grace interval (handled by WsClient).
    */
   offer(env: Envelope): Envelope[] {
     const seq = env.sequence as number | undefined;
     if (seq == null) {
       // No sequence — process immediately (e.g., session.ready before run, or error without sequence)
+      if (env.message_id && this.processedMessageIds.has(env.message_id)) return [];
+      if (env.message_id) this.processedMessageIds.add(env.message_id);
       return [env];
     }
     if (!Number.isInteger(seq) || seq < 1) return [];
+    // deduplicate by message_id first to protect against duplicate transport delivery
+    if (env.message_id && this.processedMessageIds.has(env.message_id)) return [];
     if (this.seen.has(seq)) return [];
     if (seq < this.expected) return [];
+    // record gap start when first future seq arrives
+    const isFuture = seq > this.expected;
+    if (isFuture && this.gapStartExpected === null) {
+      this.gapStartExpected = this.expected;
+      this.gapStartAt = Date.now();
+      this.gapBufferedAtStart = [...this.buffer.keys()];
+    }
     this.seen.add(seq);
+    if (env.message_id) this.processedMessageIds.add(env.message_id);
     if (seq === this.expected) {
       const out: Envelope[] = [env];
       this.expected++;
@@ -352,6 +418,12 @@ export class SequenceManager {
         this.buffer.delete(this.expected);
         out.push(nxt);
         this.expected++;
+      }
+      // gap resolved if contiguous drain caught up
+      if (!this.hasPending()) {
+        this.gapStartExpected = null;
+        this.gapStartAt = null;
+        this.gapBufferedAtStart = [];
       }
       return out;
     }
@@ -372,10 +444,11 @@ export class SequenceManager {
   getBufferSize(): number { return this.buffer.size; }
 
   /**
-   * Flush buffered envelopes in sequence order when a cold-start gap
-   * is deemed unrecoverable (e.g., server started at seq > 1 or
-   * seq 1 was lost before subscription). Advances expected to
-   * one past the highest flushed sequence.
+   * Flush buffered envelopes in sequence order when a gap is deemed
+   * unrecoverable after the bounded grace interval. Advances expected to
+   * one past the highest flushed sequence. Records diagnostic containing
+   * missing range, run ID, and flushed types.
+   * Applies to both cold-start (expected===1) and mid-run gaps.
    */
   flushWithGap(): Envelope[] {
     if (this.buffer.size === 0) return [];
@@ -386,9 +459,41 @@ export class SequenceManager {
       this.buffer.delete(s);
       out.push(env);
     }
+    const expectedBefore = this.expected;
+    // missing range is expectedBefore .. (seqs[0]-1) if gap at start, else internal gaps may exist
     const max = seqs[seqs.length - 1];
+    // compute missing range string for diagnostics
+    const missingStart = expectedBefore;
+    const missingEnd = seqs[0] - 1;
+    const missingRange = missingStart <= missingEnd ? `${missingStart}-${missingEnd}` : `${missingStart}..${max}(internal gaps)`;
     this.expected = max + 1;
+    this.flushCount++;
+    this.lastFlushInfo = {
+      missingRange,
+      runId: this.runId,
+      flushedTypes: out.map(e => `${e.type}#${e.sequence}`),
+      expectedBefore,
+      expectedAfter: this.expected,
+    };
+    // gap considered recovered
+    this.gapStartExpected = null;
+    this.gapStartAt = null;
+    this.gapBufferedAtStart = [];
     return out;
+  }
+
+  /**
+   * Mark a sequence as bypass-delivered (should no longer be used; kept for
+   * compatibility). Now prefers bounded flush over bypass. No-op if already seen.
+   * @deprecated
+   */
+  bypass(seq: number): void {
+    if (!Number.isInteger(seq) || seq < 1) return;
+    if (this.seen.has(seq)) return;
+    this.seen.add(seq);
+    if (seq >= this.expected) {
+      this.expected = seq + 1;
+    }
   }
 }
 
@@ -590,10 +695,15 @@ export class WsClient {
   // listeners
   private listeners = new Set<(env: Envelope) => void>();
 
-  // cold-start sequence gap handling — backend may start at seq > 1 (e.g., 4/5) for a new run;
-  // strict buffering would deadlock discovery. Fast-forward after a short grace.
+  // Bounded sequence gap recovery — missing seq cannot permanently block lifecycle
+  // critical events (planning.status, workflow.state, decision.request). For both
+  // cold-start (expected===1) and mid-run gaps, start a timer on first future
+  // arrival; on expiry flush buffered envelopes in order and advance expected
+  // past highest flushed seq. Stale duplicates remain rejected via seen/messageId.
+  // Grace intervals are documented: 250ms general, 80ms when critical buffered.
   private seqGapTimer: ReturnType<typeof setTimeout> | null = null;
-  private seqGapGraceMs = 500;
+  private seqGapGraceMs = 250;
+  private seqGapCriticalGraceMs = 80;
   private runStartAt: number | null = null;
 
   constructor(opts: WsClientOptions = {}) {
@@ -615,7 +725,24 @@ export class WsClient {
   }
   getPlanSnapshot(): { revision: number; state?: string; plan?: unknown } | null { return this.planStore.get(); }
   getConnectionState(): ConnectionState { return this.connState; }
-  getDiagnostics() { return { ...this.diagnostics, unknownEventTypes: [...this.diagnostics.unknownEventTypes] }; }
+  getDiagnostics() {
+    return {
+      ...this.diagnostics,
+      unknownEventTypes: [...this.diagnostics.unknownEventTypes],
+      unknownFields: [...this.diagnostics.unknownFields],
+      sequence: this.seq.getDiagnostics(),
+    };
+  }
+
+  /** Expose sequence diagnostics for tests */
+  getSequenceDiagnostics() {
+    return this.seq.getDiagnostics();
+  }
+
+  /** Whether a sequence gap flush has occurred */
+  hasHadGapFlush(): boolean {
+    return this.seq.getFlushCount() > 0;
+  }
 
   snapshot(): ClientStateSnapshot {
     return {
@@ -662,33 +789,47 @@ export class WsClient {
   }
 
   private scheduleSequenceGapFlush(): void {
+    // Do not reset/cancel timer while gap remains unresolved — later ordinary
+    // events must not cause timer to be dropped. Only the flush or session
+    // boundary clears it.
     if (this.seqGapTimer) return;
     if (!this.seq.hasPending()) return;
-    if (this.seq.getExpected() !== 1) return;
-    // only fast-forward cold-start gaps (first message seq > 1)
     const buffered = this.seq.getBufferedSequences();
     if (buffered.length === 0) return;
+    // Applicable to both cold-start and mid-run gaps (expected may be >1)
+    const expected = this.seq.getExpected();
     const smallest = buffered[0];
-    if (smallest <= 1) return;
+    if (smallest <= expected) return;
+    // Prefer not to delay decision-critical events beyond bounded grace
+    const hasCritical = (() => {
+      try {
+        const seqAny = this.seq as unknown as { buffer: Map<number, Envelope> };
+        const vals = [...(seqAny['buffer']?.values?.() ?? [])];
+        return vals.some((e: Envelope) => e.type === 'planning.status' || e.type === 'workflow.state' || e.type === 'decision.request');
+      } catch { return false; }
+    })();
+    const grace = hasCritical ? this.seqGapCriticalGraceMs : this.seqGapGraceMs;
     this.seqGapTimer = setTimeout(() => {
       this.seqGapTimer = null;
       this.flushSequenceGap();
-    }, this.seqGapGraceMs);
+    }, grace);
   }
 
   private flushSequenceGap(): void {
     if (!this.seq.hasPending()) return;
-    if (this.seq.getExpected() !== 1) return;
+    const expectedBefore = this.seq.getExpected();
+    const bufferedBefore = this.seq.getBufferedSequences();
     const flushed = this.seq.flushWithGap();
     if (flushed.length === 0) return;
-    // diagnostic so backend contract drift is visible
+    // diagnostic — includes missing range, run ID, flushed types
     try {
-      // wsLogger not imported here to avoid cycle; use console.debug and store diagnostic
       const label = flushed.map(e => `${e.type}#${e.sequence}`).join(', ');
-      // record for getDiagnostics()
-      this.diagnostics.unknownFields.push(`sequence gap fast-forward 1 -> ${this.seq.getExpected()}, flushed: ${label}`);
+      const info = this.seq.getLastFlushInfo();
+      const missing = info?.missingRange ?? `${expectedBefore}-${bufferedBefore[0]-1}`;
+      const diag = `sequence gap fast-forward ${missing} (expected ${expectedBefore} -> ${this.seq.getExpected()}, run ${this.seq.getRunId() ?? 'unknown'}), flushed: ${label}`;
+      this.diagnostics.unknownFields.push(diag);
       if (typeof console !== 'undefined' && typeof console.debug === 'function') {
-        console.debug(`[WsClient] sequence gap fast-forward expected 1 -> ${this.seq.getExpected()}, flushed ${flushed.length}: ${label}`);
+        console.debug(`[WsClient] ${diag}`);
       }
     } catch { /* ignore */ }
     for (const env of flushed) {
@@ -1008,13 +1149,17 @@ export class WsClient {
       this.startRun(env.run_id as string, (env.session_id as string) ?? this.sessionId, this.recoveryState);
     }
 
-    // route by kind
+    // route by kind — strict ordering for ordinary events; critical events
+    // are buffered similarly but benefit from bounded gap recovery (80ms when
+    // critical buffered, 250ms otherwise). Stale duplicates remain rejected.
+    // A later ordinary event cannot reset the gap timer while gap persists.
     if (env.kind === 'ack') {
-      // ack messages are ordered per run as well — apply sequence ordering
       const ordered = this.seq.offer(env);
       for (const o of ordered) this.handleAck(o);
       if (ordered.length > 0) {
-        if (this.seqGapTimer) { clearTimeout(this.seqGapTimer); this.seqGapTimer = null; }
+        // only clear timer when gap fully resolved
+        if (!this.seq.hasPending() && this.seqGapTimer) { clearTimeout(this.seqGapTimer); this.seqGapTimer = null; }
+        else if (this.seq.hasPending()) this.scheduleSequenceGapFlush();
       } else if (this.seq.hasPending()) {
         this.scheduleSequenceGapFlush();
       }
@@ -1024,7 +1169,8 @@ export class WsClient {
       const ordered = this.seq.offer(env);
       for (const o of ordered) this.handleError(o);
       if (ordered.length > 0) {
-        if (this.seqGapTimer) { clearTimeout(this.seqGapTimer); this.seqGapTimer = null; }
+        if (!this.seq.hasPending() && this.seqGapTimer) { clearTimeout(this.seqGapTimer); this.seqGapTimer = null; }
+        else if (this.seq.hasPending()) this.scheduleSequenceGapFlush();
       } else if (this.seq.hasPending()) {
         this.scheduleSequenceGapFlush();
       }
@@ -1034,7 +1180,8 @@ export class WsClient {
       const ordered = this.seq.offer(env);
       for (const o of ordered) this.handleEvent(o);
       if (ordered.length > 0) {
-        if (this.seqGapTimer) { clearTimeout(this.seqGapTimer); this.seqGapTimer = null; }
+        if (!this.seq.hasPending() && this.seqGapTimer) { clearTimeout(this.seqGapTimer); this.seqGapTimer = null; }
+        else if (this.seq.hasPending()) this.scheduleSequenceGapFlush();
       } else if (this.seq.hasPending()) {
         this.scheduleSequenceGapFlush();
       }
@@ -1167,6 +1314,23 @@ export class WsClient {
       return;
     }
 
+    // workflow.state — must update workflowState even if value is unknown (forward-compat)
+    if (t === 'workflow.state' || t === 'workflow_state') {
+      const payload = env.payload as Record<string, unknown>;
+      const wf = (payload.workflow_state ?? payload.state ?? payload.workflowState) as string | undefined;
+      if (typeof wf === 'string' && wf.trim().length > 0) {
+        this.workflowState = wf.trim() as WorkflowState;
+      } else if (typeof payload.state === 'string' && (payload.state as string).trim().length > 0) {
+        // fallback for state field variant
+        this.workflowState = (payload.state as string).trim() as WorkflowState;
+      }
+      // still emit — callers (WsProvider, Consultation) depend on this event to open orb
+      this.opts.onEvent?.(env);
+      for (const l of this.listeners) l(env);
+      this.emitState();
+      return;
+    }
+
     // workflow events — forward compat: unknown types already recorded, known types update state
     if (t === 'discovery.question') {
       // single active question
@@ -1189,12 +1353,23 @@ export class WsClient {
     if (t === 'decision.request') {
       this.workflowState = 'decision_required';
     }
+    if (t === 'planning.status') {
+      // Backend contract: planning.status with phase === "decision_required" indicates
+      // Agent 2 is paused awaiting user choice. Promote workflowState centrally even
+      // if decision.request payload is still buffered behind a gap. The frontend
+      // should not invent a separate "decision_required" event; mapping is via
+      // planning.status phase.
+      const phase = (env.payload as Record<string, unknown>).phase as string | undefined;
+      if (phase === 'decision_required') {
+        this.workflowState = 'decision_required';
+      }
+    }
     if (t === 'workflow.completed') {
       const outcome = (env.payload as Record<string, unknown>).outcome as string | undefined;
       if (outcome === 'cancelled') this.workflowState = 'cancelled';
       else if (outcome === 'final_plan_available') this.workflowState = 'plan_ready';
     }
-    // agent.lifecycle, planning.status etc. do not change workflowState necessarily — keep as is
+    // agent.lifecycle etc. remain as-is; planning.status with decision_required now promotes centrally
 
     // forward compat: unknown fields in payload are ignored; unknown event types safely ignored after diagnostics
     this.opts.onEvent?.(env);
@@ -1240,6 +1415,9 @@ const KNOWN_SERVER_EVENT_TYPES = [
   'workflow.completed',
   'session.expired',
   'session.superseded',
+  'workflow.state',
+  'command.accepted',
+  'command.rejected',
 ] as const;
 
 export function isUnknownServerEventType(t: string): boolean {

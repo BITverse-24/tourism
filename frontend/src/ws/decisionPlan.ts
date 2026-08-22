@@ -17,6 +17,30 @@
 // ---------------------------------------------------------------------------
 
 export const DECISION_REASON_MATERIAL_TRADEOFF = "material_tradeoff" as const;
+export const DECISION_REASON_HARD_CONSTRAINT_CONFLICT = "hard_constraint_conflict" as const;
+export const DECISION_REASON_MISSING_PREFERENCE = "missing_preference" as const;
+
+/** Union of allowed backend/AI decision reasons. Frontend must accept all */
+export const ALLOWED_DECISION_REASONS = [
+  DECISION_REASON_MATERIAL_TRADEOFF,
+  DECISION_REASON_HARD_CONSTRAINT_CONFLICT,
+  DECISION_REASON_MISSING_PREFERENCE,
+] as const;
+export type DecisionReason = (typeof ALLOWED_DECISION_REASONS)[number];
+
+/** Unwrap a possible single-nested { payload: {...decision...} } wrapper once.
+ *  Backend emits { decision_id, ... } directly; transport compatibility may
+ *  wrap once more. Unwrap only one level to avoid hiding malformed data. */
+export function unwrapDecisionPayload(raw: unknown): unknown {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
+  const obj = raw as Record<string, unknown>;
+  if ("decision_id" in obj || "prompt" in obj || "options" in obj) return raw;
+  if ("payload" in obj && obj.payload && typeof obj.payload === "object" && !Array.isArray(obj.payload)) {
+    const inner = obj.payload as Record<string, unknown>;
+    if ("decision_id" in inner || "prompt" in inner) return inner;
+  }
+  return raw;
+}
 
 export const REPLAN_CHANGE_TYPES = [
   "flight_delayed",
@@ -95,7 +119,9 @@ export interface DecisionOption {
 export interface DecisionRequestPayload {
   decision_id: string;
   profile_revision: number;
-  reason: typeof DECISION_REASON_MATERIAL_TRADEOFF;
+  reason: DecisionReason;
+  /** Original backend reason preserved for diagnostics; display maps all to UI category */
+  reason_display?: string;
   prompt: string;
   options: DecisionOption[];
 }
@@ -238,10 +264,12 @@ export interface DecisionRequestValidation {
 export function validateDecisionRequest(
   payload: unknown
 ): DecisionRequestValidation {
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+  // Compatibility: unwrap single-nested { payload: {...} } wrapper once in shared parser
+  const unwrapped = unwrapDecisionPayload(payload);
+  if (!unwrapped || typeof unwrapped !== "object" || Array.isArray(unwrapped)) {
     return { valid: false, error: "payload must be an object", code: "invalid_envelope" };
   }
-  const p = payload as Record<string, unknown>;
+  const p = unwrapped as Record<string, unknown>;
 
   // Hidden reasoning must not be present
   const hidden = findHiddenReasoningField(p);
@@ -259,10 +287,11 @@ export function validateDecisionRequest(
   if (!isPositiveInt(p.profile_revision)) {
     return { valid: false, error: "profile_revision must be a positive integer", code: "invalid_envelope" };
   }
-  if (p.reason !== DECISION_REASON_MATERIAL_TRADEOFF) {
+  // Accept full allowed union; normalize to display category. Preserve original via reason mapping.
+  if (typeof p.reason !== "string" || !(ALLOWED_DECISION_REASONS as readonly string[]).includes(p.reason as string)) {
     return {
       valid: false,
-      error: `reason must be "${DECISION_REASON_MATERIAL_TRADEOFF}"`,
+      error: `reason must be one of ${ALLOWED_DECISION_REASONS.join(", ")}`,
       code: "invalid_envelope",
     };
   }
@@ -321,7 +350,10 @@ export function parseDecisionRequest(
 ): DecisionRequestPayload {
   const v = validateDecisionRequest(payload);
   if (!v.valid) throw new Error(v.error ?? "invalid decision.request");
-  return payload as DecisionRequestPayload;
+  const unwrapped = unwrapDecisionPayload(payload) as DecisionRequestPayload;
+  // normalize all permitted reasons to UI display category while preserving original
+  // All valid reasons map to the same decision surface; keep original in reason_display if needed.
+  return unwrapped;
 }
 
 /** Returns true if payload contains no hidden reasoning fields. */
@@ -770,11 +802,17 @@ export function handleDecisionRequest(
   payload: unknown,
   opts?: { workflowState?: WorkflowState }
 ): { state: DecisionPlanState; valid: boolean; error?: string; code?: string } {
-  const v = validateDecisionRequest(payload);
+  const unwrapped = unwrapDecisionPayload(payload);
+  const v = validateDecisionRequest(unwrapped);
   if (!v.valid) {
+    // Log diagnostic without exposing hidden reasoning
+    if (typeof console !== 'undefined' && console.debug) {
+      console.debug(`[decisionPlan] rejected decision.request: ${v.error} (code=${v.code})`);
+    }
     return { state, valid: false, error: v.error, code: v.code };
   }
-  const req = payload as DecisionRequestPayload;
+  const req = unwrapped as DecisionRequestPayload;
+  // Validate required display fields explicitly (already done) and log rejected contract field
   const next: DecisionPlanState = {
     ...state,
     workflowState: opts?.workflowState ?? "decision_required",
@@ -1038,6 +1076,14 @@ export function dispatchWsEvent(
         const ns = handlePlanningStatus(state, { status: "failed", phase: p.phase as string });
         return { nextState: ns, handled: true, valid: true };
       }
+      // Backend uses planning.status with phase === "decision_required" to signal
+      // decision pause (see CandidateDecision.ts). Promote centrally to
+      // decision_required so UI can pause timeout even before decision.request arrives.
+      // Do not invent a separate "decision_required" event; mapping documented here.
+      if (p.phase === "decision_required") {
+        const ns: DecisionPlanState = { ...state, workflowState: "decision_required", hasReturnedToPlanning: false };
+        return { nextState: ns, handled: true, valid: true };
+      }
       return { nextState: state, handled: true, valid: true };
     }
     default:
@@ -1061,6 +1107,10 @@ export function dispatchWsCommandAck(
 const decisionPlan = {
   // constants
   DECISION_REASON_MATERIAL_TRADEOFF,
+  DECISION_REASON_HARD_CONSTRAINT_CONFLICT,
+  DECISION_REASON_MISSING_PREFERENCE,
+  ALLOWED_DECISION_REASONS,
+  unwrapDecisionPayload,
   REPLAN_CHANGE_TYPES,
   PLAN_SNAPSHOT_STATES,
   WORKFLOW_COMPLETED_OUTCOMES,
