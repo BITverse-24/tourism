@@ -1733,7 +1733,7 @@ function buildUserMessage(input: DiscoveryInput): string {
   const coverageHint = buildCoverageHint(input.profile, input.questions_asked_count ?? null);
   return JSON.stringify({
     instructions:
-      "Return ONLY the profile_patch (changed fields) and either one next question or a finished response. Use coverage_hint to pick an uncovered dimension. Never re-ask timing if timing_already_known is true. Do not finish unless coverage_hint.may_finish is true (unless questions_asked_count/estimate >= 15). Do not echo the profile back. questions_asked_count is authoritative when present; otherwise questions_asked_estimate is a fallback.",
+      "Return ONLY the profile_patch (changed fields) and either one next question or a finished response. Use coverage_hint to pick an uncovered dimension. Never re-ask timing if timing_already_known is true. Do not finish unless coverage_hint.may_finish is true (unless questions_asked_count/estimate >= 15). Do not echo the profile back. questions_asked_count is authoritative when present; otherwise questions_asked_estimate is a fallback. Do not ask any questions that have been asked in prior_questions",
     profile: input.profile,
     answer: input.answer,
     coverage_hint: coverageHint,

@@ -1,0 +1,484 @@
+{
+  "accommodation": [],
+  "assumptions": [
+    "Heavy rain at 09:00 on Day 2 makes outdoor-exposed sites unsuitable for elders/kids - Hawa Mahal facade and Jantar Mantar shifted to Day 3 and replaced with fully indoor Albert Hall, Amrapali Museum and Birla Planetarium",
+    "City Palace museum interiors remain visitable during rain by focusing on covered galleries despite Mixed classification",
+    "Day 3 weather assumed dry enough for rescheduled outdoor icons and hill forts; if rain persists prioritize Hawa Mahal/Jantar over Jaigarh/Kanak",
+    "Road transfer Jaipur to Pushkar (~150km via Ajmer) on Day 4 morning by private vehicle for 8 with frequent breaks"
+  ],
+  "city_allocations": [
+    {
+      "city_id": "jaipur_rajasthan",
+      "days": 3,
+      "nights": 3,
+      "place": "Jaipur",
+      "reason": "Primary heritage hub for culture & photography must-haves with Very High tourism popularity and 2-4 day recommended stay; 3 days allows indoor shelter on rainy Day 2 and rescheduling of outdoor icons to Day 3 for 8-person mixed-age family"
+    },
+    {
+      "city_id": "pushkar_rajasthan",
+      "days": 1,
+      "nights": 0,
+      "place": "Pushkar",
+      "reason": "Contrasting spiritual/cultural experience with High popularity and 1-2 day recommended stay; 1 focused day covers lake and temples without extra hotel change"
+    }
+  ],
+  "cost_summary": {
+    "budget_position": "within_target",
+    "categories": [],
+    "caveats": [
+      "No grounded numeric costs provided in CandidateBundle; prices not inferred from INR 350,000 target budget for 8. Confirm private vehicle, museum entry and cable car fees locally."
+    ],
+    "currency": "INR",
+    "estimated_total": null,
+    "scope": "total_for_party_of_8"
+  },
+  "days": [
+    {
+      "city_id": "jaipur_rajasthan",
+      "daily_notes": "Balanced hilltop start with vehicle assist and frequent rests for elders and kids.",
+      "date": "2026-10-15",
+      "day": 1,
+      "items": [
+        {
+          "description": "Massive 16th-century hilltop fort and palace with Hindu-style artistry and cobbled paths - core photography highlight for family group photos.",
+          "end_time": "11:00",
+          "estimated_cost": null,
+          "flexibility": "fixed",
+          "location": "Jaipur",
+          "movement": {
+            "duration_minutes": 30,
+            "from": "Accommodation",
+            "mode": "private vehicle",
+            "to": "Amber Fort"
+          },
+          "reason": "Early morning offers best light and cooler temperatures with vehicle/jeep to reduce climb for mixed-age group.",
+          "start_time": "08:00",
+          "title": "Amber Fort - Hilltop Palace Complex",
+          "type": "experience"
+        },
+        {
+          "description": "Generic lunch window near Amer area with flexible timing and vegetarian options.",
+          "end_time": "12:30",
+          "estimated_cost": null,
+          "flexibility": "fixed",
+          "location": "Amer area",
+          "movement": null,
+          "reason": "Rest after fort climb before short photo stops.",
+          "start_time": "11:30",
+          "title": "Flexible Lunch Break",
+          "type": "meal"
+        },
+        {
+          "description": "16th-century symmetrical stepwell near Amber with highly photogenic geometric stairways ideal for family photos.",
+          "end_time": "13:15",
+          "estimated_cost": null,
+          "flexibility": "fixed",
+          "location": "Jaipur",
+          "movement": {
+            "duration_minutes": 10,
+            "from": "Amer area",
+            "mode": "private vehicle",
+            "to": "Panna Meena Ka Kund"
+          },
+          "reason": "Very close to Amber Fort, 30-minute stop fits easily with minimal walking for elders/kids.",
+          "start_time": "12:45",
+          "title": "Panna Meena Ka Kund Stepwell",
+          "type": "experience"
+        },
+        {
+          "description": "Five-story palace in Man Sagar Lake viewed from shore - prime photography stop with no interior access needed.",
+          "end_time": "16:30",
+          "estimated_cost": null,
+          "flexibility": "fixed",
+          "location": "Jaipur",
+          "movement": {
+            "duration_minutes": 20,
+            "from": "Panna Meena Ka Kund",
+            "mode": "private vehicle",
+            "to": "Jal Mahal"
+          },
+          "reason": "Very easy lakeside viewpoint ideal low-effort highlight after morning fort.",
+          "start_time": "16:00",
+          "title": "Jal Mahal - Water Palace Viewpoint",
+          "type": "experience"
+        },
+        {
+          "description": "Return to hotel for elders and kids to recharge. No activities scheduled.",
+          "end_time": null,
+          "estimated_cost": null,
+          "flexibility": "fixed",
+          "location": "Jaipur",
+          "movement": {
+            "duration_minutes": 20,
+            "from": "Jal Mahal",
+            "mode": "private vehicle",
+            "to": "Accommodation"
+          },
+          "reason": "Evening rest to manage energy for mixed-age family.",
+          "start_time": "17:00",
+          "title": "Evening Rest at Accommodation",
+          "type": "rest"
+        }
+      ],
+      "place": "Jaipur",
+      "theme": "Hilltop icons and easy viewpoints"
+    },
+    {
+      "city_id": "jaipur_rajasthan",
+      "daily_notes": "Full indoor shelter day during heavy rain at 09:00, keeping elders and kids dry with seated options.",
+      "date": "2026-10-16",
+      "day": 2,
+      "items": [
+        {
+          "description": "Oldest museum in Rajasthan in Indo-Saracenic building with paintings, jewelry and Egyptian mummy - fully indoor respite during heavy rain.",
+          "end_time": "10:00",
+          "estimated_cost": null,
+          "flexibility": "fixed",
+          "location": "Jaipur",
+          "movement": {
+            "duration_minutes": 20,
+            "from": "Accommodation",
+            "mode": "private vehicle",
+            "to": "Albert Hall Museum"
+          },
+          "reason": "Indoor classification provides complete rain shelter with Very High photography value interiors.",
+          "start_time": "08:30",
+          "title": "Albert Hall Museum - Indoor Shelter Morning",
+          "type": "experience"
+        },
+        {
+          "description": "Grand courtyards, gardens and museum housing royal artifacts - focus on indoor museum galleries and covered courtyards during rain.",
+          "end_time": "12:15",
+          "estimated_cost": null,
+          "flexibility": "fixed",
+          "location": "Jaipur",
+          "movement": {
+            "duration_minutes": 15,
+            "from": "Albert Hall Museum",
+            "mode": "private vehicle",
+            "to": "City Palace"
+          },
+          "reason": "Museum interiors and covered areas allow dry visit as sheltered alternative to outdoor cluster.",
+          "start_time": "10:15",
+          "title": "City Palace Complex - Museum Interiors",
+          "type": "experience"
+        },
+        {
+          "description": "Generic lunch window in Old City area with flexible timing for family dietary needs.",
+          "end_time": "13:30",
+          "estimated_cost": null,
+          "flexibility": "fixed",
+          "location": "Old City",
+          "movement": null,
+          "reason": "Indoor restaurant seating during rain.",
+          "start_time": "12:15",
+          "title": "Flexible Lunch Break",
+          "type": "meal"
+        },
+        {
+          "description": "Specialized indoor museum showcasing vast collection of traditional Indian jewelry and silver objects.",
+          "end_time": "15:00",
+          "estimated_cost": null,
+          "flexibility": "fixed",
+          "location": "Jaipur",
+          "movement": {
+            "duration_minutes": 10,
+            "from": "Old City",
+            "mode": "private vehicle",
+            "to": "Amrapali Museum"
+          },
+          "reason": "Indoor with Low crowds ideal for dry, calm experience after lunch.",
+          "start_time": "13:30",
+          "title": "Amrapali Museum - Traditional Jewelry",
+          "type": "experience"
+        },
+        {
+          "description": "Planetarium inside BM Birla Science Centre offering sky shows and astronomical exhibits - fully indoor and engaging for kids and elders.",
+          "end_time": "16:30",
+          "estimated_cost": null,
+          "flexibility": "fixed",
+          "location": "Jaipur",
+          "movement": {
+            "duration_minutes": 15,
+            "from": "Amrapali Museum",
+            "mode": "private vehicle",
+            "to": "Birla Planetarium"
+          },
+          "reason": "Indoor seated show provides rest for elders while entertaining kids as rain-proof finale.",
+          "start_time": "15:30",
+          "title": "Birla Planetarium - Family Sky Show",
+          "type": "experience"
+        },
+        {
+          "description": "Return to hotel early for family rest. No outdoor fort sunset due to wet conditions.",
+          "end_time": null,
+          "estimated_cost": null,
+          "flexibility": "fixed",
+          "location": "Jaipur",
+          "movement": {
+            "duration_minutes": 15,
+            "from": "Birla Planetarium",
+            "mode": "private vehicle",
+            "to": "Accommodation"
+          },
+          "reason": "Avoid slippery hill roads after heavy rain.",
+          "start_time": "17:00",
+          "title": "Evening Rest at Accommodation",
+          "type": "rest"
+        }
+      ],
+      "place": "Jaipur",
+      "theme": "Rain-adapted indoor culture"
+    },
+    {
+      "city_id": "jaipur_rajasthan",
+      "daily_notes": "Packed recovery day for postponed outdoor icons - use vehicle support and midday rest, drop Kanak Garden if fatigued.",
+      "date": "2026-10-17",
+      "day": 3,
+      "items": [
+        {
+          "description": "Rugged military hill fort housing the world's largest cannon on wheels with views over Amber Fort below.",
+          "end_time": "10:00",
+          "estimated_cost": null,
+          "flexibility": "fixed",
+          "location": "Jaipur",
+          "movement": {
+            "duration_minutes": 30,
+            "from": "Accommodation",
+            "mode": "private vehicle",
+            "to": "Jaigarh Fort"
+          },
+          "reason": "Morning is cooler and Moderate crowds offer relaxed family experience after overnight rain.",
+          "start_time": "08:30",
+          "title": "Jaigarh Fort and Jaivana Cannon",
+          "type": "experience"
+        },
+        {
+          "description": "Lush valley garden below Amber Fort with marble fountains and temple, designed to resemble Vrindavan.",
+          "end_time": "11:30",
+          "estimated_cost": null,
+          "flexibility": "fixed",
+          "location": "Jaipur",
+          "movement": {
+            "duration_minutes": 15,
+            "from": "Jaigarh Fort",
+            "mode": "private vehicle",
+            "to": "Kanak Vrindavan Garden"
+          },
+          "reason": "Easy garden stroll provides low-effort scenic break with seating for elders.",
+          "start_time": "10:30",
+          "title": "Kanak Vrindavan Garden",
+          "type": "experience"
+        },
+        {
+          "description": "Extended lunch and hotel rest window for 8-person family before rescheduled Old City icons.",
+          "end_time": "15:00",
+          "estimated_cost": null,
+          "flexibility": "fixed",
+          "location": "Jaipur",
+          "movement": {
+            "duration_minutes": 20,
+            "from": "Kanak Vrindavan Garden",
+            "mode": "private vehicle",
+            "to": "Accommodation/Old City"
+          },
+          "reason": "Midday break essential to manage long Day 3 for mixed ages.",
+          "start_time": "11:30",
+          "title": "Flexible Lunch and Rest",
+          "type": "meal"
+        },
+        {
+          "description": "Iconic five-story pink sandstone facade with 953 jharokhas, architectural and cultural must-see in Old City - postponed from rainy Day 2 morning.",
+          "end_time": "16:00",
+          "estimated_cost": null,
+          "flexibility": "fixed",
+          "location": "Jaipur",
+          "movement": {
+            "duration_minutes": 15,
+            "from": "Old City",
+            "mode": "private vehicle",
+            "to": "Hawa Mahal"
+          },
+          "reason": "Rescheduled from Day 2 09:00 rain slot; afternoon provides drier conditions for family photos.",
+          "start_time": "15:00",
+          "title": "Hawa Mahal - Palace of Winds (Rescheduled)",
+          "type": "experience"
+        },
+        {
+          "description": "UNESCO collection of 19 architectural astronomical instruments including world's largest stone sundial - postponed from rainy Day 2.",
+          "end_time": "17:45",
+          "estimated_cost": null,
+          "flexibility": "fixed",
+          "location": "Jaipur",
+          "movement": {
+            "duration_minutes": 5,
+            "from": "Hawa Mahal",
+            "mode": "walk/private vehicle",
+            "to": "Jantar Mantar"
+          },
+          "reason": "Adjacent to Hawa Mahal cluster, late afternoon light enhances shadows for photography.",
+          "start_time": "16:15",
+          "title": "Jantar Mantar Observatory (Rescheduled)",
+          "type": "experience"
+        },
+        {
+          "description": "Aravalli hill fort offering most spectacular panoramic sunset views over Jaipur city.",
+          "end_time": "20:00",
+          "estimated_cost": null,
+          "flexibility": "fixed",
+          "location": "Jaipur",
+          "movement": {
+            "duration_minutes": 30,
+            "from": "Jantar Mantar",
+            "mode": "private vehicle",
+            "to": "Nahargarh Fort"
+          },
+          "reason": "Sunset is best time for photography finale; arrive early to secure seating for 8.",
+          "start_time": "18:00",
+          "title": "Nahargarh Fort Sunset Panorama",
+          "type": "experience"
+        }
+      ],
+      "place": "Jaipur",
+      "theme": "Rescheduled icons and sunset finale"
+    },
+    {
+      "city_id": "pushkar_rajasthan",
+      "daily_notes": "Spiritual contrast day with easy ghat walk and cable-car assisted sunset for elders and kids.",
+      "date": "2026-10-18",
+      "day": 4,
+      "items": [
+        {
+          "description": "One of world's few temples dedicated to Lord Brahma with 14th-century red spire and silver turtle floor.",
+          "end_time": "08:45",
+          "estimated_cost": null,
+          "flexibility": "fixed",
+          "location": "Pushkar",
+          "movement": {
+            "duration_minutes": 150,
+            "from": "Jaipur",
+            "mode": "private vehicle",
+            "to": "Pushkar"
+          },
+          "reason": "Morning avoids midday heat for 45-minute darshan before peak crowds.",
+          "start_time": "08:00",
+          "title": "Brahma Temple - Jagatpita Mandir",
+          "type": "experience"
+        },
+        {
+          "description": "Sacred semi-circular lake surrounded by 52 bathing ghats, central to Pushkar's spiritual life.",
+          "end_time": "10:30",
+          "estimated_cost": null,
+          "flexibility": "fixed",
+          "location": "Pushkar",
+          "movement": {
+            "duration_minutes": 10,
+            "from": "Brahma Temple",
+            "mode": "walk",
+            "to": "Pushkar Lake"
+          },
+          "reason": "Late morning light good for reflections with very high photography value.",
+          "start_time": "09:00",
+          "title": "Pushkar Lake and Ghats",
+          "type": "experience"
+        },
+        {
+          "description": "Generic lunch window in Pushkar town with flexible timing, vegetarian town norms respected.",
+          "end_time": "12:30",
+          "estimated_cost": null,
+          "flexibility": "fixed",
+          "location": "Pushkar",
+          "movement": null,
+          "reason": "Flexible break between lake and temples.",
+          "start_time": "10:30",
+          "title": "Flexible Lunch Break",
+          "type": "meal"
+        },
+        {
+          "description": "Architectural marvel blending South Indian, Rajput and Mughal styles dedicated to Lord Rangji.",
+          "end_time": "13:15",
+          "estimated_cost": null,
+          "flexibility": "fixed",
+          "location": "Pushkar",
+          "movement": {
+            "duration_minutes": 10,
+            "from": "Pushkar Lake",
+            "mode": "walk/private vehicle",
+            "to": "Rangji Temple"
+          },
+          "reason": "Short 45-minute temple visit fits between lake and hill temple with easy access.",
+          "start_time": "12:30",
+          "title": "Rangji Temple",
+          "type": "experience"
+        },
+        {
+          "description": "Hilltop temple on Ratnagiri Hill dedicated to Goddess Savitri with breathtaking panoramic views of town, lake and desert.",
+          "end_time": "18:30",
+          "estimated_cost": null,
+          "flexibility": "fixed",
+          "location": "Pushkar",
+          "movement": {
+            "duration_minutes": 20,
+            "from": "Rangji Temple",
+            "mode": "private vehicle + cable car",
+            "to": "Savitri Temple"
+          },
+          "reason": "Sunset offers best panoramic desert light; cable car reduces climb for elders and kids.",
+          "start_time": "16:30",
+          "title": "Savitri Temple Hill Sunset",
+          "type": "experience"
+        }
+      ],
+      "place": "Pushkar",
+      "theme": "Lake, temples and desert sunset"
+    }
+  ],
+  "destination_route": [
+    {
+      "arrival_from": null,
+      "city_id": "jaipur_rajasthan",
+      "departure_to": "pushkar_rajasthan",
+      "order": 1,
+      "place": "Jaipur"
+    },
+    {
+      "arrival_from": "jaipur_rajasthan",
+      "city_id": "pushkar_rajasthan",
+      "departure_to": null,
+      "order": 2,
+      "place": "Pushkar"
+    }
+  ],
+  "fit_explanation": "Culture and photography must-haves are fully preserved: Amber Fort, City Palace, Hawa Mahal, Jantar Mantar and Pushkar Lake remain, with rain-proof indoor museums (Albert Hall, Amrapali, Birla Planetarium) on Day 2 morning for elders/kids. Balanced pace with vehicle assist, cable car, frequent rests and midday breaks respects medium walking tolerance for 8-person joint family.",
+  "plan_title": "Jaipur & Pushkar 4-Day Rain-Adapted Family Heritage Plan",
+  "summary": "4-day Jaipur (3 days) + Pushkar (1 day) heritage plan for 8-person joint family, balanced for elders and kids with private vehicle support. Day 2 is fully indoor-adapted for heavy rain at 09:00, shifting Hawa Mahal and Jantar Mantar to a drier Day 3 afternoon. Preserves all culture and photography highlights with easy viewpoints, seated shows and sunset finales.",
+  "tradeoffs": [
+    "Keeping 3+1 split preserves Jaipur depth while accommodating rain without adding hotel changes",
+    "Postponing Hawa Mahal and Jantar Mantar to Day 3 afternoon preserves photography must-haves but loses early-morning soft light and creates a packed Day 3 for elders/kids",
+    "Full indoor shelter on Day 2 maximizes comfort for elders/kids but requires packed Day 3 to recover icons",
+    "Adding Amrapali Museum and Birla Planetarium provides Low/Moderate crowd indoor alternatives but adds museum-heavy day vs original palace/observatory balance"
+  ],
+  "traveler_profile_reference": {
+    "profile_id": "mock-profile",
+    "profile_revision": 1
+  },
+  "trip_dates": {
+    "duration_days": 4,
+    "end_date": "2026-10-18",
+    "flexibility": "somewhat_flexible",
+    "start_date": "2026-10-15"
+  },
+  "unresolved_details": [
+    "Confirm hotel elevator and family rooms for 8 near Old City for easy indoor access on rainy morning",
+    "Confirm private vehicle availability for wet-weather transfers and parking at indoor museums",
+    "Confirm indoor museum opening hours for Albert Hall, Amrapali and Birla Planetarium on Oct 16 and need for advance booking for group of 8",
+    "Check Day 3 road conditions to Jaigarh/Nahargarh after heavy rain for vehicle access",
+    "Confirm cable car operation for Savitri Temple for elders vs trekking preference"
+  ],
+  "warnings": [
+    "City Palace is Mixed with open courtyards that will be wet 09:00-12:00 on Day 2 - stay in indoor galleries as courtyard photography will be limited and surfaces slippery",
+    "Day 3 is packed with 5 experiences (Jaigarh, Kanak, Hawa Mahal, Jantar Mantar, Nahargarh) for medium walking tolerance - consider dropping Kanak Vrindavan Garden if fatigue sets in",
+    "Hawa Mahal and Jantar Mantar are outdoor-exposed and High crowds - afternoon on Day 3 will be more crowded than early morning",
+    "Savitri Temple hilltop is outdoor and windy at sunset; confirm cable car operation for elders/kids"
+  ]
+}

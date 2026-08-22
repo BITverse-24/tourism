@@ -1,5 +1,5 @@
-import { createPlanSnapshotMessage, createPlanningStatusMessage, createProfileSnapshotMessage } from "../factory/Event";
-import { addDiscoveryQuestion, appendProfileSnapshot, getSessionProfile, setWorkflowState } from "../models/data";
+import { createPlanSnapshotMessage, createProfileSnapshotMessage } from "../factory/Event";
+import { addDiscoveryQuestion, appendProfileSnapshot, getSessionProfile, setTripPlan, setWorkflowState } from "../models/data";
 import { generateUUID } from "../modules/util";
 import { ProfileConfirmMessage, ProfileRequestChangesMessage } from "../structures/CommandMessage";
 import { DiscoveryAnsSelectionModes, DiscoveryFreeTextModes, Errors, Events, MessageKinds, PlanningPhases, PlanningStatus, PlanSnapshotStates, ProfileSnapshotStates, WorkflowStates } from "../structures/enums";

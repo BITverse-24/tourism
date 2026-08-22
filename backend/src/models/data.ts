@@ -4,6 +4,7 @@ import { generateUUID } from "../modules/util";
 import { ProfileSnapshotStates, WorkflowStates } from "../structures/enums";
 import { TravelerProfile } from "../structures/TravelerProfile";
 import { CheckpointType, ProfileSnapshot } from "../structures/types";
+import { FinalTripPlan } from "../structures/FinalTripPlan";
 
 const SessionIds: Record<string, Set<string>> = {
     valid: new Set(),
@@ -48,8 +49,17 @@ const SessionCheckpointChains: Record<string, Promise<unknown>> = {
 const SessionDiscoveryEpoch: Record<string, number> = {
 }
 
+const RunTripPlan: Record<string, FinalTripPlan> = {
+}
 
 
+
+export async function setTripPlan(run_id: string, plan: FinalTripPlan) {
+    RunTripPlan[run_id] = plan
+}
+export async function getTripPlan(run_id: string) {
+    return RunTripPlan[run_id]
+}
 
 
 
