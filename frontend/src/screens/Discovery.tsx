@@ -16,6 +16,7 @@ export type { DiscoveryQuestion, DiscoveryOption, SelectionMode, FreeTextMode };
 // Types — server-provided discovery.question payload (docs/WEBSOCKET_CONTRACT.md)
 // No mockQuestions — question comes from useWs() / discovery.question event
 // ---------------------------------------------------------------------------
+let q_no = 0
 
 // Minimal profile shape needed for the rail — full snapshot is accepted.
 export type ProfileSnapshot = {
@@ -229,7 +230,8 @@ export default function Discovery({
   const question = isLiveMode ? live.question : questionProp;
   const profile = isLiveMode ? (live.profile as unknown as ProfileSnapshot | null) ?? profileProp ?? null : (profileProp ?? null);
   const liveSequence = live.sequence;
-  const sequence = isLiveMode ? (liveSequence ?? sequenceProp ?? null) : (sequenceProp ?? null);
+  const sequence = q_no
+  // const sequence = isLiveMode ? (liveSequence ?? sequenceProp ?? null) : (sequenceProp ?? null);
   const sequenceTotal = sequenceTotalProp ?? live.sequenceTotal ?? null;
   const busy = isLiveMode ? live.busy : busyProp;
   // Feedback priority: live hook feedback > local recovery > prop feedback
@@ -247,6 +249,7 @@ export default function Discovery({
       // clear stale recovery note once fresh question arrives
       setLocalRecoveryFeedback(null);
     }
+    q_no++
   }, [question?.question_id]);
 
   // Handle question_not_current recovery — server rejected stale answer, wait for new question.
