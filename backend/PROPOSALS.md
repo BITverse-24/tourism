@@ -536,3 +536,19 @@ Review “Request changes” is already a first-class v1 command on the client. 
 - Session memory grows by one optional change-request record per session.
 - Confirm / planning paths unchanged if the new `createWorkflowStateMessage` helper is a pure extract.
 - Frontend may still navigate at 300 ms; with `workflow.state` + `discovery.question` that navigate will stick. Without those events, AppShell will keep yanking the user back to review.
+
+---
+
+## 2. Fix `ai/candidate-design.ts` undefined `gap` (discovered during handler build)
+
+**Target:** `../ai/candidate-design.ts` ~1370
+
+**Issue:** `gap` is referenced but never defined: `if (state.deadline !== null && Date.now() + gap < state.deadline) await new Promise((r) => setTimeout(r, gap));` causes `TS2304: Cannot find name 'gap'` and blocks `tsc` build.
+
+**Evidence:** `npx tsc --project backend/tsconfig.json` reports `ai/candidate-design.ts(1370,57): error TS2304: Cannot find name 'gap'` and `ai/candidate-design.ts(1370,118)` duplicate.
+
+**Suggested change:** Define `const gap = 400;` (or restore the prior constant, e.g., `const GAP_MS = 400`) before the loop, or remove the artificial gap when deadline is infinite (comment says "No artificial gap when run is infinite"). If intentional to remove gap, delete the `if` line.
+
+**Reason:** Backend imports `ai/candidate-design` via `ProfileServices`, so any `tsc` build in `backend/` type-checks this file.
+
+**Impact:** Owner of `../ai/` should verify intended gap duration.

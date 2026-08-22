@@ -48,6 +48,32 @@ const SessionCheckpointChains: Record<string, Promise<unknown>> = {
 const SessionDiscoveryEpoch: Record<string, number> = {
 }
 
+export type ProfileChangeRequestContext = {
+    topics: string[]
+    free_text: string | null
+    source_profile_revision: number
+    opened_at_command_id: string
+    questions_in_phase: number
+}
+
+const ActiveChangeRequests: Record<string, ProfileChangeRequestContext> = {}
+
+export function setActiveChangeRequest(session_id: string, ctx: ProfileChangeRequestContext): void {
+    ActiveChangeRequests[session_id] = ctx
+}
+export function getActiveChangeRequest(session_id: string): ProfileChangeRequestContext | null {
+    return ActiveChangeRequests[session_id] ?? null
+}
+export function clearActiveChangeRequest(session_id: string): void {
+    delete ActiveChangeRequests[session_id]
+}
+export function incrementChangeRequestQuestions(session_id: string): void {
+    const cur = ActiveChangeRequests[session_id]
+    if (cur) {
+        cur.questions_in_phase += 1
+    }
+}
+
 
 
 

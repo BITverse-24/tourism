@@ -134,6 +134,14 @@ export const SessionExpiredSchema = BaseEventMessageSchema.extend({
 export type SessionExpiredMessage = z.infer<typeof SessionExpiredSchema>;
 
 
+export const WorkflowStateSchema = BaseEventMessageSchema.extend({
+    type: z.literal(Events.WORKFLOW_STATE),
+    payload: z.object({
+        workflow_state: z.enum(WorkflowStates),
+    }),
+})
+export type WorkflowStateMessage = z.infer<typeof WorkflowStateSchema>;
+
 export const SessionSupersededSchema = BaseEventMessageSchema.extend({
     type: z.literal("session.superseed"),
     payload: z.object({
@@ -141,7 +149,6 @@ export const SessionSupersededSchema = BaseEventMessageSchema.extend({
     }),
 })
 export type SessionSupersededMessage = z.infer<typeof SessionSupersededSchema>;
-
 
 export const EventSchemas = [
     SessionReadySchema,
@@ -155,4 +162,5 @@ export const EventSchemas = [
     WorkflowCompletedSchema,
     SessionExpiredSchema,
     SessionSupersededSchema,
+    WorkflowStateSchema,
 ] as const

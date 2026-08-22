@@ -40,7 +40,32 @@ export const ProfileRequestChangesSchema = CommandMessageEnvelopeSchema.extend({
     type: z.literal("profile.request_changes"),
     payload: z.object({
         topics: z.array(z.string()),
-        free_text: z.string(),
+        free_text: z.string().optional(),
+    }).superRefine((val, ctx) => {
+        const topics = val.topics.map((t) => t.trim()).filter(Boolean)
+        const note = typeof val.free_text === 'string' ? val.free_text.trim() : ''
+        if (topics.length === 0 && note.length === 0) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: 'Provide at least one topic or a note describing the change.',
+            })
+        }
+        if (typeof val.free_text === 'string' && val.free_text.length > 5000) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ['free_text'],
+                message: 'free_text is too long',
+            })
+        }
+        for (let i = 0; i < val.topics.length; i++) {
+            if (typeof val.topics[i] === 'string' && val.topics[i].trim().length === 0) {
+                ctx.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    path: ['topics', i],
+                    message: 'Topic must not be empty',
+                })
+            }
+        }
     }),
 })
 export type ProfileRequestChangesMessage = z.infer<typeof ProfileRequestChangesSchema>;

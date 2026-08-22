@@ -1,5 +1,5 @@
 import { Events, MessageKinds } from "../structures/enums";
-import { DecisionRequestMessage, DiscoveryQuestionMessage, PlanningStatusMessage, PlanSnapshotMessage, ProfileReadyMessage, ProfileSnapshotMessage, SessionExpiredMessage, SessionReadyMessage, WorkflowCompletedMessage } from "../structures/EventMessage";
+import { DecisionRequestMessage, DiscoveryQuestionMessage, PlanningStatusMessage, PlanSnapshotMessage, ProfileReadyMessage, ProfileSnapshotMessage, SessionExpiredMessage, SessionReadyMessage, WorkflowCompletedMessage, WorkflowStateMessage } from "../structures/EventMessage";
 
 export function createSessionReadyMessage({
     message_id,
@@ -195,6 +195,28 @@ export function createPlanSnapshotMessage({
         kind: MessageKinds.EVENT,
         sequence,
         type: Events.PLAN_SNAPSHOT,
+        payload,
+    };
+}
+
+export function createWorkflowStateMessage({
+    message_id,
+    session_id,
+    run_id,
+    command_id,
+    occurred_at,
+    sequence,
+    payload,
+}: Omit<WorkflowStateMessage, "kind" | "type">): WorkflowStateMessage {
+    return {
+        message_id,
+        session_id,
+        run_id,
+        command_id,
+        occurred_at,
+        kind: MessageKinds.EVENT,
+        sequence,
+        type: Events.WORKFLOW_STATE,
         payload,
     };
 }

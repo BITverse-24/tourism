@@ -1269,7 +1269,7 @@ async function requestModel(state: RunState, messages: ChatMessage[], tools: unk
             const controller = new AbortController();
             const hasDeadline = state.deadline !== null;
             // Keep run infinite (deadline null) but bound each model call to PER_MODEL_CALL_TIMEOUT_MS
-            const callDeadline = hasDeadline ? state.deadline : Date.now() + PER_MODEL_CALL_TIMEOUT_MS;
+            const callDeadline = hasDeadline ? state.deadline! : Date.now() + PER_MODEL_CALL_TIMEOUT_MS;
             const remaining = Math.max(1, callDeadline - Date.now());
             const abortTimer = setTimeout(() => controller.abort(), remaining);
             try {
@@ -1301,7 +1301,7 @@ async function requestModel(state: RunState, messages: ChatMessage[], tools: unk
     for (let attempt = 0; attempt < 5; attempt += 1) {
         try {
             const hasDeadline2 = state.deadline !== null;
-            const callDeadline2 = hasDeadline2 ? state.deadline : Date.now() + PER_MODEL_CALL_TIMEOUT_MS;
+            const callDeadline2 = hasDeadline2 ? state.deadline! : Date.now() + PER_MODEL_CALL_TIMEOUT_MS;
             const remaining = Math.max(1, callDeadline2 - Date.now());
             const payload: any = {
                 model,
@@ -1366,6 +1366,7 @@ async function modelToolLoop(state: RunState, messages: ChatMessage[], tools: un
                 const output = await executeTool(state, call.function.name, call.function.arguments);
                 messages.push({ role: "tool", tool_call_id: call.id, name: call.function.name, content: output });
             }
+            const gap = 400;
             // No artificial gap when run is infinite — saves ~400ms per tool turn (10 turns = 4s)
             if (state.deadline !== null && Date.now() + gap < state.deadline) await new Promise((r) => setTimeout(r, gap));
             continue;
