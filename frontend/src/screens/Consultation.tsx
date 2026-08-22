@@ -275,16 +275,12 @@ export type ConsultationProps = {
 export default function Consultation({
   planningMessage: externalPlanningMessage,
   lastSequenceAt: externalSeq,
-  onRetry,
+  onRetry: _onRetry,
   expanded = true,
   decisionRequest: externalDecision,
   onDecisionSubmit,
 }: ConsultationProps) {
-  const [seqTick, setSeqTick] = useState<number>(() => Date.now());
-  const [timedOut, setTimedOut] = useState(false);
-  const [elapsed, setElapsed] = useState(0);
-  const retryCountRef = useRef(0);
-  const seqRef = useRef<number>(Date.now());
+  const [seqTick] = useState<number>(() => Date.now());
 
   const [selected, setSelected] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
@@ -320,68 +316,10 @@ export default function Consultation({
   const FALLBACK_MESSAGE = "Agent is optimising routes and selecting places — this takes a moment.";
   const planningMessage = wsConnected ? (live.planningMessage ?? FALLBACK_MESSAGE) : (externalPlanningMessage ?? FALLBACK_MESSAGE);
   const statusLine = planningMessage || FALLBACK_MESSAGE;
-  const lastSeq = wsConnected ? live.lastSeq : externalSeq ?? seqTick;
-
-  useEffect(() => {
-    if (wsConnected) {
-      seqRef.current = live.lastSeq;
-      setElapsed(0);
-      setTimedOut(false);
-    }
-  }, [wsConnected, live.lastSeq]);
-
-  // Timeout semantics tied to workflow state and connection health.
-  // - Pause idle timeout while connected and workflowState is planning or decision_required
-  //   (includes Agent 2 and Agent 3 stages, and decision pause).
-  // - Continue liveness from accepted planning.status, workflow.state, decision.request.
-  // - Only show "Try again" when connection is actually lost or no server event beyond
-  //   the documented recovery deadline (90s). Never while decision is pending or
-  //   while planning.status indicated decision_required waiting for payload.
-  // - Timeout is a connection/recovery fallback, not a proxy for Agent 3 completion.
-  const isDecisionWorkflowState = live.decisionPlanState.workflowState === "decision_required";
-  useEffect(() => {
-    if (timedOut) return;
-    // Never timeout while a decision is visibly pending or workflow indicates decision_required
-    if (isDecisionRequired || isResuming || isDecisionWorkflowState) return;
-    // While connected and in planning/deciding, keep orb alive and suppress timeout
-    // unless we have genuine silence beyond recovery deadline. The heartbeat updates lastSeq.
-    if (wsConnected && (live.decisionPlanState.workflowState === "planning" || live.decisionPlanState.workflowState === "decision_required")) {
-      // Still need to track timeout for genuine disconnect/silence; but do not show Try again
-      // while healthy. Use longer tolerance and require disconnect to surface.
-      // For now, we pause timeout entirely while connected+planning; disconnect will surface via fallback.
-      // To honor "genuine silence" detection, we still allow timeout if lastSeq exceeds 90s AND connection is lost.
-      // When connected, we keep resetting; so this interval will effectively be paused.
-      // We implement by returning early when connected and workflow is planning/decision_required.
-      return;
-    }
-    // If connected but workflow is not planning/decision_required (e.g., discovery), allow normal timeout handling
-    // but still base on liveness. If disconnected, use same 90s deadline as recovery fallback.
-    const start = lastSeq;
-    seqRef.current = start;
-    setElapsed(0);
-    const tick = window.setInterval(() => {
-      const now = Date.now();
-      const diff = now - seqRef.current;
-      setElapsed(diff);
-      if (diff >= 90000) {
-        // Only surface timeout when connection lost or health indicates failure.
-        // When connected and workflow is healthy, this path is already returned early,
-        // so reaching here means disconnected or non-planning state silence.
-        if (!wsConnected || live.decisionPlanState.workflowState !== "planning") {
-          setTimedOut(true);
-        } else if (wsConnected) {
-          // Even when connected, genuine 90s silence without heartbeat is a recovery fallback
-          setTimedOut(true);
-        }
-        window.clearInterval(tick);
-      }
-    }, 500);
-    return () => window.clearInterval(tick);
-  }, [lastSeq, timedOut, isDecisionRequired, isResuming, isDecisionWorkflowState, wsConnected, live.decisionPlanState.workflowState]);
-
-  useEffect(() => {
-    seqRef.current = lastSeq;
-  }, [lastSeq]);
+  // No timeout: long processes may run tens of minutes. Liveness is via planning.status heartbeats; failure is surfaced via backend error events, not client timeout.
+  // lastSeq retained only for display if needed, but no timeout interval.
+  void externalSeq;
+  void seqTick;
 
   useEffect(() => {
     if (activeDecision) {
@@ -390,16 +328,6 @@ export default function Consultation({
       setDecisionFadingOut(false);
     }
   }, [activeDecision?.decision_id]);
-
-  const handleRetry = useCallback(() => {
-    retryCountRef.current += 1;
-    setTimedOut(false);
-    setElapsed(0);
-    const now = Date.now();
-    seqRef.current = now;
-    setSeqTick(now);
-    onRetry?.();
-  }, [onRetry]);
 
   const handleContinue = useCallback(() => {
     if (!selected || !activeDecision || confirming || resuming) return;
@@ -473,12 +401,9 @@ export default function Consultation({
                 </>
               )}
             </div>
-            {timedOut && !isDecisionRequired && !isResuming && (
-              <div className="timeout-dot" data-testid="timeout-dot" aria-hidden="true" style={{ marginTop: 12 }} />
-            )}
           </div>
 
-          {isWorking && !timedOut && (
+          {isWorking && (
             <p
               className="status-line"
               aria-live="polite"
@@ -561,18 +486,7 @@ export default function Consultation({
             </section>
           )}
 
-          {timedOut && isWorking && (
-            <button
-              type="button"
-              className="retry-link"
-              onClick={handleRetry}
-              data-testid="retry-button"
-              aria-label="Try again"
-            >
-              Try again
-            </button>
-          )}
-          {!timedOut && isWorking && (
+          {isWorking && (
             <button
               type="button"
               className="retry-link"
@@ -586,7 +500,7 @@ export default function Consultation({
           )}
 
           <span className="sr-only" aria-live="polite">
-            {timedOut ? "Consultation paused. You can try again." : `Consulting — ${Math.floor(elapsed / 1000)} seconds`}
+            Consulting
           </span>
         </div>
       </div>

@@ -20,6 +20,8 @@ export interface NarrativeInput {
   dataset_revisions: { city: string; attraction: string };
 }
 
+const PER_NARRATIVE_CALL_TIMEOUT_MS = 60_000;
+
 export interface NarrativeOptions {
   api_key?: string;
   model?: string;
@@ -358,7 +360,8 @@ function buildUserMessage(input: NarrativeInput): string {
   });
 }
 
-async function withDeadline<T>(promise: Promise<T>, deadline: number, label: string): Promise<T> {
+async function withDeadline<T>(promise: Promise<T>, deadline: number | null, label: string): Promise<T> {
+  if (deadline === null) return promise;
   const remaining = deadline - Date.now();
   if (remaining <= 0) throw new NarrativeTimeoutError(`${label} exceeded timeout`);
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -369,7 +372,7 @@ async function withDeadline<T>(promise: Promise<T>, deadline: number, label: str
   finally { if (timer) clearTimeout(timer); }
 }
 
-async function requestModel(deadline: number, options: NarrativeOptions, messages: Array<Record<string, unknown>>): Promise<string> {
+async function requestModel(deadline: number | null, options: NarrativeOptions, messages: Array<Record<string, unknown>>): Promise<string> {
   const apiKey = options.api_key ?? process.env.OPENAI_API_KEY ?? process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY ?? process.env.GOOGLE_GENAI_API_KEY;
   if (!apiKey) throw new NarrativeConfigurationError("Missing OPENAI_API_KEY (or pass api_key)");
   const model = FIXED_MODEL;
@@ -379,7 +382,9 @@ async function requestModel(deadline: number, options: NarrativeOptions, message
     // test/offline path — OpenAI-compatible envelope for determinism (like candidate-design)
     for (let attempt = 0; attempt < 5; attempt += 1) {
       const controller = new AbortController();
-      const remaining = Math.max(1, deadline - Date.now());
+      const hasDeadline = deadline !== null;
+      const callDeadline = hasDeadline ? deadline : Date.now() + PER_NARRATIVE_CALL_TIMEOUT_MS;
+      const remaining = Math.max(1, callDeadline - Date.now());
       const t = setTimeout(() => controller.abort(), remaining);
       try {
         const res = await withDeadline(fetcher(`${META_BASE_URL}/chat/completions`, {
@@ -387,12 +392,12 @@ async function requestModel(deadline: number, options: NarrativeOptions, message
           headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
           signal: controller.signal,
           body: JSON.stringify({ model, messages, response_format: { type: "json_schema", json_schema: { name: "final_trip_plan", strict: true, schema: NARRATIVE_RESPONSE_SCHEMA } }, temperature: 0.2, max_tokens: 8192, reasoning_effort: "low" }),
-        } as any), deadline, "model request");
-        const raw = await withDeadline(res.text(), deadline, "model response read");
+        } as any), callDeadline, "model request");
+        const raw = await withDeadline(res.text(), callDeadline, "model response read");
         if (res.status === 429 && attempt < 4) {
           const m = raw.match(/try again in ([\d.]+)s/i);
           const delay = m?.[1] ? Math.ceil(parseFloat(m[1]) * 1000) + 500 : 4000 * (attempt + 1);
-          const wait = Math.min(delay, Math.max(0, deadline - Date.now() - 1000));
+          const wait = hasDeadline ? Math.min(delay, Math.max(0, deadline! - Date.now() - 1000)) : Math.min(delay, 5000);
           clearTimeout(t);
           if (wait > 0) await new Promise(r => setTimeout(r, wait));
           continue;
@@ -420,14 +425,16 @@ async function requestModel(deadline: number, options: NarrativeOptions, message
 
   // live OpenAI SDK path — single bundle, no tools
   const client = new OpenAI({ apiKey, baseURL: META_BASE_URL } as any);
-  const withTimeout = async <T>(p: Promise<T>, ms: number): Promise<T> => {
+  const withTimeout = async <T>(p: Promise<T>, ms: number | null): Promise<T> => {
+    if (ms === null) return p;
     let tid: ReturnType<typeof setTimeout>;
     const tp = new Promise<never>((_, rej) => { tid = setTimeout(() => rej(new DOMException("Timeout", "AbortError")), ms); });
     try { const r = await Promise.race([p, tp]); clearTimeout(tid!); return r as T; } catch (e) { clearTimeout(tid!); throw e; }
   };
   for (let attempt = 0; attempt < 5; attempt += 1) {
     try {
-      const remaining = Math.max(1, deadline - Date.now());
+      const callDeadline2 = deadline !== null ? deadline : Date.now() + PER_NARRATIVE_CALL_TIMEOUT_MS;
+      const remaining = Math.max(1, callDeadline2 - Date.now());
       const response: any = await withTimeout(client.chat.completions.create({
         model,
         messages: messages as any,
@@ -445,12 +452,15 @@ async function requestModel(deadline: number, options: NarrativeOptions, message
       if (isRate && attempt < 4) {
         const m = msg.match(/try again in ([\d.]+)s/i);
         const delay = m?.[1] ? Math.ceil(parseFloat(m[1]) * 1000) + 500 : 4000 * (attempt + 1);
-        const wait = Math.min(delay, Math.max(0, deadline - Date.now() - 1000));
+        const wait = deadline !== null ? Math.min(delay, Math.max(0, deadline! - Date.now() - 1000)) : Math.min(delay, 5000);
         if (wait > 0) await new Promise(r => setTimeout(r, wait));
         continue;
       }
       if (e instanceof NarrativeApiError || e instanceof NarrativeResponseError) throw e;
-      if (e instanceof DOMException && e.name === "AbortError") throw new NarrativeTimeoutError("model request exceeded timeout");
+      if (e instanceof DOMException && e.name === "AbortError") {
+        if (deadline !== null) throw new NarrativeTimeoutError("model request exceeded timeout");
+        throw e;
+      }
       throw e;
     }
   }
@@ -537,8 +547,11 @@ function validateNarrative(plan: Record<string, unknown>, input: NarrativeInput)
 
 export async function processNarrative(input: NarrativeInput, options: NarrativeOptions = {}): Promise<NarrativeResult> {
   validateInput(input);
-  const timeoutMs = options.timeout_ms ?? DEFAULT_TIMEOUT_MS;
-  const deadline = Date.now() + timeoutMs;
+  // 0 or undefined means no timeout (infinite) for long processes; otherwise use provided ms
+  const timeoutMs = options.timeout_ms;
+  const deadline: number | null = timeoutMs !== undefined && timeoutMs !== null && timeoutMs > 0 ? Date.now() + timeoutMs : (timeoutMs === 0 ? null : Date.now() + DEFAULT_TIMEOUT_MS);
+  // If timeout_ms === 0 explicitly passed, treat as disabled; if undefined, use default (to preserve old tests that omit it)
+  // Backend now omits timeout_ms when disabled, so default remains but can be bypassed by passing 0
 
   const messages: Array<Record<string, unknown>> = [
     { role: "system", content: SYSTEM_PROMPT },

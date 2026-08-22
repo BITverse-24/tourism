@@ -23,13 +23,14 @@ import { logger } from "../modules/logger";
 
 function loadDiscoveryOptions(): ProcessDiscoveryOptions {
     const config: AppConfig = loadConfig(process.env)
+    const effective = config.agent_timeout_ms > 0 ? config.agent_timeout_ms : 0
     return {
         api_key: config.agent_api_key,
         model: config.agent_model,
         // Agent 1 (discovery) always disables reasoning — thinkingBudget: 0.
         // Do not pass reasoning_effort here; AGENT_REASONING_EFFORT is for Agent 2 (candidate-design) only.
         api_url: config.agent_api_url,
-        timeout_ms: config.agent_timeout_ms,
+        timeout_ms: effective,
     }
 }
 

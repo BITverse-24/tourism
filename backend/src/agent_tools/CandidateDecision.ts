@@ -72,20 +72,13 @@ export async function askUserDecisionTool(
 
     return new Promise<string>((resolve, reject) => {
         // store pending resolver — survives reconnects, resolved by decision.respond handler
+        // No timeout: long processes may wait indefinitely for user decision. Forever-hang is handled by run.cancel / session expiry.
         const existing = getDecisionPending(session_id)
         if (existing) {
             // reject stale pending
             try { existing.reject(new Error('superseded by new decision')) } catch {}
         }
         setDecisionPending(session_id, { resolve: (choice: string) => { clearDecisionPending(session_id); resolve(choice) }, reject: (err: Error) => { clearDecisionPending(session_id); reject(err) }, decision_id, run_id })
-        // safety timeout — matches run_budget but prevents forever hang (2 min)
-        setTimeout(() => {
-            const p = getDecisionPending(session_id)
-            if (p && p.decision_id === decision_id) {
-                clearDecisionPending(session_id)
-                reject(new Error('decision timeout'))
-            }
-        }, 120_000)
     });
 }
 

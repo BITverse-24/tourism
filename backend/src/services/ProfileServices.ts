@@ -168,11 +168,13 @@ export async function profileConfirmService(
     try {
         // agent 2 service
         const conf: AppConfig = loadConfig(process.env)
+        // Long processes: 0 means disabled (no run timeout). Pass 0 through validation; AI layer treats 0 as infinite.
+        const effectiveTimeoutMs = conf.agent_timeout_ms > 0 ? conf.agent_timeout_ms : 0
         const runBudget: RunBudget = {
             max_candidates: conf.agent_2_max_candidates,
             max_tool_calls: conf.agent_2_max_tool_calls,
             max_rows_per_tool_call: conf.agent_2_max_rows_per_tool_call,
-            timeout_ms: conf.agent_timeout_ms,
+            timeout_ms: effectiveTimeoutMs,
         }
         const candidateDesignInput: CandidateDesignInput = {
             profile: profile,
@@ -198,7 +200,7 @@ export async function profileConfirmService(
             model: conf.agent_model,
             reasoning_effort: conf.agent_reasoning_effort,
             api_url: conf.agent_api_url,
-            timeout_ms: conf.agent_timeout_ms,
+            timeout_ms: effectiveTimeoutMs,
             askUserDecision: wrappedAskUserDecision,
             onProgress: async (payload) => {
                 // delegated to emitPlanningPhase; wrap in try/catch already handled inside
@@ -224,7 +226,7 @@ export async function profileConfirmService(
         const narrativeOpt: NarrativeOptions = createNarrativeOptions({
             api_key: conf.agent_api_key,
             model: conf.agent_model,
-            timeout_ms: conf.agent_timeout_ms,
+            timeout_ms: effectiveTimeoutMs,
         })
         logger.debug('calling agent 3 for final trip plan', {input: narrativeInput})
         const narrativeRes: NarrativeResult = await processNarrative(
