@@ -74,10 +74,14 @@ export class SocketTransport {
       autoConnect: true,
     })
 
-    // generic envelope channel: listen to all server events via onAny
-    // socket.io 4 supports onAny
+    // Single event-ingress mechanism via onAny to avoid duplicate delivery.
+    // Backend emits dynamic envelope event names; onAny handles all including
+    // forward-compatible types. Explicit per-event listeners are not registered
+    // to prevent duplicate handleRawMessage invocations.
+    // If onAny is unavailable, fall back to explicit listeners (mutually exclusive).
     // @ts-ignore
-    if (typeof (socket as any).onAny === 'function') {
+    const hasOnAny = typeof (socket as any).onAny === 'function'
+    if (hasOnAny) {
       ;(socket as any).onAny((event: string, ...args: unknown[]) => {
         const data = args[0]
         wsLogger.debug(`onAny ${event}`, data)
@@ -96,22 +100,24 @@ export class SocketTransport {
           } catch {}
         }
       })
-    }
-
-    // also listen explicitly for known ack/event types as fallback
-    const knownEvents = [
-      'command.accepted', 'command.rejected',
-      'session.ready', 'session.expired', 'session.superseded',
-      'discovery.question','profile.snapshot','profile.ready',
-      'agent.lifecycle','planning.status','decision.request','plan.snapshot','workflow.completed','workflow.state',
-      'error'
-    ]
-    for (const ev of knownEvents) {
-      socket.on(ev, (data: unknown) => {
-        if (data && typeof data === 'object') {
-          try { const raw = JSON.stringify(data); wsLogger.envelope("↓", data); this.opts.onEnvelope?.(data as Envelope, raw) } catch {}
-        }
-      })
+    } else {
+      // Fallback when onAny not available — explicit listeners only
+      const knownEvents = [
+        'command.accepted', 'command.rejected',
+        'session.ready', 'session.expired', 'session.superseded',
+        'discovery.question','profile.snapshot','profile.ready',
+        'agent.lifecycle','planning.status','decision.request','plan.snapshot','workflow.completed','workflow.state',
+        'error'
+      ]
+      for (const ev of knownEvents) {
+        socket.on(ev, (data: unknown) => {
+          if (data && typeof data === 'object') {
+            try { const raw = JSON.stringify(data); wsLogger.envelope("↓", data); this.opts.onEnvelope?.(data as Envelope, raw) } catch {}
+          } else if (typeof data === 'string') {
+            try { const parsed = JSON.parse(data); wsLogger.envelope("↓", parsed); this.opts.onEnvelope?.(parsed as Envelope, data) } catch {}
+          }
+        })
+      }
     }
 
     socket.on('connect', () => {
@@ -147,7 +153,15 @@ export class SocketTransport {
   }
 
   disconnect(): void {
-    try { this.socket?.disconnect() } catch {}
+    try {
+      // Remove listeners to avoid old listeners persisting across reconnects
+      if (this.socket) {
+        try { this.socket.removeAllListeners() } catch {}
+        // @ts-ignore onAny cleanup
+        try { (this.socket as any).offAny?.() } catch {}
+        this.socket.disconnect()
+      }
+    } catch {}
     this.socket = null
     this.state = 'closed'
   }

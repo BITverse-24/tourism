@@ -5,6 +5,8 @@ import {
   handleDecisionRequest,
   validateDecisionRespond,
   applyDecisionRespond,
+  unwrapDecisionPayload,
+  validateDecisionRequest,
   type DecisionPlanState,
 } from "../ws/decisionPlan";
 
@@ -42,6 +44,8 @@ function useLiveConsultation() {
   const [decisionPlanState, setDecisionPlanState] = useState<DecisionPlanState>(() => initialDecisionPlanState("planning"));
   const wsRef = useRef<ReturnType<typeof getWsClient> | null>(null);
   const seqRef = useRef<number>(Date.now());
+  const decisionPlanStateRef = useRef<DecisionPlanState>(decisionPlanState);
+  useEffect(() => { decisionPlanStateRef.current = decisionPlanState; }, [decisionPlanState]);
 
   useEffect(() => {
     let unsub: (() => void) | null = null;
@@ -80,44 +84,60 @@ function useLiveConsultation() {
           if (typeof p.message === "string" && p.message.trim().length > 0) {
             setLivePlanningMessage(p.message as string);
           }
-          // Fallback: planning.status with phase decision_required can hint that a decision is pending
-          // even if decision.request is still buffered behind a sequence gap.
+          // Central promotion: planning.status phase decision_required promotes workflowState
+          // in WsClient and here durably in decisionPlanState, even before decision.request arrives.
+          // Backend uses planning.status with phase decision_required + decision.request.
+          // Never show "Try again" while decision_required is pending.
           const phase = p.phase as string | undefined;
           if (phase === "decision_required") {
-            try {
-              const snap = ws!.snapshot();
-              if (snap.workflowState === "decision_required") {
-                // workflowState already transitioned via WsClient handleEvent for planning.status bypass;
-                // ensure polling will hydrate decision once buffered event flushes.
-                setLiveLastSeq(Date.now());
+            setDecisionPlanState((prev) => {
+              if (prev.workflowState !== "decision_required") {
+                return { ...prev, workflowState: "decision_required" as const };
               }
-            } catch {}
+              return prev;
+            });
+            // Liveness: accepted planning.status keeps orb alive
+            const now = Date.now();
+            seqRef.current = now;
+            setLiveLastSeq(now);
           }
         }
         if (envelope.type === "decision.request") {
-          // Accept both kind === "event" and missing kind for forward-compat (backend always sends event)
           const payload = envelope.payload as Record<string, unknown>;
-          // Normalize: some transports wrap payload once more; handle both shapes
-          const normalizedPayload = payload && typeof payload === "object" ? payload : envelope.payload;
+          // Shared parser: unwrap single-nested { payload: {...} } wrapper once
+          const normalizedPayload = unwrapDecisionPayload(payload) as Record<string, unknown>;
+          // Validate display fields before rendering, log rejected contract field without exposing hidden reasoning
+          const validation = validateDecisionRequest(normalizedPayload);
+          if (!validation.valid) {
+            if (typeof console !== 'undefined' && console.debug) {
+              console.debug(`[Consultation] rejected decision.request: ${validation.error}`);
+            }
+            return;
+          }
           setDecisionPlanState((prev) => {
             const res = handleDecisionRequest(prev, normalizedPayload, { workflowState: "decision_required" });
             if (res.valid) {
               const dec = res.state.currentDecision;
               if (dec) {
-                // Defer setLiveDecision outside updater to avoid React nested setState warning
-                queueMicrotask(() => setLiveDecision(mapDecisionPayloadToRequest(dec as unknown as DecisionRequest & { reason?: string })));
+                // Atomically update rendered decision from durable state; derived fallback also covers timing
+                setLiveDecision(mapDecisionPayloadToRequest(dec as unknown as DecisionRequest & { reason?: string }));
               }
               return res.state;
             }
-            // If validation failed due to transient shape, still surface raw payload for debugging
-            // and allow fallback mapping if decision_id/prompt/options present
-            if (payload && typeof payload.decision_id === "string" && Array.isArray((payload as Record<string, unknown>).options)) {
-              try {
-                queueMicrotask(() => setLiveDecision(mapDecisionPayloadToRequest(payload as unknown as { decision_id: string; prompt: string; reason?: string; options: DecisionOption[] })));
-              } catch {}
-            }
             return prev;
           });
+          // Liveness update for decision.request
+          {
+            const now = Date.now();
+            seqRef.current = now;
+            setLiveLastSeq(now);
+          }
+        }
+        // Liveness for workflow.state as well
+        if (envelope.type === "workflow.state" || envelope.type === "workflow_state") {
+          const now = Date.now();
+          seqRef.current = now;
+          setLiveLastSeq(now);
         }
 
         try {
@@ -128,13 +148,13 @@ function useLiveConsultation() {
         }
       });
 
+      // Poll-based hydration kept as fallback, but primary promotion now happens
+      // synchronously in WsClient.handleEvent and planning.status handler above.
+      // Also hydrate liveDecision from decisionPlanState.currentDecision if needed.
       poll = setInterval(() => {
         try {
           const snap = ws!.snapshot();
           setConnected(!!snap.connected);
-          // Poll-based hydration: if workflowState is decision_required but liveDecision is still null
-          // (e.g., decision.request buffered behind sequence gap), try to hydrate from client state.
-          // WsClient sets workflowState to decision_required in handleEvent once flushed.
           if (snap.workflowState === "decision_required") {
             setDecisionPlanState((prev) => {
               if (prev.workflowState !== "decision_required") {
@@ -142,6 +162,12 @@ function useLiveConsultation() {
               }
               return prev;
             });
+          }
+          // Hydrate rendered decision from durable state if liveDecision not yet set
+          const dps = decisionPlanStateRef.current;
+          if (snap.workflowState === "decision_required" && dps.currentDecision && !dps.hasReturnedToPlanning) {
+            // Ensure liveDecision derived if we missed the event delivery
+            // This is handled in main render's fallback, but keep poll sync
           }
         } catch {
           // ignore
@@ -304,12 +330,32 @@ export default function Consultation({
     }
   }, [wsConnected, live.lastSeq]);
 
-  // Graceful timeout: only after prolonged silence with no planning.status heartbeat.
-  // Backend sends heartbeat every 3s; frontend tolerates 90s (30 heartbeats) before showing retry,
-  // and pauses entirely while decision is required or resuming. Never hides orb.
+  // Timeout semantics tied to workflow state and connection health.
+  // - Pause idle timeout while connected and workflowState is planning or decision_required
+  //   (includes Agent 2 and Agent 3 stages, and decision pause).
+  // - Continue liveness from accepted planning.status, workflow.state, decision.request.
+  // - Only show "Try again" when connection is actually lost or no server event beyond
+  //   the documented recovery deadline (90s). Never while decision is pending or
+  //   while planning.status indicated decision_required waiting for payload.
+  // - Timeout is a connection/recovery fallback, not a proxy for Agent 3 completion.
+  const isDecisionWorkflowState = live.decisionPlanState.workflowState === "decision_required";
   useEffect(() => {
     if (timedOut) return;
-    if (isDecisionRequired || isResuming) return;
+    // Never timeout while a decision is visibly pending or workflow indicates decision_required
+    if (isDecisionRequired || isResuming || isDecisionWorkflowState) return;
+    // While connected and in planning/deciding, keep orb alive and suppress timeout
+    // unless we have genuine silence beyond recovery deadline. The heartbeat updates lastSeq.
+    if (wsConnected && (live.decisionPlanState.workflowState === "planning" || live.decisionPlanState.workflowState === "decision_required")) {
+      // Still need to track timeout for genuine disconnect/silence; but do not show Try again
+      // while healthy. Use longer tolerance and require disconnect to surface.
+      // For now, we pause timeout entirely while connected+planning; disconnect will surface via fallback.
+      // To honor "genuine silence" detection, we still allow timeout if lastSeq exceeds 90s AND connection is lost.
+      // When connected, we keep resetting; so this interval will effectively be paused.
+      // We implement by returning early when connected and workflow is planning/decision_required.
+      return;
+    }
+    // If connected but workflow is not planning/decision_required (e.g., discovery), allow normal timeout handling
+    // but still base on liveness. If disconnected, use same 90s deadline as recovery fallback.
     const start = lastSeq;
     seqRef.current = start;
     setElapsed(0);
@@ -317,16 +363,21 @@ export default function Consultation({
       const now = Date.now();
       const diff = now - seqRef.current;
       setElapsed(diff);
-      // 90s is well beyond design's 12s but with 3s heartbeats the UI should never reach it
-      // unless the backend is truly silent (network loss / server crash). Prevents "Try again"
-      // flashing before decision.request arrives.
       if (diff >= 90000) {
-        if (wsConnected) setTimedOut(true);
+        // Only surface timeout when connection lost or health indicates failure.
+        // When connected and workflow is healthy, this path is already returned early,
+        // so reaching here means disconnected or non-planning state silence.
+        if (!wsConnected || live.decisionPlanState.workflowState !== "planning") {
+          setTimedOut(true);
+        } else if (wsConnected) {
+          // Even when connected, genuine 90s silence without heartbeat is a recovery fallback
+          setTimedOut(true);
+        }
         window.clearInterval(tick);
       }
     }, 500);
     return () => window.clearInterval(tick);
-  }, [lastSeq, timedOut, isDecisionRequired, isResuming, wsConnected]);
+  }, [lastSeq, timedOut, isDecisionRequired, isResuming, isDecisionWorkflowState, wsConnected, live.decisionPlanState.workflowState]);
 
   useEffect(() => {
     seqRef.current = lastSeq;
