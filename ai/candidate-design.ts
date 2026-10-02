@@ -256,9 +256,9 @@ export class CandidateDesignToolError extends Error { readonly code: string; con
 export class CandidateDesignResponseError extends Error { readonly validation_errors: string[]; constructor(message: string, validation_errors: string[] = []) { super(message); this.name = "CandidateDesignResponseError"; this.validation_errors = validation_errors; } }
 export class CandidateDesignTimeoutError extends Error { constructor(message: string) { super(message); this.name = "CandidateDesignTimeoutError"; } }
 
-const DEFAULT_MODEL = "muse-spark-1.2-contributor";
-const FIXED_MODEL = "muse-spark-1.2-contributor";
-const META_BASE_URL = "https://api.meta.ai/v1";
+const DEFAULT_MODEL = "openrouter/free";
+const FIXED_MODEL = "openrouter/free";
+const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 const DEFAULT_TIMEOUT_MS = 30_000;
 const PER_MODEL_CALL_TIMEOUT_MS = 60_000;
 
@@ -1260,9 +1260,10 @@ function parseModelMessage(payload: unknown): ModelMessage {
 function toGeminiDeclarations(_tools: unknown[]): any[] { return []; }
 
 async function requestModel(state: RunState, messages: ChatMessage[], tools: unknown[]): Promise<ModelMessage> {
-    const apiKey = state.options.api_key ?? process.env.OPENAI_API_KEY ?? process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY ?? process.env.GOOGLE_GENAI_API_KEY;
-    if (!apiKey) throw new CandidateDesignConfigurationError("Missing OPENAI_API_KEY. Set it in the environment or pass api_key.");
-    const model = FIXED_MODEL;
+    const apiKey = state.options.api_key ?? process.env.OPENROUTER_API_KEY ?? process.env.OPENAI_API_KEY ?? process.env.AGENT_API_KEY ?? process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY ?? process.env.GOOGLE_GENAI_API_KEY;
+    if (!apiKey) throw new CandidateDesignConfigurationError("Missing OPENROUTER_API_KEY. Set it in the environment or pass api_key.");
+    const model = state.options.model ?? process.env.OPENROUTER_MODEL ?? process.env.AGENT_MODEL ?? FIXED_MODEL;
+    const baseURL = state.options.api_url || process.env.OPENROUTER_BASE_URL || process.env.OPENAI_BASE_URL || OPENROUTER_BASE_URL;
     const fetcher = state.options.fetcher;
     if (fetcher) {
         for (let attempt = 0; attempt < 5; attempt += 1) {
@@ -1273,9 +1274,14 @@ async function requestModel(state: RunState, messages: ChatMessage[], tools: unk
             const remaining = Math.max(1, callDeadline - Date.now());
             const abortTimer = setTimeout(() => controller.abort(), remaining);
             try {
-                const response = await withDeadline(fetcher(`${META_BASE_URL}/chat/completions`, {
-                    method: "POST", headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" }, signal: controller.signal,
-                    body: JSON.stringify({ model, messages, ...(tools.length > 0 ? { tools, tool_choice: "auto" } : { response_format: { type: "json_schema", json_schema: { name: "candidate_design_result", strict: true, schema: CANDIDATE_DESIGN_RESPONSE_SCHEMA } } }), temperature: 0.2, max_tokens: 8192, reasoning_effort: REASONING_EFFORT }),
+                const response = await withDeadline(fetcher(`${baseURL}/chat/completions`, {
+                    method: "POST", headers: {
+                        "Authorization": `Bearer ${apiKey}`,
+                        "Content-Type": "application/json",
+                        "HTTP-Referer": "https://tourism.app",
+                        "X-Title": "Tourism Planner",
+                    }, signal: controller.signal,
+                    body: JSON.stringify({ model, messages, ...(tools.length > 0 ? { tools, tool_choice: "auto" } : { response_format: { type: "json_schema", json_schema: { name: "candidate_design_result", strict: true, schema: CANDIDATE_DESIGN_RESPONSE_SCHEMA } } }), temperature: 0.2, max_tokens: 8192 }),
                 } as any), callDeadline, "model request");
                 const rawText = await withDeadline(response.text(), callDeadline, "model response read");
                 if (response.status === 429 && attempt < 4) {
@@ -1292,7 +1298,14 @@ async function requestModel(state: RunState, messages: ChatMessage[], tools: unk
         }
         throw new CandidateDesignApiError("Candidate Design model request failed after retries", 429);
     }
-    const client = new OpenAI({ apiKey, baseURL: META_BASE_URL } as any);
+    const client = new OpenAI({
+        apiKey,
+        baseURL,
+        defaultHeaders: {
+            "HTTP-Referer": "https://tourism.app",
+            "X-Title": "Tourism Planner",
+        },
+    } as any);
     const withTimeout = async <T>(promise: Promise<T>, ms: number | null): Promise<T> => {
         if (ms === null) return promise;
         let tid: ReturnType<typeof setTimeout>; const tp = new Promise<never>((_, rej) => { tid = setTimeout(() => rej(new DOMException("Timeout", "AbortError")), ms); });
@@ -1308,7 +1321,6 @@ async function requestModel(state: RunState, messages: ChatMessage[], tools: unk
                 messages: messages as any,
                 temperature: 0.2,
                 max_tokens: 8192,
-                reasoning_effort: REASONING_EFFORT,
                 ...(tools.length > 0 ? { tools: tools as any, tool_choice: "auto" as const } : { response_format: { type: "json_schema" as const, json_schema: { name: "candidate_design_result", strict: true, schema: CANDIDATE_DESIGN_RESPONSE_SCHEMA as any } } }),
             };
             const response: any = await withTimeout(client.chat.completions.create(payload), remaining);

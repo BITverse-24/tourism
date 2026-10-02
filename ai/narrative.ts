@@ -25,6 +25,7 @@ const PER_NARRATIVE_CALL_TIMEOUT_MS = 60_000;
 export interface NarrativeOptions {
   api_key?: string;
   model?: string;
+  api_url?: string;
   timeout_ms?: number;
   fetcher?: Fetcher;
 }
@@ -132,9 +133,9 @@ export class NarrativeTimeoutError extends Error {
   constructor(message: string) { super(message); this.name = "NarrativeTimeoutError"; }
 }
 
-const DEFAULT_MODEL = "muse-spark-1.2-contributor";
-const FIXED_MODEL = "muse-spark-1.2-contributor";
-const META_BASE_URL = "https://api.meta.ai/v1";
+const DEFAULT_MODEL = "openrouter/free";
+const FIXED_MODEL = "openrouter/free";
+const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 const DEFAULT_TIMEOUT_MS = 60_000;
 
 const stringOrNull = { type: ["string", "null"] } as const;
@@ -373,9 +374,10 @@ async function withDeadline<T>(promise: Promise<T>, deadline: number | null, lab
 }
 
 async function requestModel(deadline: number | null, options: NarrativeOptions, messages: Array<Record<string, unknown>>): Promise<string> {
-  const apiKey = options.api_key ?? process.env.OPENAI_API_KEY ?? process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY ?? process.env.GOOGLE_GENAI_API_KEY;
-  if (!apiKey) throw new NarrativeConfigurationError("Missing OPENAI_API_KEY (or pass api_key)");
-  const model = FIXED_MODEL;
+  const apiKey = options.api_key ?? process.env.OPENROUTER_API_KEY ?? process.env.OPENAI_API_KEY ?? process.env.AGENT_API_KEY ?? process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY ?? process.env.GOOGLE_GENAI_API_KEY;
+  if (!apiKey) throw new NarrativeConfigurationError("Missing OPENROUTER_API_KEY (or pass api_key)");
+  const model = options.model ?? process.env.OPENROUTER_MODEL ?? process.env.AGENT_MODEL ?? FIXED_MODEL;
+  const baseURL = options.api_url || process.env.OPENROUTER_BASE_URL || process.env.OPENAI_BASE_URL || OPENROUTER_BASE_URL;
   const fetcher = options.fetcher;
 
   if (fetcher) {
@@ -387,11 +389,16 @@ async function requestModel(deadline: number | null, options: NarrativeOptions, 
       const remaining = Math.max(1, callDeadline - Date.now());
       const t = setTimeout(() => controller.abort(), remaining);
       try {
-        const res = await withDeadline(fetcher(`${META_BASE_URL}/chat/completions`, {
+        const res = await withDeadline(fetcher(`${baseURL}/chat/completions`, {
           method: "POST",
-          headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
+          headers: {
+            "Authorization": `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://tourism.app",
+            "X-Title": "Tourism Planner",
+          },
           signal: controller.signal,
-          body: JSON.stringify({ model, messages, response_format: { type: "json_schema", json_schema: { name: "final_trip_plan", strict: true, schema: NARRATIVE_RESPONSE_SCHEMA } }, temperature: 0.2, max_tokens: 8192, reasoning_effort: "low" }),
+          body: JSON.stringify({ model, messages, response_format: { type: "json_schema", json_schema: { name: "final_trip_plan", strict: true, schema: NARRATIVE_RESPONSE_SCHEMA } }, temperature: 0.2, max_tokens: 8192 }),
         } as any), callDeadline, "model request");
         const raw = await withDeadline(res.text(), callDeadline, "model response read");
         if (res.status === 429 && attempt < 4) {
@@ -424,7 +431,14 @@ async function requestModel(deadline: number | null, options: NarrativeOptions, 
   }
 
   // live OpenAI SDK path — single bundle, no tools
-  const client = new OpenAI({ apiKey, baseURL: META_BASE_URL } as any);
+  const client = new OpenAI({
+    apiKey,
+    baseURL,
+    defaultHeaders: {
+      "HTTP-Referer": "https://tourism.app",
+      "X-Title": "Tourism Planner",
+    },
+  } as any);
   const withTimeout = async <T>(p: Promise<T>, ms: number | null): Promise<T> => {
     if (ms === null) return p;
     let tid: ReturnType<typeof setTimeout>;
@@ -441,7 +455,6 @@ async function requestModel(deadline: number | null, options: NarrativeOptions, 
         response_format: { type: "json_schema", json_schema: { name: "final_trip_plan", strict: true, schema: NARRATIVE_RESPONSE_SCHEMA as any } },
         temperature: 0.2,
         max_tokens: 8192,
-        reasoning_effort: "low",
       } as any), remaining);
       const text: string = response?.choices?.[0]?.message?.content ?? "";
       if (!text.trim()) throw new NarrativeResponseError("model returned empty content", ["response: non-empty JSON required"]);

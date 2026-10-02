@@ -27,15 +27,15 @@ const candtools: CandidateDesignTools = {
 }
 const candopt: CandidateDesignOptions = {
     tools: candtools,
-    api_key: process.env.AGENT_API_KEY,
-    // model: 'gemini-3.5-flash-lite',
+    api_key: process.env.OPENROUTER_API_KEY ?? process.env.AGENT_API_KEY,
+    // model: 'openrouter/free',
     reasoning_effort: "high",
     askUserDecision: askUserDecisionTool
 }
 
 const narratopt: NarrativeOptions = {
-    api_key: process.env.AGENT_API_KEY,
-    // model: 'gemini-3.5-flash-lite',
+    api_key: process.env.OPENROUTER_API_KEY ?? process.env.AGENT_API_KEY,
+    // model: 'openrouter/free',
 }
 
 processCandidateDesign(

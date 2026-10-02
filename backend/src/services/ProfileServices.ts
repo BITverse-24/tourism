@@ -1,5 +1,5 @@
 import { createPlanSnapshotMessage, createPlanningStatusMessage, createProfileSnapshotMessage, createWorkflowStateMessage } from "../factory/Event";
-import { addDiscoveryQuestion, appendProfileSnapshot, getDiscoveryEpoch, getDiscoveryQuestionCount, getDiscoveryQuestionPrompts, getSessionCheckpoint, getSessionProfile, setSessionProfile, setWorkflowState } from "../models/data";
+import { addDiscoveryQuestion, appendProfileSnapshot, getDiscoveryEpoch, getDiscoveryQuestionCount, getDiscoveryQuestionPrompts, getSessionCheckpoint, getSessionProfile, setSessionProfile, setTripPlan, setWorkflowState } from "../models/data";
 import { setActiveChangeRequest } from "../models/data";
 import { generateUUID } from "../modules/util";
 import { ProfileConfirmMessage, ProfileRequestChangesMessage } from "../structures/CommandMessage";
@@ -229,6 +229,7 @@ export async function profileConfirmService(
         const narrativeOpt: NarrativeOptions = createNarrativeOptions({
             api_key: conf.agent_api_key,
             model: conf.agent_model,
+            api_url: conf.agent_api_url,
             timeout_ms: effectiveTimeoutMs,
         })
         logger.debug('calling agent 3 for final trip plan', {input: narrativeInput})

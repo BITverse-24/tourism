@@ -12,7 +12,17 @@ import { fileURLToPath } from "node:url";
 import { config as loadEnv } from "dotenv";
 import OpenAI from "openai";
 import * as z from "zod";
-import { DiscoveryAnsSelectionModes, DiscoveryFreeTextModes } from "../backend/src/structures/enums.js";
+export enum DiscoveryAnsSelectionModes {
+    SINGLE = 'single',
+    MULTIPLE = 'multiple',
+}
+
+export enum DiscoveryFreeTextModes {
+    DISABLED = 'disabled',
+    OPTIONAL = 'optional',
+    ONLY_IF_NO_OPTION = 'only_if_no_option',
+    REQUIRED = 'required',
+}
 
 loadEnv({ path: resolve(__dirname, ".env") });
 
@@ -1042,9 +1052,9 @@ export const DISCOVERY_PATCH_RESPONSE_SCHEMA = {
   required: ["finished", "next_question", "completion_reason", "profile_patch"],
 } as const;
 
-const DEFAULT_MODEL = "muse-spark-1.2-contributor";
-const FIXED_MODEL = "muse-spark-1.2-contributor";
-const META_BASE_URL = "https://api.meta.ai/v1";
+const DEFAULT_MODEL = "openrouter/free";
+const FIXED_MODEL = "openrouter/free";
+const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_COMPLETION_TOKENS = 8192;
 const MAX_RATE_LIMIT_RETRIES = 2;
@@ -1733,7 +1743,7 @@ function buildUserMessage(input: DiscoveryInput): string {
   const coverageHint = buildCoverageHint(input.profile, input.questions_asked_count ?? null);
   return JSON.stringify({
     instructions:
-      "Return ONLY the profile_patch (changed fields) and either one next question or a finished response. Use coverage_hint to pick an uncovered dimension. Never re-ask timing if timing_already_known is true. Do not finish unless coverage_hint.may_finish is true (unless questions_asked_count/estimate >= 15). Do not echo the profile back. questions_asked_count is authoritative when present; otherwise questions_asked_estimate is a fallback.",
+      "Return ONLY the profile_patch (changed fields) and either one next question or a finished response. Use coverage_hint to pick an uncovered dimension. Never re-ask timing if timing_already_known is true. Do not finish unless coverage_hint.may_finish is true (unless questions_asked_count/estimate >= 15). Do not echo the profile back. questions_asked_count is authoritative when present; otherwise questions_asked_estimate is a fallback. Do not ask any questions that have been asked in prior_questions",
     profile: input.profile,
     answer: input.answer,
     coverage_hint: coverageHint,
@@ -1788,7 +1798,9 @@ export async function processDiscovery(
 
   const apiKey =
     options.api_key ??
+    process.env.OPENROUTER_API_KEY ??
     process.env.OPENAI_API_KEY ??
+    process.env.AGENT_API_KEY ??
     process.env.GEMINI_API_KEY ??
     process.env.GOOGLE_API_KEY ??
     process.env.GOOGLE_GENAI_API_KEY ??
@@ -1798,11 +1810,11 @@ export async function processDiscovery(
   
   if (!apiKey) {
     throw new DiscoveryConfigurationError(
-      "Missing OPENAI_API_KEY. Set it in the environment or pass api_key for this request.",
+      "Missing OPENROUTER_API_KEY. Set it in the environment or pass api_key for this request.",
     );
   }
 
-  const requestedModel = FIXED_MODEL;
+  const requestedModel = options.model ?? process.env.OPENROUTER_MODEL ?? process.env.AGENT_MODEL ?? FIXED_MODEL;
   // 0 means no timeout (infinite) for long processes; undefined falls back to default for backward compat
   const timeoutMs: number | null = options.timeout_ms === 0 ? null : (options.timeout_ms ?? DEFAULT_TIMEOUT_MS);
   const logResponses = options.log_raw_responses ?? true;
@@ -1817,9 +1829,10 @@ export async function processDiscovery(
     hasInjectedClient: !!options.genAiClient
   });
   
-  // Fixed model — no hierarchy/fallback
-  const modelsToTry = [FIXED_MODEL] as const;
-  
+  // Model to try
+  const modelsToTry = [requestedModel] as const;
+  const baseURL = options.api_url || process.env.OPENROUTER_BASE_URL || process.env.OPENAI_BASE_URL || OPENROUTER_BASE_URL;
+
   console.log('[processDiscovery] Models to try (in order):', modelsToTry);
 
   // Build combined prompt: system instruction + user context.
@@ -1939,7 +1952,7 @@ export async function processDiscovery(
         interaction = await withTimeout(createInteraction(injectedClient, model, ctrl.signal), timeoutMs, ctrl);
       } else if (fetcher) {
         console.log(`[processDiscovery] Using fetcher for model ${model}`);
-        const mockUrl = `${META_BASE_URL}/chat/completions`;
+        const mockUrl = `${baseURL}/chat/completions`;
         const mockBody = JSON.stringify({
           model,
           messages: [
@@ -1949,7 +1962,6 @@ export async function processDiscovery(
           response_format: { type: "json_schema", json_schema: { name: "discovery_patch", strict: false, schema: discoveryPatchJsonSchema } },
           temperature: 0.2,
           max_tokens: MAX_COMPLETION_TOKENS,
-          reasoning_effort: "low",
         });
         const ctrl = new AbortController();
         const response = await withTimeout(
@@ -1958,6 +1970,8 @@ export async function processDiscovery(
             headers: {
               "Authorization": `Bearer ${apiKey}`,
               "Content-Type": "application/json",
+              "HTTP-Referer": "https://tourism.app",
+              "X-Title": "Tourism Planner",
             },
             body: mockBody,
             signal: ctrl.signal as any,
@@ -1974,16 +1988,16 @@ export async function processDiscovery(
         }
         if (!response.ok) {
           throw new DiscoveryApiError(
-            `OpenAI request failed with status ${response.status}: ${responseText.slice(0, 500)}`,
+            `OpenRouter request failed with status ${response.status}: ${responseText.slice(0, 500)}`,
             response.status,
           );
         }
-        // Parse fetcher's envelope as OpenAI output
+        // Parse fetcher's envelope as OpenRouter/OpenAI output
         let envelope: any;
         try {
           envelope = JSON.parse(responseText);
         } catch {
-          throw new DiscoveryResponseError("OpenAI returned invalid JSON outside the response content.");
+          throw new DiscoveryResponseError("OpenRouter returned invalid JSON outside the response content.");
         }
         if (typeof envelope.output_text === "string") {
           interaction = envelope;
@@ -1999,8 +2013,15 @@ export async function processDiscovery(
           interaction = envelope;
         }
       } else {
-        console.log(`[processDiscovery] Creating OpenAI client for model ${model}`);
-        const client = new OpenAI({ apiKey, baseURL: META_BASE_URL } as any);
+        console.log(`[processDiscovery] Creating OpenRouter client for model ${model} at ${baseURL}`);
+        const client = new OpenAI({
+          apiKey,
+          baseURL,
+          defaultHeaders: {
+            "HTTP-Referer": "https://tourism.app",
+            "X-Title": "Tourism Planner",
+          },
+        } as any);
         const ctrl = new AbortController();
         interaction = await withTimeout(createInteraction(client, model, ctrl.signal), timeoutMs, ctrl);
       }
@@ -2016,7 +2037,7 @@ export async function processDiscovery(
 
       if (!lastOutputText || lastOutputText.trim().length === 0) {
         console.log('[processDiscovery] Error: Empty response from API');
-        throw new DiscoveryResponseError("OpenAI returned an empty discovery response.");
+        throw new DiscoveryResponseError("OpenRouter returned an empty discovery response.");
       }
 
       let result: unknown;
@@ -2025,7 +2046,7 @@ export async function processDiscovery(
         console.log('[processDiscovery] Successfully parsed JSON response');
       } catch (parseError) {
         console.log('[processDiscovery] Error: Failed to parse JSON from API response');
-        throw new DiscoveryResponseError("OpenAI returned discovery content that is not valid JSON.");
+        throw new DiscoveryResponseError("OpenRouter returned discovery content that is not valid JSON.");
       }
 
       // Validate with zod (ensures schema compliance) then with manual validator for error messages
@@ -2035,7 +2056,7 @@ export async function processDiscovery(
       } catch (zErr: any) {
         console.log('[processDiscovery] Error: Zod validation failed', zErr?.message);
         throw new DiscoveryResponseError(
-          `OpenAI returned invalid patch shape: ${zErr?.message ?? String(zErr)}`,
+          `OpenRouter returned invalid patch shape: ${zErr?.message ?? String(zErr)}`,
         );
       }
 
@@ -2099,21 +2120,21 @@ export async function processDiscovery(
 
       if (error instanceof DiscoveryApiError || error instanceof DiscoveryResponseError) throw error;
       if (error instanceof DOMException && error.name === "AbortError") {
-        throw new DiscoveryApiError(`OpenAI request timed out after ${timeoutMs}ms.`, 408);
+        throw new DiscoveryApiError(`OpenRouter request timed out after ${timeoutMs}ms.`, 408);
       }
-      const message = error instanceof Error ? error.message : "Unknown OpenAI request failure.";
+      const message = error instanceof Error ? error.message : "Unknown OpenRouter request failure.";
       const status = typeof error?.status === "number" ? error.status : 0;
       if (status === 429 || status >= 400) {
         // if rate limited and has next model, already handled above -> throw only if last model
-        throw new DiscoveryApiError(`OpenAI request failed: ${message}`, status);
+        throw new DiscoveryApiError(`OpenRouter request failed: ${message}`, status);
       }
-      throw new DiscoveryApiError(`Unable to reach OpenAI: ${message}`, 0);
+      throw new DiscoveryApiError(`Unable to reach OpenRouter: ${message}`, 0);
     }
   }
   } // end model loop
 
   console.log('[processDiscovery] All models failed to return a response');
   if (lastRateLimitError) throw lastRateLimitError;
-  throw new DiscoveryApiError("OpenAI did not return a response.", 0);
+  throw new DiscoveryApiError("OpenRouter did not return a response.", 0);
 }
 

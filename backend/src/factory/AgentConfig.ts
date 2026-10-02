@@ -63,12 +63,14 @@ export function createCandidateDesignOptions({
 export function createNarrativeOptions({
     api_key,
     model,
+    api_url,
     timeout_ms,
     fetcher,
 }: NarrativeOptions = {}): NarrativeOptions {
     return {
         ...(api_key !== undefined && { api_key }),
         ...(model !== undefined && { model }),
+        ...(api_url !== undefined && { api_url }),
         ...(timeout_ms !== undefined && { timeout_ms }),
         ...(fetcher !== undefined && { fetcher }),
     };

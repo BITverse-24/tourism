@@ -76,6 +76,52 @@ def call_gemini_api(model_name: str, prompt: str, api_key: str, system_instructi
         raise e
 
 
+def call_openrouter_api(model_name: str, prompt: str, api_key: str, system_instruction: str = "") -> Tuple[str, int, int]:
+    """
+    Invoke OpenRouter API via chat completions endpoint.
+    Returns (response_text, total_tokens, status_code).
+    Raises urllib.error.HTTPError on 429 rate limit errors.
+    """
+    import urllib.request
+    url = "https://openrouter.ai/api/v1/chat/completions"
+    messages = []
+    if system_instruction:
+        messages.append({"role": "system", "content": system_instruction})
+    messages.append({"role": "user", "content": prompt})
+
+    payload = {
+        "model": model_name,
+        "messages": messages,
+        "temperature": 0.2,
+        "response_format": {"type": "json_object"}
+    }
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=data,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://tourism.app",
+            "X-Title": "Tourism Data Generator"
+        },
+        method="POST"
+    )
+    try:
+        with urllib.request.urlopen(req) as resp:
+            body = resp.read().decode("utf-8")
+            res_obj = json.loads(body)
+            text = res_obj.get("choices", [{}])[0].get("message", {}).get("content", "")
+            usage = res_obj.get("usage", {})
+            total_tokens = usage.get("total_tokens", (len(prompt) + len(text)) // 4)
+            return text, total_tokens, 200
+    except urllib.error.HTTPError as e:
+        err_msg = e.read().decode("utf-8") if e.fp else str(e)
+        if e.code == 429:
+            raise urllib.error.HTTPError(url=url, code=429, msg=err_msg, hdrs=e.hdrs, fp=None)
+        raise RuntimeError(f"OpenRouter API error {e.code}: {err_msg}")
+
+
 def run_pipeline(
     config_path: str = "data/pipeline_config.json",
     dry_run: bool = False,
@@ -92,9 +138,13 @@ def run_pipeline(
     with open(config_path, "r", encoding="utf-8") as f:
         config = json.load(f)
 
-    api_key = os.getenv("GEMINI_API_KEY", "").strip()
+    openrouter_key = os.getenv("OPENROUTER_API_KEY", "").strip()
+    gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
+    use_openrouter = bool(openrouter_key)
+    api_key = openrouter_key if use_openrouter else gemini_key
+
     if not api_key and not dry_run:
-        print("[Pipeline] WARNING: GEMINI_API_KEY environment variable not set. Forcing --dry-run mode.")
+        print("[Pipeline] WARNING: Neither OPENROUTER_API_KEY nor GEMINI_API_KEY environment variable set. Forcing --dry-run mode.")
         dry_run = True
 
     # Separate dry-run files from main production files
@@ -238,12 +288,21 @@ def run_pipeline(
 
                     try:
                         print(f"  Batch {batch_idx+1}/{needed_batches}: Querying {active_model} for {attractions_in_batch} POIs...", flush=True)
-                        response_text, tokens_used, status_code = call_gemini_api(
-                            model_name=active_model,
-                            prompt=prompt,
-                            api_key=api_key,
-                            system_instruction=system_instruction
-                        )
+                        if use_openrouter:
+                            api_model = os.getenv("OPENROUTER_MODEL", "openrouter/free")
+                            response_text, tokens_used, status_code = call_openrouter_api(
+                                model_name=api_model,
+                                prompt=prompt,
+                                api_key=api_key,
+                                system_instruction=system_instruction
+                            )
+                        else:
+                            response_text, tokens_used, status_code = call_gemini_api(
+                                model_name=active_model,
+                                prompt=prompt,
+                                api_key=api_key,
+                                system_instruction=system_instruction
+                            )
 
                         rate_limiter.record_request(active_model, tokens_used)
                         model_manager.record_success(active_model)

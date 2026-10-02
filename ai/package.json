@@ -1,6 +1,6 @@
 {
     "scripts": {
-        "build": "tsc --project tsconfig.json",
+        "build": "./node_modules/typescript/bin/tsc --project tsconfig.json",
         "test": "npm run build && node ./dist/test/*.test.js"
     },
     "dependencies": {
